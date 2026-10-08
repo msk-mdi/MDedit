@@ -14,6 +14,7 @@ final class EditorViewController: NSViewController {
     private let textContainer: NSTextContainer
     private(set) var activeLine: ActiveLineController!
     private var input: MarkdownInputHandler!
+    private let codeAccessory = CodeBlockAccessory()
 
     private(set) var theme: Theme = .current(for: NSApp.effectiveAppearance)
 
@@ -61,6 +62,11 @@ final class EditorViewController: NSViewController {
         activeLine = ActiveLineController(storage: textStorage, textView: textView)
         textView.delegate = self
         activeLine.selectionChanged()
+
+        codeAccessory.isHidden = true
+        codeAccessory.onChooseLanguage = { [weak self] name in self?.setCodeLanguage(name) }
+        codeAccessory.onCopy = { [weak self] in self?.copyCodeBlock() }
+        textView.addSubview(codeAccessory)
     }
 
     @available(*, unavailable)
@@ -115,6 +121,7 @@ final class EditorViewController: NSViewController {
             textView.textContainerInset = CGSize(width: inset, height: textView.textContainerInset.height)
         }
         storage.maxImageWidth = column - 2 * textContainer.lineFragmentPadding
+        updateCodeAccessory()
     }
 
     /// `viewDidChangeEffectiveAppearance` is an `NSView` hook, not a controller
@@ -160,6 +167,61 @@ final class EditorViewController: NSViewController {
         textView.selectedTextAttributes = [
             .backgroundColor: theme.accent.withAlphaComponent(0.25),
         ]
+        codeAccessory.applyTheme(theme)
+    }
+
+    // MARK: - Code block accessory
+
+    /// The block the caret is in, if any.
+    private var currentCodeBlock: CodeBlock? {
+        CodeBlock.containing(line: storage.line(at: textView.selectedRange().location), in: storage)
+    }
+
+    /// Pins the accessory to the top-right of the caret's code block, or hides it.
+    func updateCodeAccessory() {
+        guard let block = currentCodeBlock else {
+            codeAccessory.isHidden = true
+            return
+        }
+        // The opening fence's newline is never concealed, so its glyph sits
+        // on the fence's own line fragment.
+        let lineRange = storage.structure.index.range(ofLine: block.openLine)
+        let anchor = max(lineRange.location, NSMaxRange(lineRange) - 1)
+        guard anchor < storage.length else {
+            codeAccessory.isHidden = true
+            return
+        }
+        codeAccessory.show(language: block.info)
+        let glyph = layoutManager.glyphIndexForCharacter(at: anchor)
+        let fragment = layoutManager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+        let size = codeAccessory.fittingSize
+        let origin = textView.textContainerOrigin
+        codeAccessory.frame = NSRect(
+            x: origin.x + textContainer.size.width - textContainer.lineFragmentPadding - size.width - 4,
+            y: origin.y + fragment.minY + max(0, (fragment.height - size.height) / 2),
+            width: size.width,
+            height: size.height
+        )
+        codeAccessory.isHidden = false
+    }
+
+    private func setCodeLanguage(_ name: String) {
+        guard let block = currentCodeBlock else { return }
+        let selection = textView.selectedRange()
+        guard textView.shouldChangeText(in: block.infoRange, replacementString: name) else { return }
+        textView.insertText(name, replacementRange: block.infoRange)
+        // Keep the caret where it was, shifted by however much the fence line changed.
+        let delta = (name as NSString).length - block.infoRange.length
+        let location = selection.location >= NSMaxRange(block.infoRange) ? selection.location + delta : selection.location
+        textView.setSelectedRange(NSRange(location: max(0, location), length: selection.length))
+        updateCodeAccessory()
+    }
+
+    private func copyCodeBlock() {
+        guard let block = currentCodeBlock else { return }
+        let pasteboard = NSPasteboard.general
+        pasteboard.clearContents()
+        pasteboard.setString(block.code(in: storage), forType: .string)
     }
 }
 
@@ -182,9 +244,11 @@ extension EditorViewController: NSTextViewDelegate {
     func textViewDidChangeSelection(_ notification: Notification) {
         activeLine.selectionChanged()
         onSelectionChange?()
+        updateCodeAccessory()
     }
 
     func textDidChange(_ notification: Notification) {
         onTextChange?()
+        updateCodeAccessory()
     }
 }

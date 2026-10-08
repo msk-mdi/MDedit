@@ -53,9 +53,31 @@ struct MarkdownInputHandler {
         let text = storage.string as NSString
         let characters = storage.structure.characters(of: text, line: line)
 
+        // In code, a new line starts at the same indentation (and inside the same quote).
+        if info.kind == .codeLine {
+            var indentEnd = min(info.contentStart, characters.count)
+            while indentEnd < characters.count, characters[indentEnd] == 0x20 || characters[indentEnd] == 0x09 { indentEnd += 1 }
+            let caretOffset = selection.location - lineRange.location
+            let insertion = "\n" + string(characters, from: 0, to: min(indentEnd, caretOffset))
+            guard textView.shouldChangeText(in: selection, replacementString: insertion) else { return true }
+            textView.insertText(insertion, replacementRange: selection)
+            return true
+        }
+
         // Only continue when the caret is at the end of the line's content.
         let contentEnd = lineRange.location + characters.count
         guard selection.location == contentEnd else { return false }
+
+        // Return after ``` on an unclosed fence closes it, leaving the caret inside.
+        if info.kind.isFenceStart, selection.location == lineRange.location + characters.count,
+           let block = CodeBlock.containing(line: line, in: storage), block.closeLine == nil {
+            let fence = fenceRun(characters)
+            let insertion = "\n\n" + fence.prefix + fence.run
+            guard textView.shouldChangeText(in: selection, replacementString: insertion) else { return true }
+            textView.insertText(insertion, replacementRange: selection)
+            textView.setSelectedRange(NSRange(location: selection.location + 1 + (fence.prefix as NSString).length, length: 0))
+            return true
+        }
 
         let prefixLength: Int
         switch info.kind {
@@ -200,6 +222,16 @@ struct MarkdownInputHandler {
         guard textView.shouldChangeText(in: pairRange, replacementString: "") else { return true }
         textView.insertText("", replacementRange: pairRange)
         return true
+    }
+
+    /// A fence line's leading quote markers and indentation, and its run of
+    /// backticks or tildes, for writing the matching closer.
+    private func fenceRun(_ characters: [UInt16]) -> (prefix: String, run: String) {
+        var start = 0
+        while start < characters.count, characters[start] == 0x20 || characters[start] == 0x3E { start += 1 }
+        var end = start
+        while end < characters.count, characters[end] == characters[start] { end += 1 }
+        return (string(characters, from: 0, to: start), string(characters, from: start, to: end))
     }
 
     /// `3. ` after `2. `.
