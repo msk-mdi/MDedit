@@ -22,7 +22,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        showMainWindow()
+        showMainWindow().restore(session: Session.load(), snapshots: RecoveryStore.standard.snapshots())
+    }
+
+    func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
+        guard let mainWindow, mainWindow.hasUnreviewedChanges else { return .terminateNow }
+        mainWindow.reviewUnsavedChanges { proceed in
+            sender.reply(toApplicationShouldTerminate: proceed)
+        }
+        return .terminateLater
+    }
+
+    func applicationWillTerminate(_ notification: Notification) {
+        mainWindow?.prepareForTermination()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -78,7 +90,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     @objc func showHelp(_ sender: Any?) {
-        NSWorkspace.shared.open(URL(string: "https://github.com/marktext/marktext")!)
+        NSWorkspace.shared.open(URL(string: "https://github.com/msk-mdi/MDedit#readme")!)
     }
 
     @objc func saveDocumentAs(_ sender: Any?) {

@@ -18,6 +18,12 @@ final class MainWindowController: NSWindowController {
     private var theme: Theme = .current(for: NSApp.effectiveAppearance)
     private var appearanceObservation: NSKeyValueObservation?
 
+    private let recovery = RecoveryStore.standard
+    private var pendingSnapshot: DispatchWorkItem?
+    /// Set once the user has answered for every unsaved document, so closing
+    /// the window and the quit that follows do not ask twice.
+    private var changesReviewed = false
+
     convenience init() {
         let window = NSWindow(
             contentRect: NSRect(x: 0, y: 0, width: 960, height: 700),
@@ -38,6 +44,7 @@ final class MainWindowController: NSWindowController {
 
     private func configure() {
         guard let window else { return }
+        window.delegate = self
 
         // A window's content view is positioned by the window, not by constraints.
         canvas.autoresizingMask = [.width, .height]
@@ -111,8 +118,10 @@ final class MainWindowController: NSWindowController {
         editor.applyTheme(theme)
         editor.onSelectionChange = { [weak self] in self?.refreshStatus() }
         editor.onTextChange = { [weak self] in
+            self?.changesReviewed = false
             self?.refreshTabs()
             self?.refreshStatus()
+            self?.scheduleRecoverySnapshot()
         }
         editors[ObjectIdentifier(document)] = editor
         select(index: documents.count - 1)
@@ -171,6 +180,7 @@ final class MainWindowController: NSWindowController {
                 }
             }
             documents.remove(at: index)
+            recovery.remove(id: document.id)
             if documents.isEmpty {
                 window?.close()
             } else {
@@ -236,14 +246,18 @@ final class MainWindowController: NSWindowController {
     func open(url: URL) {
         if focusDocument(at: url) { return }
         do {
-            let document = try Document.open(contentsOf: url, theme: theme)
-            // An untouched empty tab is replaced rather than left behind.
-            if documents.count == 1, let only = documents.first, only.url == nil, !only.isDirty, only.text.isEmpty {
-                closeDocument(at: 0)
-            }
-            addDocument(document)
+            addReplacingPlaceholder(try Document.open(contentsOf: url, theme: theme))
         } catch {
             show(error: error)
+        }
+    }
+
+    /// Adds a document; an untouched empty tab is replaced rather than left behind.
+    private func addReplacingPlaceholder(_ document: Document) {
+        addDocument(document)
+        if let index = documents.firstIndex(where: { $0 !== document && $0.url == nil && !$0.isDirty && $0.text.isEmpty }) {
+            closeDocument(at: index)
+            if let added = documents.firstIndex(where: { $0 === document }) { select(index: added) }
         }
     }
 
@@ -255,6 +269,7 @@ final class MainWindowController: NSWindowController {
         do {
             try document.save()
             refreshTabs()
+            writeRecoverySnapshots()
             completion?(true)
         } catch {
             show(error: error)
@@ -265,7 +280,10 @@ final class MainWindowController: NSWindowController {
     func saveAs(document: Document, completion: ((Bool) -> Void)? = nil) {
         guard let window else { return completion?(false) ?? () }
         let panel = NSSavePanel()
-        panel.allowedContentTypes = [.init(filenameExtension: "md") ?? .plainText]
+        // The first type supplies the default extension.
+        panel.allowedContentTypes = ["md", "markdown", "mdown", "mkd", "txt"]
+            .compactMap { .init(filenameExtension: $0) }
+        panel.allowsOtherFileTypes = true
         panel.nameFieldStringValue = document.url?.lastPathComponent ?? "Untitled.md"
         panel.canCreateDirectories = true
         panel.beginSheetModal(for: window) { [weak self] response in
@@ -275,6 +293,7 @@ final class MainWindowController: NSWindowController {
                 self?.window?.title = document.displayName
                 self?.window?.representedURL = url
                 self?.refreshTabs()
+                self?.writeRecoverySnapshots()
                 completion?(true)
             } catch {
                 self?.show(error: error)
@@ -287,6 +306,22 @@ final class MainWindowController: NSWindowController {
     /// ask when there is.
     private func handleExternalChange(of document: Document) {
         guard let window, documents.contains(where: { $0 === document }) else { return }
+        if let url = document.url, !FileManager.default.fileExists(atPath: url.path) {
+            // A save-by-replace can leave the path empty for a moment; look again.
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self, weak document] in
+                guard let self, let document else { return }
+                if FileManager.default.fileExists(atPath: url.path) {
+                    document.beginWatching()
+                    handleExternalChange(of: document)
+                } else {
+                    // Deleted or moved: the editor now holds the only copy.
+                    document.markMissingOnDisk()
+                    refreshTabs()
+                    scheduleRecoverySnapshot()
+                }
+            }
+            return
+        }
         guard document.isDirty else {
             try? document.revert()
             refreshTabs()
@@ -305,6 +340,128 @@ final class MainWindowController: NSWindowController {
             self?.refreshTabs()
             self?.refreshStatus()
         }
+    }
+
+    // MARK: - Unsaved changes
+
+    /// Whether quitting needs to ask about unsaved documents first.
+    var hasUnreviewedChanges: Bool {
+        !changesReviewed && documents.contains(where: \.isDirty)
+    }
+
+    /// Asks about each unsaved document in turn. Completes with false as soon
+    /// as the user cancels, true once every document has an answer.
+    func reviewUnsavedChanges(completion: @escaping (Bool) -> Void) {
+        let dirty = documents.filter(\.isDirty)
+        var remaining = dirty.makeIterator()
+        func next() {
+            guard let document = remaining.next() else {
+                changesReviewed = true
+                return completion(true)
+            }
+            guard documents.contains(where: { $0 === document }), document.isDirty else { return next() }
+            if let index = documents.firstIndex(where: { $0 === document }) { select(index: index) }
+            confirmDiscard(document) { proceed in
+                proceed ? next() : completion(false)
+            }
+        }
+        next()
+    }
+
+    // MARK: - Recovery and session
+
+    private func scheduleRecoverySnapshot() {
+        pendingSnapshot?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.writeRecoverySnapshots() }
+        pendingSnapshot = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2, execute: work)
+    }
+
+    /// Writes a snapshot for every unsaved document and drops the rest, then
+    /// records the open tabs so a crash can be recovered from too.
+    func writeRecoverySnapshots() {
+        pendingSnapshot?.cancel()
+        pendingSnapshot = nil
+        for document in documents {
+            if document.isDirty {
+                try? recovery.write(.init(id: document.id, url: document.url, text: document.text))
+            } else {
+                recovery.remove(id: document.id)
+            }
+        }
+        currentSession().save()
+    }
+
+    /// Called on a clean quit: the user has answered for every unsaved
+    /// document, so the snapshots are no longer needed.
+    func prepareForTermination() {
+        pendingSnapshot?.cancel()
+        currentSession().save()
+        recovery.removeAll()
+    }
+
+    private func currentSession() -> Session {
+        var tabs: [Session.Tab] = []
+        var selectedIndex = 0
+        for (index, document) in documents.enumerated() {
+            guard let url = document.url else { continue }
+            if index == selection { selectedIndex = tabs.count }
+            let location = editors[ObjectIdentifier(document)]?.textView.selectedRange().location ?? 0
+            tabs.append(.init(url: url, selectedLocation: location))
+        }
+        return Session(tabs: tabs, selectedIndex: selectedIndex)
+    }
+
+    /// Reopens the previous session's files, then lays any recovered unsaved
+    /// text over them (or into new tabs for untitled documents).
+    func restore(session: Session?, snapshots: [RecoveryStore.Snapshot]) {
+        var selected: Document?
+        for (index, tab) in (session?.tabs ?? []).enumerated() {
+            let document = documents.first(where: { $0.url == tab.url })
+                ?? (try? Document.open(contentsOf: tab.url, theme: theme)).map { opened in
+                    addReplacingPlaceholder(opened)
+                    return opened
+                }
+            guard let document else { continue }
+            if index == session?.selectedIndex { selected = document }
+            restoreCaret(of: document, to: tab.selectedLocation)
+        }
+
+        for snapshot in snapshots {
+            if let url = snapshot.url {
+                if let open = documents.first(where: { $0.url == url }) {
+                    open.restoreUnsavedText(snapshot.text)
+                } else if let opened = try? Document.open(contentsOf: url, theme: theme) {
+                    opened.restoreUnsavedText(snapshot.text)
+                    addReplacingPlaceholder(opened)
+                } else {
+                    let missing = Document(url: url, theme: theme)
+                    missing.restoreUnsavedText(snapshot.text)
+                    missing.markMissingOnDisk()
+                    addReplacingPlaceholder(missing)
+                }
+            } else {
+                let untitled = Document(id: snapshot.id, theme: theme)
+                untitled.restoreUnsavedText(snapshot.text)
+                addReplacingPlaceholder(untitled)
+            }
+        }
+
+        if snapshots.isEmpty, let selected, let index = documents.firstIndex(where: { $0 === selected }) {
+            select(index: index)
+        }
+        refreshTabs()
+        // Snapshots were keyed by the old documents' ids; rewrite them under the new ones.
+        recovery.removeAll()
+        writeRecoverySnapshots()
+    }
+
+    private func restoreCaret(of document: Document, to location: Int) {
+        guard let editor = editors[ObjectIdentifier(document)] else { return }
+        let range = NSRange(location: min(location, document.storage.length), length: 0)
+        editor.textView.setSelectedRange(range)
+        // Wait for layout so the scroll lands on the caret's real position.
+        DispatchQueue.main.async { editor.textView.scrollRangeToVisible(range) }
     }
 
     // MARK: - Menu commands
@@ -380,6 +537,16 @@ final class MainWindowController: NSWindowController {
     private func show(error: Error) {
         guard let window else { return }
         NSAlert(error: error).beginSheetModal(for: window)
+    }
+}
+
+extension MainWindowController: NSWindowDelegate {
+    func windowShouldClose(_ sender: NSWindow) -> Bool {
+        guard hasUnreviewedChanges else { return true }
+        reviewUnsavedChanges { [weak self] proceed in
+            if proceed { self?.window?.close() }
+        }
+        return false
     }
 }
 
