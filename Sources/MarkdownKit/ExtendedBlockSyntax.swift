@@ -184,3 +184,42 @@ func footnoteLabel(_ characters: [UInt16], at index: Int, limit: Int) -> (label:
     guard cursor < limit, cursor > index + 2 else { return nil }
     return (string(characters, from: index + 2, to: cursor), cursor + 1)
 }
+
+/// Where a definition's text starts, when a line opens with `:` and a space
+/// or tab (after up to three spaces): `: the definition`.
+public func definitionStart(_ line: [UInt16]) -> Int? {
+    var index = 0
+    while index < 3, index < line.count, line[index] == UInt16(ascii: " ") { index += 1 }
+    guard index + 1 < line.count, line[index] == UInt16(ascii: ":"), isSpaceOrTab(line[index + 1]) else { return nil }
+    return index + 2
+}
+
+/// A paragraph read as a definition list, as in PHP Markdown Extra and
+/// Pandoc: each term on a line of its own, followed by its `: ` definitions.
+public struct DefinitionList: Equatable, Sendable {
+    public struct Item: Equatable, Sendable {
+        public var term: String
+        public var definitions: [String]
+    }
+
+    public var items: [Item]
+
+    /// The list a paragraph's lines make, or nil when they do not make one:
+    /// it must open with a term and every term must have a definition.
+    public init?(lines: [String]) {
+        var items: [Item] = []
+        for line in lines {
+            let characters = Array(line.utf16)
+            if let start = definitionStart(characters) {
+                guard !items.isEmpty else { return nil }
+                let text = String(utf16CodeUnits: Array(characters[start...]), count: characters.count - start)
+                items[items.count - 1].definitions.append(text.trimmingCharacters(in: .whitespaces))
+            } else {
+                if let last = items.last, last.definitions.isEmpty { return nil }
+                items.append(Item(term: line.trimmingCharacters(in: .whitespaces), definitions: []))
+            }
+        }
+        guard let last = items.last, !last.definitions.isEmpty else { return nil }
+        self.items = items
+    }
+}

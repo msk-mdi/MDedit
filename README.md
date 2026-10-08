@@ -2,7 +2,7 @@
 
 A native macOS markdown editor with real-time in-place WYSIWYG, in the spirit of
 [MarkText](https://github.com/marktext/marktext) — but written in Swift, with no
-Electron, no web view, and no third-party dependencies.
+Electron, no web view for editing, and no third-party Swift dependencies.
 
 Type `# ` and the line *becomes* a heading where you typed it. `**bold**` renders
 bold with the asterisks hidden, until you move the caret onto that line and the raw
@@ -21,10 +21,14 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   but the one you are editing.
 - **Extended syntax.** Reference-style links and images, footnotes, YAML front
   matter, raw HTML blocks, `==highlights==`, bare `https://` and `www.` links,
-  hard line breaks, `^super^` and `~sub~` scripts, and `:emoji:` shortcodes — in
-  the editor and in export.
-- **Math and diagrams.** `$…$` and `$$…$$` TeX is set apart in the editor and
-  typeset by KaTeX in HTML export; ` ```mermaid ` blocks export as diagrams.
+  hard line breaks, `^super^` and `~sub~` scripts, `:emoji:` shortcodes,
+  definition lists (`Term` then `: definition`) and `<kbd>` keys — in the editor
+  and in export.
+- **Math and diagrams.** `$…$` and `$$…$$` TeX is typeset in place by KaTeX, and
+  ` ```mermaid ` blocks — flowcharts, sequence, class, state, Gantt, pie and the
+  rest — draw as diagrams, in the editor and in export. Put the caret in a block
+  to edit its source with a live preview below; a syntax error leaves the source
+  showing, with the error as its tooltip.
 - **Code blocks.** A language menu and Copy button sit on the block you are in;
   Return closes a fresh fence and keeps indentation inside code.
 - **Rich paste.** Formatted text from browsers and documents pastes as markdown.
@@ -78,7 +82,8 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   [--theme Nord] [--toc] [--number-headings] [--embed-images]` converts without
   opening a window, reading standard input when no file is given.
 - **No dependencies.** The parser, the highlighter and the renderer are all in this
-  repository.
+  repository. Only math and diagrams borrow from the web: KaTeX and Mermaid run in
+  one hidden web view, and the editor draws the images it takes.
 
 ## Requirements
 
@@ -91,7 +96,7 @@ git clone https://github.com/msk-mdi/MDedit.git
 cd MDedit
 swift build            # library + executable
 swift test             # the test suite
-Scripts/fetch-vendor.sh  # optional: KaTeX and Mermaid for offline HTML export
+Scripts/fetch-vendor.sh  # optional: KaTeX and Mermaid, so math and diagrams work offline
 Scripts/make-app.sh    # assembles build/MdEdit.app
 open build/MdEdit.app
 ```

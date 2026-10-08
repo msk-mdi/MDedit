@@ -41,7 +41,9 @@ final class MarkdownTextStorage: NSTextStorage {
 
     /// Images are scaled down to fit the text column.
     var maxImageWidth: CGFloat = Metrics.defaultLineWidth {
-        didSet { if abs(maxImageWidth - oldValue) > 1, !requestedImages.isEmpty { restyleAll() } }
+        didSet {
+            if abs(maxImageWidth - oldValue) > 1, !requestedImages.isEmpty || !requestedTypesetting.isEmpty { restyleAll() }
+        }
     }
 
     /// Which extended syntax to recognise; changing it reparses everything.
@@ -49,6 +51,7 @@ final class MarkdownTextStorage: NSTextStorage {
         didSet {
             guard extensions != oldValue else { return }
             structure = BlockStructure(text: text, extensions: extensions)
+            blockLookup = nil
             references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
             headingNumberCache = nil
             cachedHeadings = nil
@@ -159,7 +162,7 @@ final class MarkdownTextStorage: NSTextStorage {
 
     /// Restyles lines and has the layout follow.
     private func restyle(lines: ClosedRange<Int>) {
-        guard let lines = clampedLineRange(lines) else { return }
+        guard let lines = clampedLineRange(lines).map(expandedToTypesetBlocks) else { return }
         beginEditing()
         applyStyles(lineRange: lines)
         edited(.editedAttributes, range: characterRange(forLines: lines), changeInLength: 0)
@@ -212,6 +215,16 @@ final class MarkdownTextStorage: NSTextStorage {
     /// Images this document has asked the cache for, so it knows which
     /// arrivals are its own.
     private var requestedImages: Set<URL> = []
+    /// Formulas and diagrams this document has asked to be typeset.
+    private(set) var requestedTypesetting: Set<Typesetter.Request> = []
+    /// The last preview each open block showed, by its first line, so the
+    /// preview holds still while the next one is typeset.
+    private var lastPreviews: [Int: InlineImage] = [:]
+    /// The typeset block found for a run of lines, so styling a block line by
+    /// line looks for it once.
+    private var blockLookup: (lines: ClosedRange<Int>, block: TypesetBlock?)?
+    /// Inline formulas found while styling a line, drawn once its markers are set.
+    private var pendingInlineMath: [(range: NSRange, rendering: Typesetter.Rendering)] = []
 
     private var isProcessingEdit = false
     private var hasDeferredReveal = false
@@ -230,6 +243,7 @@ final class MarkdownTextStorage: NSTextStorage {
         super.init()
         // Posted on the main thread, where all styling happens.
         NotificationCenter.default.addObserver(self, selector: #selector(imageDidLoad(_:)), name: ImageCache.didLoad, object: nil)
+        NotificationCenter.default.addObserver(self, selector: #selector(typesettingDidRender(_:)), name: Typesetter.didRender, object: nil)
         if !text.isEmpty {
             backing.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
             structure = BlockStructure(text: self.text)
@@ -245,6 +259,15 @@ final class MarkdownTextStorage: NSTextStorage {
         guard let url = notification.object as? URL, requestedImages.contains(url) else { return }
         // Images tend to arrive in a burst; one restyle covers them all.
         guard !isImageRestyleScheduled else { return }
+        isImageRestyleScheduled = true
+        perform(#selector(restyleForImages), with: nil, afterDelay: 0)
+    }
+
+    @objc private func typesettingDidRender(_ notification: Notification) {
+        guard let request = notification.userInfo?["request"] as? Typesetter.Request,
+              requestedTypesetting.contains(request),
+              !isImageRestyleScheduled
+        else { return }
         isImageRestyleScheduled = true
         perform(#selector(restyleForImages), with: nil, afterDelay: 0)
     }
@@ -360,6 +383,7 @@ final class MarkdownTextStorage: NSTextStorage {
                 editedRange: editedRange,
                 changeInLength: changeInLength
             )
+            blockLookup = nil
             if structure.touchedDefinitions {
                 references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
             }
@@ -377,6 +401,8 @@ final class MarkdownTextStorage: NSTextStorage {
                 lineRange = min(lineRange.lowerBound, first)...max(lineRange.upperBound, last)
             }
             lineRange = clampedLineRange(lineRange) ?? lineRange
+            // A formula or diagram is one image: editing a line of it redraws it all.
+            lineRange = expandedToTypesetBlocks(lineRange)
             applyStyles(lineRange: lineRange)
             pendingInvalidation = characterRange(forLines: lineRange)
         }
@@ -445,7 +471,8 @@ final class MarkdownTextStorage: NSTextStorage {
 
     /// Reveals the newly active block and re-hides the one left behind.
     private func restyleRevealChange(from old: ClosedRange<Int>?, to new: ClosedRange<Int>?) {
-        let touched = [old, new].compactMap { $0 }.compactMap(clampedLineRange)
+        // A block that shows as an image opens and closes as a whole.
+        let touched = [old, new].compactMap { $0 }.compactMap(clampedLineRange).map(expandedToTypesetBlocks)
         guard !touched.isEmpty else { return }
 
         beginEditing()
@@ -488,7 +515,34 @@ final class MarkdownTextStorage: NSTextStorage {
             return
         }
         let characters = structure.characters(of: text, line: line)
-        let revealed = sourceMode || (revealedLines?.contains(line) ?? false)
+        var revealed = sourceMode || (revealedLines?.contains(line) ?? false)
+
+        // Display math and diagrams show as their image, unless being edited;
+        // then the source shows with the image as a preview below it.
+        var preview: InlineImage?
+        var typesetError: String?
+        if !sourceMode, let block = typesetBlock(containing: line) {
+            let request = typesetRequest(for: block, text: text)
+            let (rendering, error) = MainActor.assumeIsolated {
+                (Typesetter.shared.rendering(for: request), Typesetter.shared.error(for: request))
+            }
+            typesetError = error
+            if let revealedLines, revealedLines.overlaps(block.lines) {
+                revealed = true
+                if line == block.lines.upperBound {
+                    if let rendering {
+                        preview = fittedImage(rendering, centered: true, below: true)
+                        lastPreviews[block.lines.lowerBound] = preview
+                    } else if typesetError == nil {
+                        preview = lastPreviews[block.lines.lowerBound]
+                    }
+                }
+            } else if let rendering {
+                styleTypesetBlock(line: line, block: block, info: info, range: range, image: fittedImage(rendering, centered: true))
+                return
+            }
+        }
+        pendingInlineMath.removeAll()
 
         // A paragraph underlined by `===` is really a heading.
         var headingLevel: Int?
@@ -504,6 +558,7 @@ final class MarkdownTextStorage: NSTextStorage {
         let isTableHeader = info.kind == .paragraph
             && isTableDelimiter(structure.info(forLine: line + 1)?.kind ?? .blank)
         let isTableLine = info.kind == .tableRow || isTableDelimiter(info.kind) || isTableHeader
+        let definitionRole = headingLevel == nil && !isTableHeader ? definitionRole(ofLine: line, info: info, text: text) : nil
         let baseFont: NSFont = if isTableHeader {
             NSFontManager.shared.convert(theme.mono, toHaveTrait: .boldFontMask)
         } else if isTableLine {
@@ -514,6 +569,8 @@ final class MarkdownTextStorage: NSTextStorage {
             theme.headingFont(level: headingLevel)
         } else if isCode {
             theme.mono
+        } else if definitionRole == .term {
+            NSFontManager.shared.convert(theme.body, toHaveTrait: .boldFontMask)
         } else {
             theme.body
         }
@@ -530,7 +587,8 @@ final class MarkdownTextStorage: NSTextStorage {
             .font: baseFont,
             .foregroundColor: headingLevel != nil ? theme.heading : theme.text,
             .paragraphStyle: styles.style(
-                listDepth: info.listDepth,
+                // A definition sits one step in from its term.
+                listDepth: info.listDepth + (definitionRole == .definition ? 1 : 0),
                 quoteDepth: info.quoteDepth,
                 isCode: isCode,
                 isHeading: headingLevel != nil,
@@ -543,6 +601,9 @@ final class MarkdownTextStorage: NSTextStorage {
         if isCode {
             attributes[.foregroundColor] = theme.codeText
             attributes[.mdCodeBlock] = true
+        }
+        if let typesetError {
+            attributes[.toolTip] = typesetError
         }
         if info.quoteDepth > 0 {
             attributes[.foregroundColor] = headingLevel != nil ? theme.heading : theme.quoteText
@@ -596,6 +657,13 @@ final class MarkdownTextStorage: NSTextStorage {
             attributes[.paragraphStyle] = spaced
             attributes[.mdImage] = inlineImage
         }
+        // The preview hangs below the block's last line, in space after it.
+        if let preview, let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle {
+            let spaced = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
+            spaced.paragraphSpacing = preview.size.height + Metrics.imageSpacing * 3
+            attributes[.paragraphStyle] = spaced
+            attributes[.mdImage] = preview
+        }
 
         backing.setAttributes(attributes, range: range)
 
@@ -626,6 +694,16 @@ final class MarkdownTextStorage: NSTextStorage {
 
         for marker in info.markers {
             applyMarker(marker, lineStart: range.location, revealed: revealed, baseFont: baseFont)
+        }
+        styleKeys(in: nodes, characters: characters, lineStart: range.location, revealed: revealed, baseFont: baseFont)
+        if definitionRole == .definition, let start = definitionStart(Array(characters[info.contentStart...])) {
+            // The `: ` gives way to the indent.
+            let marker = Marker(range: NSRange(location: info.contentStart, length: start), kind: .conceal)
+            applyMarker(marker, lineStart: range.location, revealed: revealed, baseFont: baseFont)
+        }
+
+        if !pendingInlineMath.isEmpty, !isTableLine {
+            applyInlineMath(lineRange: range)
         }
 
         // Pipes are scaffolding: drawn faintly so the cells read first.
@@ -716,6 +794,265 @@ final class MarkdownTextStorage: NSTextStorage {
         return URL(fileURLWithPath: path, relativeTo: baseURL.deletingLastPathComponent()).standardizedFileURL
     }
 
+    /// `<kbd>⌘</kbd>` draws as a key: the tags hide and the label sits on a chip.
+    private func styleKeys(in nodes: [InlineNode], characters: [UInt16], lineStart: Int, revealed: Bool, baseFont: NSFont) {
+        func tag(_ node: InlineNode) -> String? {
+            guard case let .rawHTML(range) = node else { return nil }
+            return String(utf16CodeUnits: Array(characters[range.location..<NSMaxRange(range)]), count: range.length).lowercased()
+        }
+        var open: NSRange?
+        for node in nodes {
+            switch tag(node) {
+            case "<kbd>"?:
+                open = node.range
+            case "</kbd>"?:
+                guard let opening = open else { continue }
+                open = nil
+                let label = NSRange(location: lineStart + NSMaxRange(opening), length: node.range.location - NSMaxRange(opening))
+                guard label.length > 0 else { continue }
+                backing.addAttributes([
+                    .font: NSFontManager.shared.convert(baseFont, toSize: baseFont.pointSize * 0.85),
+                    .mdInlineCode: true,
+                ], range: label)
+                for marker in [opening, node.range] {
+                    applyMarker(Marker(range: marker, kind: .conceal), lineStart: lineStart, revealed: revealed, baseFont: baseFont)
+                }
+            default:
+                continue
+            }
+        }
+    }
+
+    // MARK: - Definition lists
+
+    enum DefinitionRole {
+        case term, definition
+    }
+
+    /// Whether a paragraph line is a term or a definition in a definition list.
+    private func definitionRole(ofLine line: Int, info: LineInfo, text: NSString) -> DefinitionRole? {
+        guard extensions.contains(.definitionLists), info.kind == .paragraph else { return nil }
+        func continues(_ other: Int) -> Bool {
+            guard let next = structure.info(forLine: other) else { return false }
+            return next.kind == .paragraph && next.quoteDepth == info.quoteDepth && next.listDepth == info.listDepth
+        }
+        // Only a paragraph with a `: ` line in it can be one; most have none.
+        var first = line, last = line
+        while first > 0, continues(first - 1) { first -= 1 }
+        while continues(last + 1) { last += 1 }
+        guard first < last else { return nil }
+        var lines: [String] = []
+        var isDefinition = false
+        for paragraphLine in first...last {
+            guard let lineInfo = structure.info(forLine: paragraphLine) else { return nil }
+            let characters = structure.characters(of: text, line: paragraphLine)
+            let start = min(lineInfo.contentStart, characters.count)
+            let body = Array(characters[start...])
+            if paragraphLine == line { isDefinition = definitionStart(body) != nil }
+            lines.append(String(utf16CodeUnits: body, count: body.count))
+        }
+        guard DefinitionList(lines: lines) != nil else { return nil }
+        return isDefinition ? .definition : .term
+    }
+
+    // MARK: - Typeset math and diagrams
+
+    /// A `$$` display math block or a Mermaid fence: lines that show as one image.
+    struct TypesetBlock: Equatable {
+        var lines: ClosedRange<Int>
+        var kind: Typesetter.Kind
+    }
+
+    /// The closed display math block or Mermaid fence holding a line.
+    func typesetBlock(containing line: Int) -> TypesetBlock? {
+        if let blockLookup, blockLookup.lines.contains(line) { return blockLookup.block }
+        guard let info = structure.info(forLine: line) else { return nil }
+        let found: (lines: ClosedRange<Int>, block: TypesetBlock?)?
+        switch info.kind {
+        case .mathLine where !info.state.inMathBlock:
+            // `$$ … $$` on a line of its own.
+            found = (line...line, TypesetBlock(lines: line...line, kind: .displayMath))
+        case .mathDelimiter, .mathLine:
+            found = mathBlock(around: line)
+        case .fenceStart, .codeLine, .fenceEnd:
+            found = fencedBlock(around: line)
+        default:
+            found = nil
+        }
+        guard let found else { return nil }
+        blockLookup = found
+        return found.block
+    }
+
+    private func mathBlock(around line: Int) -> (lines: ClosedRange<Int>, block: TypesetBlock?)? {
+        func isOpening(_ info: LineInfo) -> Bool { info.kind == .mathDelimiter && info.state.inMathBlock }
+        func isInside(_ info: LineInfo) -> Bool { info.kind == .mathLine && info.state.inMathBlock }
+        var start = line
+        if let info = structure.info(forLine: line), info.kind == .mathDelimiter, !info.state.inMathBlock {
+            start -= 1
+        }
+        while start >= 0, let info = structure.info(forLine: start), isInside(info) { start -= 1 }
+        guard start >= 0, let opening = structure.info(forLine: start), isOpening(opening) else { return nil }
+        var end = start + 1
+        while let info = structure.info(forLine: end), isInside(info) { end += 1 }
+        guard let closing = structure.info(forLine: end), closing.kind == .mathDelimiter, !closing.state.inMathBlock else {
+            // Unclosed: TeX to the end of the document, shown as written.
+            return (start...max(start, end - 1), nil)
+        }
+        return (start...end, TypesetBlock(lines: start...end, kind: .displayMath))
+    }
+
+    private func fencedBlock(around line: Int) -> (lines: ClosedRange<Int>, block: TypesetBlock?)? {
+        var start = line
+        if structure.info(forLine: line)?.kind == .fenceEnd { start -= 1 }
+        while start >= 0, structure.info(forLine: start)?.kind == .codeLine { start -= 1 }
+        guard start >= 0, case let .fenceStart(language)? = structure.info(forLine: start)?.kind else { return nil }
+        var end = start + 1
+        while structure.info(forLine: end)?.kind == .codeLine { end += 1 }
+        let isClosed = structure.info(forLine: end)?.kind == .fenceEnd
+        let lines = start...(isClosed ? end : max(start, end - 1))
+        guard isClosed, language.lowercased() == "mermaid" else { return (lines, nil) }
+        return (lines, TypesetBlock(lines: lines, kind: .diagram))
+    }
+
+    /// Widens a line range to whole typeset blocks at either end.
+    private func expandedToTypesetBlocks(_ range: ClosedRange<Int>) -> ClosedRange<Int> {
+        guard !sourceMode else { return range }
+        let lower = typesetBlock(containing: range.lowerBound)?.lines.lowerBound ?? range.lowerBound
+        let upper = typesetBlock(containing: range.upperBound)?.lines.upperBound ?? range.upperBound
+        return min(lower, range.lowerBound)...max(upper, range.upperBound)
+    }
+
+    /// What to typeset for a block: the TeX between the `$$`s, or the diagram
+    /// between the fences.
+    private func typesetRequest(for block: TypesetBlock, text: NSString) -> Typesetter.Request {
+        var lines: [String] = []
+        for line in block.lines {
+            guard let info = structure.info(forLine: line) else { continue }
+            let characters = structure.characters(of: text, line: line)
+            switch info.kind {
+            case .mathLine where !info.state.inMathBlock:
+                // Between the `$$` markers.
+                let fences = info.markers.filter { $0.kind == .fence }
+                guard fences.count == 2 else { continue }
+                let start = NSMaxRange(fences[0].range), end = fences[1].range.location
+                lines.append(String(utf16CodeUnits: Array(characters[start..<max(start, end)]), count: max(0, end - start)))
+            case .mathLine, .codeLine:
+                let start = min(info.contentStart, characters.count)
+                lines.append(String(utf16CodeUnits: Array(characters[start...]), count: characters.count - start))
+            default:
+                continue
+            }
+        }
+        let request = Typesetter.Request(
+            kind: block.kind,
+            source: lines.joined(separator: "\n"),
+            fontSize: theme.bodyFontSize,
+            color: theme.text.cssString,
+            dark: theme.isDark,
+            // Laid out at the standard column and scaled to fit, so resizing
+            // the window does not redraw every diagram.
+            width: block.kind == .diagram ? Metrics.defaultLineWidth : 0
+        )
+        requestedTypesetting.insert(request)
+        return request
+    }
+
+    /// A typeset image, scaled down to fit the column.
+    private func fittedImage(_ rendering: Typesetter.Rendering, centered: Bool, below: Bool = false) -> InlineImage {
+        var size = rendering.size
+        let maxWidth = max(80, maxImageWidth)
+        if size.width > maxWidth {
+            size = CGSize(width: maxWidth, height: size.height * maxWidth / size.width)
+        }
+        if size.height > Metrics.maxDiagramHeight {
+            size = CGSize(width: size.width * Metrics.maxDiagramHeight / size.height, height: Metrics.maxDiagramHeight)
+        }
+        return InlineImage(image: rendering.image, size: size, centered: centered, below: below)
+    }
+
+    /// A block shown as its image: the first line makes room and draws it,
+    /// and the rest fold away to nothing.
+    private func styleTypesetBlock(line: Int, block: TypesetBlock, info: LineInfo, range: NSRange, image: InlineImage) {
+        guard line == block.lines.lowerBound else {
+            backing.setAttributes([
+                .font: theme.body,
+                .foregroundColor: theme.text,
+                .paragraphStyle: Self.hiddenStyle,
+                .mdConcealed: true,
+            ], range: range)
+            return
+        }
+        let endsBlock = structure.info(forLine: block.lines.upperBound + 1)?.kind == .blank
+        let base = styles.style(
+            listDepth: info.listDepth,
+            quoteDepth: info.quoteDepth,
+            isCode: false,
+            isHeading: false,
+            hangingIndent: 0,
+            endsBlock: endsBlock,
+            theme: theme
+        )
+        let style = base.mutableCopy() as! NSMutableParagraphStyle
+        let height = image.size.height + Metrics.imageSpacing * 2
+        style.lineHeightMultiple = 0
+        style.minimumLineHeight = height
+        style.maximumLineHeight = height
+        var attributes: [NSAttributedString.Key: Any] = [
+            .font: theme.body,
+            .foregroundColor: theme.text,
+            .paragraphStyle: style,
+            .mdConcealed: true,
+            .mdImage: image,
+        ]
+        if info.quoteDepth > 0 { attributes[.mdQuoteDepth] = info.quoteDepth }
+        backing.setAttributes(attributes, range: range)
+        // A line with no glyph at all gets no line fragment of its own, so
+        // one stays, invisible, to hold the room.
+        if range.length > 0 {
+            let anchor = NSRange(location: range.location, length: 1)
+            backing.removeAttribute(.mdConcealed, range: anchor)
+            backing.addAttribute(.foregroundColor, value: NSColor.clear, range: anchor)
+        }
+    }
+
+    /// Each inline formula keeps one glyph, its opening `$`, invisible and
+    /// kerned to the formula's width; the layout manager draws the image
+    /// there. The rest of its source is concealed.
+    private func applyInlineMath(lineRange: NSRange) {
+        var ascent: CGFloat = 0, descent: CGFloat = 0
+        for (range, rendering) in pendingInlineMath {
+            guard range.length > 1, NSMaxRange(range) <= backing.length else { continue }
+            let anchor = NSRange(location: range.location, length: 1)
+            let font = backing.attribute(.font, at: anchor.location, effectiveRange: nil) as? NSFont ?? theme.body
+            let advance = ("$" as NSString).size(withAttributes: [.font: font]).width
+            backing.addAttribute(.mdConcealed, value: true, range: NSRange(location: range.location + 1, length: range.length - 1))
+            backing.removeAttribute(.mdConcealed, range: anchor)
+            backing.addAttributes([
+                .foregroundColor: NSColor.clear,
+                .kern: rendering.size.width - advance,
+                .mdMath: InlineImage(image: rendering.image, size: rendering.size, descent: rendering.descent),
+            ], range: anchor)
+            ascent = max(ascent, rendering.size.height - rendering.descent)
+            descent = max(descent, rendering.descent)
+        }
+        pendingInlineMath.removeAll()
+
+        // A tall formula — a fraction, a sum with limits — makes its line taller.
+        guard let font = backing.attribute(.font, at: lineRange.location, effectiveRange: nil) as? NSFont,
+              let paragraphStyle = backing.attribute(.paragraphStyle, at: lineRange.location, effectiveRange: nil) as? NSParagraphStyle
+        else { return }
+        let natural = Self.lineHeightManager.defaultLineHeight(for: font) * max(1, paragraphStyle.lineHeightMultiple)
+        let extraAscent = max(0, ascent - font.ascender)
+        let extraDescent = max(0, descent + font.descender)
+        guard extraAscent + extraDescent > 0 else { return }
+        let taller = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
+        taller.minimumLineHeight = max(paragraphStyle.minimumLineHeight, natural + extraAscent + extraDescent)
+        // The line grows from the top; what hangs below the baseline needs room after it.
+        taller.paragraphSpacing += extraDescent
+        backing.addAttribute(.paragraphStyle, value: taller, range: lineRange)
+    }
+
     private func isTableDelimiter(_ kind: BlockKind) -> Bool {
         if case .tableDelimiter = kind { return true }
         return false
@@ -763,12 +1100,30 @@ final class MarkdownTextStorage: NSTextStorage {
             case .highlight:
                 backing.addAttribute(.backgroundColor, value: theme.highlight, range: absolute)
 
-            case let .math(_, _, content, _):
-                // TeX stays as written, set apart in the code face.
+            case let .math(_, _, content, display):
+                // TeX stays as written, set apart in the code face, while
+                // it is being edited or until it has been typeset.
+                let contentRange = NSRange(location: lineStart + content.location, length: content.length)
+                if !revealed {
+                    let color = backing.attribute(.foregroundColor, at: absolute.location, effectiveRange: nil) as? NSColor ?? theme.text
+                    let request = Typesetter.Request(
+                        kind: display ? .displayMath : .inlineMath,
+                        source: text.substring(with: contentRange),
+                        fontSize: baseFont.pointSize,
+                        color: color.cssString,
+                        dark: theme.isDark,
+                        width: 0
+                    )
+                    requestedTypesetting.insert(request)
+                    if let rendering = MainActor.assumeIsolated({ Typesetter.shared.rendering(for: request) }) {
+                        pendingInlineMath.append((absolute, rendering))
+                        continue
+                    }
+                }
                 backing.addAttributes([
                     .font: theme.mono,
                     .foregroundColor: theme.syntax.function,
-                ], range: NSRange(location: lineStart + content.location, length: content.length))
+                ], range: contentRange)
 
             case .superscript, .subscript:
                 let isSuper = if case .superscript = node { true } else { false }

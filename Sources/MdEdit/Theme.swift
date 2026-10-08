@@ -123,6 +123,11 @@ struct Theme {
     /// Space after a block, in points.
     var paragraphSpacing: CGFloat = 0
 
+    /// Whether the canvas is dark, for what is drawn outside the text system.
+    var isDark: Bool {
+        (canvas.usingColorSpace(.sRGB)?.brightnessComponent ?? 1) < 0.5
+    }
+
     var body: NSFont {
         if let bodyFontName, let font = NSFont(name: bodyFontName, size: bodyFontSize)
             ?? NSFontManager.shared.font(withFamily: bodyFontName, traits: [], weight: 5, size: bodyFontSize) {

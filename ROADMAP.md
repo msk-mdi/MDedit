@@ -28,8 +28,9 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 - [x] Highlight `==mark==` (`5712791`); sub/superscript and emoji shortcodes (`fa251c4`). Not behind toggles — see P2 settings.
 - [x] GFM bare-URL autolinks (`5712791`).
 - [x] Hard line breaks (`5712791`).
-- [x] Math: inline `$…$` and block `$$…$$` — styled in the editor, KaTeX in HTML export (`fa251c4`). No in-editor typesetting.
-- [x] Mermaid fences in HTML export (`fa251c4`). No in-editor preview.
+- [x] Math: inline `$…$` and block `$$…$$` — KaTeX in HTML export (`fa251c4`), and typeset in the editor: a hidden `WKWebView` (`Typesetter`) snapshots KaTeX output, drawn by the layout manager — inline on a kerned anchor glyph, blocks in reserved line height. The caret in a block shows its source with a live preview below.
+- [x] Mermaid fences in HTML export (`fa251c4`) and drawn in the editor the same way as display math.
+- [x] Definition lists (`Term` / `: definition`, a toggleable extension) in the editor and as `<dl>` in export; `<kbd>` drawn as key chips in the editor.
 - [x] CommonMark conformance suite (`00ccee4`), raised from 376 to 650/652 with a spec-exact inline parser and an export-only `DocumentParser` (`b8af344`). The two failures are deliberate bare-URL autolinks.
 
 ## P1 — In-editor rendering & interaction ✅
@@ -65,7 +66,7 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 - [x] Images as data URIs for self-contained HTML.
 - [x] Copy as Rich Text (⌥⇧⌘C).
 - [x] `--render`: stdin, `--output`, `--standalone`, `--theme`, `--toc`, `--number-headings`, `--embed-images`.
-- [~] Offline KaTeX/Mermaid: `Scripts/fetch-vendor.sh` + bundling + inlining are in place; the vendor files have not been downloaded (run the script).
+- [~] Offline KaTeX/Mermaid: `Scripts/fetch-vendor.sh` + bundling + inlining are in place, for export and for the editor's typesetting (which falls back to jsDelivr without them). The vendor files are not committed; run the script before `make-app.sh`.
 - Also fixed: the line parser kept a list open after a blank line, indenting a following heading/paragraph.
 
 ## P2 — Writing tools ✅ (`138fc8f`)

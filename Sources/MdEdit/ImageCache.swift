@@ -67,14 +67,23 @@ final class ImageCache {
     }
 }
 
-/// An image placed above its line, carried as an attribute for the layout
-/// manager to draw.
+/// An image placed above its line — or below it, or in it — carried as an
+/// attribute for the layout manager to draw.
 final class InlineImage: NSObject {
     let image: NSImage
     let size: CGSize
+    /// Centred in the column rather than at the line's indent.
+    let centered: Bool
+    /// In the space after the line instead of above it.
+    let below: Bool
+    /// For an image in a line of text, how far it hangs below the baseline.
+    let descent: CGFloat
 
-    init(image: NSImage, size: CGSize) {
+    init(image: NSImage, size: CGSize, centered: Bool = false, below: Bool = false, descent: CGFloat = 0) {
         self.image = image
         self.size = size
+        self.centered = centered
+        self.below = below
+        self.descent = descent
     }
 }

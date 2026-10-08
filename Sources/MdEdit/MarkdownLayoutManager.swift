@@ -28,6 +28,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
     /// Focus mode dims every line but the one being written.
     override func drawGlyphs(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         super.drawGlyphs(forGlyphRange: glyphsToShow, at: origin)
+        drawInlineMath(forGlyphRange: glyphsToShow, at: origin)
         guard let focusRange, let container = textContainers.first else { return }
 
         let focusGlyphs = glyphRange(forCharacterRange: focusRange, actualCharacterRange: nil)
@@ -38,6 +39,32 @@ final class MarkdownLayoutManager: NSLayoutManager {
             dim.size.width = container.size.width
             dim.fill(using: .sourceOver)
         }
+    }
+
+    /// Typeset formulas sit on the baseline of the invisible glyph kerned
+    /// to make room for them.
+    private func drawInlineMath(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
+        guard let storage = textStorage else { return }
+        let characters = characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
+        storage.enumerateAttribute(.mdMath, in: characters) { value, range, _ in
+            guard let math = value as? InlineImage else { return }
+            let glyph = glyphIndexForCharacter(at: range.location)
+            guard glyph < numberOfGlyphs, attribute(forGlyphAt: glyph) else { return }
+            let fragment = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            let baseline = location(forGlyphAt: glyph)
+            let frame = NSRect(
+                x: origin.x + fragment.minX + baseline.x,
+                y: origin.y + fragment.minY + baseline.y - (math.size.height - math.descent),
+                width: math.size.width,
+                height: math.size.height
+            )
+            math.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+        }
+    }
+
+    /// Whether a glyph is drawn at all; folded and concealed ones are not.
+    private func attribute(forGlyphAt glyph: Int) -> Bool {
+        !propertyForGlyph(at: glyph).contains(.null)
     }
 
     // MARK: - Block decoration
@@ -55,13 +82,21 @@ final class MarkdownLayoutManager: NSLayoutManager {
             // Folded lines are a hair tall; nothing of theirs is drawn.
             if attributes[.mdFolded] != nil { return }
             // An image sits in the space its paragraph reserved above the
-            // first line, so only the paragraph's first fragment draws it.
+            // first line, so only the paragraph's first fragment draws it; a
+            // preview below a line goes in the space after its last fragment.
             if let inline = attributes[.mdImage] as? InlineImage,
-               self.isFirstFragmentOfParagraph(lineCharacters.location, in: storage) {
+               inline.below
+                   ? self.isLastFragmentOfParagraph(lineCharacters, in: storage)
+                   : self.isFirstFragmentOfParagraph(lineCharacters.location, in: storage) {
                 let indent = (attributes[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent ?? 0
+                var x = origin.x + container.lineFragmentPadding + indent
+                if inline.centered {
+                    let column = container.size.width - 2 * container.lineFragmentPadding - indent
+                    x += max(0, (column - inline.size.width) / 2)
+                }
                 let frame = NSRect(
-                    x: origin.x + container.lineFragmentPadding + indent,
-                    y: fragmentRect.minY + origin.y + Metrics.imageSpacing,
+                    x: x,
+                    y: (inline.below ? usedRect.maxY + Metrics.imageSpacing * 2 : fragmentRect.minY + Metrics.imageSpacing) + origin.y,
                     width: inline.size.width,
                     height: inline.size.height
                 )
@@ -199,6 +234,11 @@ final class MarkdownLayoutManager: NSLayoutManager {
             return false
         }
         return true
+    }
+
+    private func isLastFragmentOfParagraph(_ lineCharacters: NSRange, in storage: NSTextStorage) -> Bool {
+        let paragraph = (storage.string as NSString).paragraphRange(for: NSRange(location: lineCharacters.location, length: 0))
+        return NSMaxRange(lineCharacters) >= NSMaxRange(paragraph)
     }
 
     /// The glyph for a replacement character in a given font, cached.

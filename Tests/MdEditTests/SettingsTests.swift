@@ -28,6 +28,9 @@ struct SettingsTests {
             #expect(settings.zoom == Settings.zoomRange.upperBound)
             settings.extensions = [.math]
             #expect(settings.extensions == [.math])
+            // Saved before definition lists existed: they come on, the rest stays off.
+            settings.defaults.removeObject(forKey: Settings.Key.knownExtensions)
+            #expect(settings.extensions == [.math, .definitionLists])
         }
     }
 

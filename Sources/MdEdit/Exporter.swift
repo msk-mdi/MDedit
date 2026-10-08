@@ -211,6 +211,8 @@ enum Exporter {
         nav.toc > ul { padding-left: 0; }
         nav.toc a { text-decoration: none; }
         .footnote-ref { font-size: 0.75em; line-height: 0; }
+        dt { font-weight: 600; }
+        dd { margin: 0 0 0.4em 1.5em; }
         .footnote-ref a, .footnote-backref { text-decoration: none; }
         .footnotes {
           margin-top: 3em;
@@ -658,9 +660,13 @@ final class PrintableDocument {
     func waitForImages(timeout: Duration = .seconds(3)) async {
         let clock = ContinuousClock()
         let deadline = clock.now.advanced(by: timeout)
-        while ImageCache.shared.isLoading, clock.now < deadline {
+        var waited = false
+        while ImageCache.shared.isLoading || Typesetter.shared.isBusy, clock.now < deadline {
+            waited = true
             try? await Task.sleep(for: .milliseconds(50))
         }
+        // What arrived restyles on the next turn of the run loop.
+        if waited { try? await Task.sleep(for: .milliseconds(50)) }
         sizeToFit()
     }
 

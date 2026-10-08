@@ -23,6 +23,9 @@ extension NSAttributedString.Key {
     static let mdEmoji = NSAttributedString.Key("mdEmoji")
     /// An `InlineImage` drawn above a line that holds only an image.
     static let mdImage = NSAttributedString.Key("mdImage")
+    /// An `InlineImage` of typeset TeX, drawn over the invisible glyph that
+    /// holds its place in the line.
+    static let mdMath = NSAttributedString.Key("mdMath")
     /// Set on lines folded away under a heading.
     static let mdFolded = NSAttributedString.Key("mdFolded")
 }

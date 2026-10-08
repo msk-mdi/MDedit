@@ -40,6 +40,7 @@ final class PreferencesWindowController: NSWindowController {
         (.emoji, NSButton(checkboxWithTitle: ":emoji: shortcodes", target: nil, action: nil)),
         (.math, NSButton(checkboxWithTitle: "$Math$ and $$display math$$", target: nil, action: nil)),
         (.bareURLs, NSButton(checkboxWithTitle: "Links from bare https:// and www. addresses", target: nil, action: nil)),
+        (.definitionLists, NSButton(checkboxWithTitle: "Definition lists (Term, then : definition)", target: nil, action: nil)),
     ]
     private let bulletPopup = NSPopUpButton()
     private let numberingPopup = NSPopUpButton()

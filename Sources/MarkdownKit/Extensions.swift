@@ -18,6 +18,8 @@ public struct SyntaxExtensions: OptionSet, Hashable, Sendable {
     public static let math = SyntaxExtensions(rawValue: 1 << 3)
     /// GFM's `https://…` and `www.…` links without angle brackets.
     public static let bareURLs = SyntaxExtensions(rawValue: 1 << 4)
+    /// A term on its own line followed by `: definition` lines.
+    public static let definitionLists = SyntaxExtensions(rawValue: 1 << 5)
 
-    public static let all: SyntaxExtensions = [.highlight, .scripts, .emoji, .math, .bareURLs]
+    public static let all: SyntaxExtensions = [.highlight, .scripts, .emoji, .math, .bareURLs, .definitionLists]
 }

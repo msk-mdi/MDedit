@@ -47,4 +47,7 @@ enum Metrics {
 
     /// Tall images are scaled down to this height.
     static let maxImageHeight: CGFloat = 420
+
+    /// Typeset diagrams and formulas are scaled down to this height.
+    static let maxDiagramHeight: CGFloat = 900
 }

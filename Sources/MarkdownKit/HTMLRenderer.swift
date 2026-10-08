@@ -171,6 +171,20 @@ public struct HTMLRenderer {
                 writer.cr()
                 break
             }
+            if extensions.contains(.definitionLists),
+               let list = DefinitionList(lines: content.components(separatedBy: "\n")) {
+                writer.cr()
+                writer.write("<dl>")
+                for item in list.items {
+                    writer.write("\n<dt>\(inlineHTML(item.term, context))</dt>")
+                    for definition in item.definitions {
+                        writer.write("\n<dd>\(inlineHTML(definition, context))</dd>")
+                    }
+                }
+                writer.write("\n</dl>")
+                writer.cr()
+                break
+            }
             var checkbox = ""
             // GFM task items: `[ ]` or `[x]` opening the item's first paragraph.
             if let parent = block.parent, case .item = parent.kind, parent.children.first === block,

@@ -34,6 +34,7 @@ struct Settings {
         static let typewriterDefault = "typewriterModeDefault"
         static let focusDefault = "focusModeDefault"
         static let extensions = "syntaxExtensions"
+        static let knownExtensions = "knownSyntaxExtensions"
         static let bulletMarker = "bulletMarker"
         static let orderedNumbering = "orderedListNumbering"
         static let numberHeadings = "numberHeadings"
@@ -149,9 +150,18 @@ struct Settings {
     var extensions: SyntaxExtensions {
         get {
             guard defaults.object(forKey: Key.extensions) != nil else { return .all }
-            return SyntaxExtensions(rawValue: defaults.integer(forKey: Key.extensions)).intersection(.all)
+            let enabled = SyntaxExtensions(rawValue: defaults.integer(forKey: Key.extensions))
+            // Syntax added since the choice was saved starts on; settings
+            // saved before this was tracked knew the first five.
+            let known = defaults.object(forKey: Key.knownExtensions) != nil
+                ? SyntaxExtensions(rawValue: defaults.integer(forKey: Key.knownExtensions))
+                : [.highlight, .scripts, .emoji, .math, .bareURLs]
+            return enabled.union(SyntaxExtensions.all.subtracting(known)).intersection(.all)
         }
-        nonmutating set { defaults.set(newValue.rawValue, forKey: Key.extensions) }
+        nonmutating set {
+            defaults.set(newValue.rawValue, forKey: Key.extensions)
+            defaults.set(SyntaxExtensions.all.rawValue, forKey: Key.knownExtensions)
+        }
     }
 
     /// What new bulleted lists start with: `-`, `*` or `+`.

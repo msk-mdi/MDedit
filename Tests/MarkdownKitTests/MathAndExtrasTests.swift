@@ -68,3 +68,29 @@ struct ExtrasTests {
         #expect(headings.first?.title == "Done 🎉")
     }
 }
+
+@Suite("Term and definition lists")
+struct DefinitionListTests {
+    @Test("A term followed by `: ` lines is a definition list")
+    func parse() {
+        let list = DefinitionList(lines: ["Term", ": one", ": two", "Other", ":\tthree"])
+        #expect(list?.items == [
+            .init(term: "Term", definitions: ["one", "two"]),
+            .init(term: "Other", definitions: ["three"]),
+        ])
+        #expect(DefinitionList(lines: [": no term"]) == nil)
+        #expect(DefinitionList(lines: ["Term", "Another term", ": def"]) == nil)
+        #expect(DefinitionList(lines: ["Term", ": def", "Dangling"]) == nil)
+        #expect(DefinitionList(lines: ["Ratio", ":3 is not one"]) == nil)
+    }
+
+    @Test("Export writes `<dl>`, unless the extension is off")
+    func export() {
+        #expect(html("Term *one*\n: The **first**.") == "<dl>\n<dt>Term <em>one</em></dt>\n<dd>The <strong>first</strong>.</dd>\n</dl>")
+        #expect(html("Just a paragraph\nwith two lines") == "<p>Just a paragraph\nwith two lines</p>")
+        var extensions = SyntaxExtensions.all
+        extensions.remove(.definitionLists)
+        let plain = HTMLRenderer(extensions: extensions).render(markdown: "Term\n: def")
+        #expect(plain.trimmingCharacters(in: .whitespacesAndNewlines) == "<p>Term\n: def</p>")
+    }
+}
