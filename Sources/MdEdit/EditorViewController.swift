@@ -27,6 +27,8 @@ final class EditorViewController: NSViewController {
         set { textView.onOpenLink = newValue }
     }
 
+    var table: TableEditor { TableEditor(storage: storage, textView: textView) }
+
     var sourceMode: Bool {
         get { storage.sourceMode }
         set { storage.sourceMode = newValue }

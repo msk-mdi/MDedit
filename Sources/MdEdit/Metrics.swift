@@ -39,6 +39,9 @@ enum Metrics {
     /// Space above and below an inline image preview.
     static let imageSpacing: CGFloat = 6
 
+    /// Height of a table's hidden delimiter row, drawn as a rule.
+    static let tableRuleHeight: CGFloat = 9
+
     /// Tall images are scaled down to this height.
     static let maxImageHeight: CGFloat = 420
 }

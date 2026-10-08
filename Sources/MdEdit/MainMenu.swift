@@ -119,6 +119,25 @@ enum MainMenu {
             add(menu, "Task List", #selector(MainWindowController.toggleTaskList(_:)), "9", [.command, .shift])
             add(menu, "Blockquote", #selector(MainWindowController.toggleQuote(_:)), "'", [.command, .shift])
             add(menu, "Code Block", #selector(MainWindowController.insertCodeBlock(_:)), "c", [.command, .option])
+            menu.addItem(.separator())
+            menu.addItem(submenu("Table") { table in
+                add(table, "Insert Table", #selector(MainWindowController.insertTable(_:)), "t", [.command, .option])
+                table.addItem(.separator())
+                add(table, "Add Row Above", #selector(MainWindowController.tableRowAbove(_:)))
+                add(table, "Add Row Below", #selector(MainWindowController.tableRowBelow(_:)), "\r", [.command])
+                add(table, "Delete Row", #selector(MainWindowController.tableDeleteRow(_:)))
+                table.addItem(.separator())
+                add(table, "Add Column Before", #selector(MainWindowController.tableColumnBefore(_:)))
+                add(table, "Add Column After", #selector(MainWindowController.tableColumnAfter(_:)))
+                add(table, "Delete Column", #selector(MainWindowController.tableDeleteColumn(_:)))
+                table.addItem(.separator())
+                add(table, "Align Column Left", #selector(MainWindowController.tableAlign(_:)), tag: 1)
+                add(table, "Align Column Center", #selector(MainWindowController.tableAlign(_:)), tag: 2)
+                add(table, "Align Column Right", #selector(MainWindowController.tableAlign(_:)), tag: 3)
+                add(table, "Remove Column Alignment", #selector(MainWindowController.tableAlign(_:)), tag: 0)
+                table.addItem(.separator())
+                add(table, "Format Table", #selector(MainWindowController.tableFormat(_:)))
+            })
         }
     }
 

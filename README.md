@@ -26,6 +26,9 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   (web, local files, `#heading` anchors), see images inline with their alt text
   as a caption, paste or drop images (pasted screenshots go to `assets/`), paste a
   URL over text to link it, and switch to plain Source Mode with ⌘/.
+- **Tables.** Tab and ⇧Tab move between cells and keep columns aligned, Return
+  adds a row (and leaves the table on an empty one), and Format ▸ Table inserts
+  tables and adds, removes or aligns rows and columns.
 - **Workspaces.** Open a folder (⇧⌘O) for a sidebar with a live file tree, the
   document outline (⇧⌘L) and Find in Folder (⇧⌘F); Quick Open (⌘P) fuzzy-finds
   files. Drag tabs to reorder them, or drop markdown files in to open them.
@@ -180,7 +183,6 @@ storage's line-range handling.
 
 ## Not implemented
 
-Tables render as aligned monospaced rows with striping rather than an editable grid.
 There is no math rendering, no mermaid diagrams, no image upload services and only
 one window. The app is unsandboxed and ad-hoc signed.
 

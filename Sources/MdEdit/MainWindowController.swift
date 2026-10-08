@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownKit
 
 /// The single window: a transparent titlebar carrying the glass tab strip, an
 /// opaque canvas that scrolls beneath it, and a floating status pill.
@@ -742,6 +743,25 @@ final class MainWindowController: NSWindowController {
     @objc func toggleNumberedList(_ sender: Any?) { currentEditor?.toggleList(ordered: true) }
     @objc func toggleTaskList(_ sender: Any?) { currentEditor?.toggleList(ordered: false, task: true) }
 
+    @objc func insertTable(_ sender: Any?) { currentEditor?.table.insertTable() }
+    @objc func tableRowAbove(_ sender: Any?) { currentEditor?.table.perform(.rowAbove) }
+    @objc func tableRowBelow(_ sender: Any?) { currentEditor?.table.perform(.rowBelow) }
+    @objc func tableDeleteRow(_ sender: Any?) { currentEditor?.table.perform(.deleteRow) }
+    @objc func tableColumnBefore(_ sender: Any?) { currentEditor?.table.perform(.columnBefore) }
+    @objc func tableColumnAfter(_ sender: Any?) { currentEditor?.table.perform(.columnAfter) }
+    @objc func tableDeleteColumn(_ sender: Any?) { currentEditor?.table.perform(.deleteColumn) }
+    @objc func tableFormat(_ sender: Any?) { currentEditor?.table.perform(.format) }
+
+    @objc func tableAlign(_ sender: Any?) {
+        let alignment: ColumnAlignment = switch (sender as? NSMenuItem)?.tag {
+        case 1: .left
+        case 2: .center
+        case 3: .right
+        default: .none
+        }
+        currentEditor?.table.perform(.align(alignment))
+    }
+
     @objc func setHeadingLevel(_ sender: Any?) {
         let level = (sender as? NSMenuItem)?.tag ?? 0
         currentEditor?.setHeading(level: level)
@@ -800,6 +820,10 @@ extension MainWindowController: NSMenuItemValidation {
             item.title = isSidebarVisible && sidebar.pane == .outline ? "Hide Outline" : "Show Outline"
         case #selector(toggleFiles(_:)):
             item.title = isSidebarVisible && sidebar.pane == .files ? "Hide Files" : "Show Files"
+        case #selector(tableRowAbove(_:)), #selector(tableRowBelow(_:)), #selector(tableDeleteRow(_:)),
+             #selector(tableColumnBefore(_:)), #selector(tableColumnAfter(_:)), #selector(tableDeleteColumn(_:)),
+             #selector(tableAlign(_:)), #selector(tableFormat(_:)):
+            return editor?.table.isInTable ?? false
         case #selector(toggleSourceMode(_:)):
             item.state = editor?.sourceMode == true ? .on : .off
         case #selector(toggleTypewriterMode(_:)):

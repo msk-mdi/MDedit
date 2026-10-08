@@ -15,6 +15,18 @@ struct MarkdownInputHandler {
 
     /// Handles Return, Tab and Shift-Tab. Returns true when it consumed the key.
     func handleCommand(_ selector: Selector, in textView: NSTextView) -> Bool {
+        // Inside a table, Tab, Shift-Tab and Return move between cells and rows.
+        let table = TableEditor(storage: storage, textView: textView)
+        switch selector {
+        case #selector(NSResponder.insertTab(_:)) where table.isInTable:
+            return table.moveToNextCell()
+        case #selector(NSResponder.insertBacktab(_:)) where table.isInTable:
+            return table.moveToPreviousCell()
+        case #selector(NSResponder.insertNewline(_:)) where table.isInTable && textView.selectedRange().length == 0:
+            return table.insertNewline()
+        default:
+            break
+        }
         switch selector {
         case #selector(NSResponder.insertNewline(_:)):
             return continueBlock(in: textView)

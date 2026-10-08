@@ -234,7 +234,15 @@ final class MarkdownTextStorage: NSTextStorage {
         }
 
         let isCode = info.kind.isCode
-        let baseFont: NSFont = if sourceMode {
+        // Tables are monospaced, so aligned source reads as a grid; the header is bold.
+        let isTableHeader = info.kind == .paragraph
+            && isTableDelimiter(structure.info(forLine: line + 1)?.kind ?? .blank)
+        let isTableLine = info.kind == .tableRow || isTableDelimiter(info.kind) || isTableHeader
+        let baseFont: NSFont = if isTableHeader {
+            NSFontManager.shared.convert(theme.mono, toHaveTrait: .boldFontMask)
+        } else if isTableLine {
+            theme.mono
+        } else if sourceMode {
             headingLevel != nil ? NSFontManager.shared.convert(theme.mono, toHaveTrait: .boldFontMask) : theme.mono
         } else if let headingLevel {
             theme.headingFont(level: headingLevel)
@@ -286,11 +294,20 @@ final class MarkdownTextStorage: NSTextStorage {
         default:
             break
         }
-        let isTableHeader = info.kind == .paragraph
-            && isTableDelimiter(structure.info(forLine: line + 1)?.kind ?? .blank)
-        if info.kind == .tableRow || isTableDelimiter(info.kind) || isTableHeader {
+        if isTableLine {
             attributes[.mdTableRow] = true
-            attributes[.font] = theme.mono
+            if isTableHeader { attributes[.foregroundColor] = theme.heading }
+            // The delimiter row is hidden off the caret's line; a rule stands in for it.
+            if isTableDelimiter(info.kind), !revealed,
+               let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle {
+                attributes[.mdThematicBreak] = true
+                // Just tall enough for the rule, rather than a blank line.
+                let thin = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
+                thin.lineHeightMultiple = 0
+                thin.minimumLineHeight = Metrics.tableRuleHeight
+                thin.maximumLineHeight = Metrics.tableRuleHeight
+                attributes[.paragraphStyle] = thin
+            }
         }
 
         // A line holding nothing but an image shows the image above it, in a
@@ -340,6 +357,30 @@ final class MarkdownTextStorage: NSTextStorage {
 
         for marker in info.markers {
             applyMarker(marker, lineStart: range.location, revealed: revealed, baseFont: baseFont)
+        }
+
+        // Pipes are scaffolding: drawn faintly so the cells read first.
+        // Concealing markup inside a cell would pull its row's pipes out of
+        // line, so in tables hidden markers keep their width and turn invisible.
+        if isTableLine, !isTableDelimiter(info.kind) {
+            backing.enumerateAttribute(.mdConcealed, in: range) { value, concealed, _ in
+                guard value != nil else { return }
+                backing.removeAttribute(.mdConcealed, range: concealed)
+                backing.addAttribute(.foregroundColor, value: NSColor.clear, range: concealed)
+            }
+        }
+
+        if isTableLine, !isTableDelimiter(info.kind) {
+            var escaped = false
+            for (offset, unit) in characters.enumerated() {
+                if escaped {
+                    escaped = false
+                } else if unit == 0x5C /* backslash */ {
+                    escaped = true
+                } else if unit == 0x7C /* pipe */ {
+                    backing.addAttribute(.foregroundColor, value: theme.rule, range: NSRange(location: range.location + offset, length: 1))
+                }
+            }
         }
 
         if inlineImage != nil {
