@@ -128,20 +128,26 @@ struct Theme {
         (canvas.usingColorSpace(.sRGB)?.brightnessComponent ?? 1) < 0.5
     }
 
+    // Styling asks for these several times per line, so each font is looked
+    // up once and kept: building an `NSFont` is a font-descriptor search.
     var body: NSFont {
-        if let bodyFontName, let font = NSFont(name: bodyFontName, size: bodyFontSize)
-            ?? NSFontManager.shared.font(withFamily: bodyFontName, traits: [], weight: 5, size: bodyFontSize) {
-            return font
+        FontCache.font(.body, name: bodyFontName, size: bodyFontSize) {
+            if let bodyFontName, let font = NSFont(name: bodyFontName, size: bodyFontSize)
+                ?? NSFontManager.shared.font(withFamily: bodyFontName, traits: [], weight: 5, size: bodyFontSize) {
+                return font
+            }
+            return .systemFont(ofSize: bodyFontSize)
         }
-        return .systemFont(ofSize: bodyFontSize)
     }
 
     var mono: NSFont {
-        if let monoFontName, let font = NSFont(name: monoFontName, size: monoFontSize)
-            ?? NSFontManager.shared.font(withFamily: monoFontName, traits: [], weight: 5, size: monoFontSize) {
-            return font
+        FontCache.font(.mono, name: monoFontName, size: monoFontSize) {
+            if let monoFontName, let font = NSFont(name: monoFontName, size: monoFontSize)
+                ?? NSFontManager.shared.font(withFamily: monoFontName, traits: [], weight: 5, size: monoFontSize) {
+                return font
+            }
+            return .monospacedSystemFont(ofSize: monoFontSize, weight: .regular)
         }
-        return .monospacedSystemFont(ofSize: monoFontSize, weight: .regular)
     }
 
     /// Heading sizes follow a modest scale; 1.6x down to body size at h6.
@@ -149,12 +155,14 @@ struct Theme {
         let scale: [CGFloat] = [1.9, 1.55, 1.3, 1.15, 1.05, 1.0]
         let index = min(max(level, 1), 6) - 1
         let size = (bodyFontSize * scale[index]).rounded()
-        let weight: NSFont.Weight = level <= 2 ? .bold : .semibold
-        // A chosen body family carries into headings, in its bold face.
-        if bodyFontName != nil {
-            return NSFontManager.shared.convert(NSFontManager.shared.convert(body, toSize: size), toHaveTrait: .boldFontMask)
+        return FontCache.font(.heading(level <= 2), name: bodyFontName, size: size) {
+            let weight: NSFont.Weight = level <= 2 ? .bold : .semibold
+            // A chosen body family carries into headings, in its bold face.
+            if bodyFontName != nil {
+                return NSFontManager.shared.convert(NSFontManager.shared.convert(body, toSize: size), toHaveTrait: .boldFontMask)
+            }
+            return .systemFont(ofSize: size, weight: weight)
         }
-        return .systemFont(ofSize: size, weight: weight)
     }
 
     static let light = Theme(
@@ -233,4 +241,37 @@ struct CodePalette {
     var name: String
     var light: SyntaxPalette
     var dark: SyntaxPalette
+}
+
+/// Fonts by role, family and size, built once each.
+enum FontCache {
+    enum Role: Hashable {
+        case body, mono, heading(Bool)
+        case converted(NSFontTraitMask.RawValue)
+    }
+
+    private struct Key: Hashable {
+        var role: Role
+        var name: String?
+        var size: CGFloat
+    }
+
+    // `NSFont` is immutable and safe to share; the lock guards the dictionary.
+    private nonisolated(unsafe) static var fonts: [Key: NSFont] = [:]
+    private static let lock = NSLock()
+
+    static func font(_ role: Role, name: String?, size: CGFloat, make: () -> NSFont) -> NSFont {
+        let key = Key(role: role, name: name, size: size)
+        if let font = lock.withLock({ fonts[key] }) { return font }
+        let font = make()
+        lock.withLock { fonts[key] = font }
+        return font
+    }
+
+    /// `NSFontManager.convert(_:toHaveTrait:)`, remembered.
+    static func font(_ base: NSFont, withTraits traits: NSFontTraitMask) -> NSFont {
+        font(.converted(traits.rawValue), name: base.fontName, size: base.pointSize) {
+            NSFontManager.shared.convert(base, toHaveTrait: traits)
+        }
+    }
 }

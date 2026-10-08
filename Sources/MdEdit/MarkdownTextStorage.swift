@@ -301,6 +301,10 @@ final class MarkdownTextStorage: NSTextStorage {
         return copy
     }
 
+    /// The inherited version asks `string` for its length, which after an
+    /// edit means copying the whole document.
+    override var length: Int { backing.length }
+
     /// The text, without the copy: valid until the next edit.
     private var text: NSString { backing.mutableString }
 
@@ -322,7 +326,15 @@ final class MarkdownTextStorage: NSTextStorage {
         longestEffectiveRange range: NSRangePointer?,
         in rangeLimit: NSRange
     ) -> Any? {
-        backing.attribute(attrName, at: location, longestEffectiveRange: range, in: rangeLimit)
+        // Attribute fixing looks for glyph info from the edit out to both
+        // ends of the document, walking every run, on every keystroke. Styling
+        // sets each edited line's attributes whole before fixing runs, so
+        // there is never any to find.
+        if attrName == .glyphInfo {
+            range?.pointee = rangeLimit
+            return nil
+        }
+        return backing.attribute(attrName, at: location, longestEffectiveRange: range, in: rangeLimit)
     }
 
     override func attributes(

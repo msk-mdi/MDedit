@@ -100,6 +100,6 @@ struct InlineStyle {
         if bold { traits.insert(.boldFontMask) }
         if italic { traits.insert(.italicFontMask) }
         guard !traits.isEmpty else { return base }
-        return NSFontManager.shared.convert(base, toHaveTrait: traits)
+        return FontCache.font(base, withTraits: traits)
     }
 }
