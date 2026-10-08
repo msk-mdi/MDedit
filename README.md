@@ -58,8 +58,16 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   source, typewriter and focus modes across launches.
 - **External change detection** — edit a file in another app and MdEdit offers to
   reload it.
-- **Export** to HTML or PDF, or copy the document as HTML. `MdEdit --render file.md`
-  prints the HTML without opening a window.
+- **Export** to HTML, PDF, Word, RTF or plain text — in any theme, with an optional
+  table of contents, embedded images and, for HTML, a stylesheet or none. PDF and
+  Print (`⌥⌘P`) lay the document out again at the paper's size, with page breaks
+  between lines, the title on each page and page numbers. With
+  [Pandoc](https://pandoc.org) installed, export also writes EPUB, ODT, LaTeX,
+  Typst and more. Copy as HTML or as rich text for Mail and Pages. A `[TOC]`
+  paragraph becomes a table of contents in export.
+- **Command line.** `MdEdit --render [file | -] [-o out.html] [--standalone]
+  [--theme Nord] [--toc] [--number-headings] [--embed-images]` converts without
+  opening a window, reading standard input when no file is given.
 - **No dependencies.** The parser, the highlighter and the renderer are all in this
   repository.
 
@@ -74,6 +82,7 @@ git clone https://github.com/msk-mdi/MDedit.git
 cd MDedit
 swift build            # library + executable
 swift test             # the test suite
+Scripts/fetch-vendor.sh  # optional: KaTeX and Mermaid for offline HTML export
 Scripts/make-app.sh    # assembles build/MdEdit.app
 open build/MdEdit.app
 ```

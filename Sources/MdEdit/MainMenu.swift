@@ -70,8 +70,17 @@ enum MainMenu {
             add(menu, "Save", #selector(AppDelegate.saveDocument(_:)), "s")
             add(menu, "Save As…", #selector(AppDelegate.saveDocumentAs(_:)), "s", [.command, .shift])
             menu.addItem(.separator())
-            add(menu, "Export as HTML…", #selector(MainWindowController.exportHTML(_:)))
-            add(menu, "Export as PDF…", #selector(MainWindowController.exportPDF(_:)))
+            menu.addItem(submenu("Export") { export in
+                add(export, "HTML…", #selector(MainWindowController.exportHTML(_:)))
+                add(export, "PDF…", #selector(MainWindowController.exportPDF(_:)))
+                add(export, "Word Document…", #selector(MainWindowController.exportWord(_:)))
+                add(export, "Rich Text…", #selector(MainWindowController.exportRichText(_:)))
+                add(export, "Plain Text…", #selector(MainWindowController.exportPlainText(_:)))
+                export.addItem(.separator())
+                add(export, "With Pandoc…", #selector(MainWindowController.exportWithPandoc(_:)))
+            })
+            menu.addItem(.separator())
+            add(menu, "Print…", #selector(MainWindowController.printDocument(_:)), "p", [.command, .option])
         }
     }
 
@@ -85,6 +94,7 @@ enum MainMenu {
             add(menu, "Paste", #selector(NSText.paste(_:)), "v")
             add(menu, "Paste and Match Style", #selector(NSTextView.pasteAsPlainText(_:)), "v", [.command, .option, .shift])
             add(menu, "Copy as HTML", #selector(MainWindowController.copyAsHTML(_:)), "c", [.command, .shift])
+            add(menu, "Copy as Rich Text", #selector(MainWindowController.copyAsRichText(_:)), "c", [.command, .option, .shift])
             add(menu, "Select All", #selector(NSText.selectAll(_:)), "a")
             menu.addItem(.separator())
 

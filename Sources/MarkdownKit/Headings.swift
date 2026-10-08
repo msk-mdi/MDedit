@@ -136,3 +136,23 @@ public struct HeadingNumberer {
         return headings.map { numberer.number(forLevel: $0.level) }
     }
 }
+
+/// A table of contents as markdown: a nested list linking to each heading,
+/// indented from the shallowest level used.
+public func tableOfContentsMarkdown(_ headings: [Heading], bullet: String = "-") -> String {
+    let top = headings.map(\.level).min() ?? 1
+    var previousDepth = -1
+    var lines: [String] = []
+    for heading in headings {
+        // A list can only nest one level at a time.
+        let depth = min(heading.level - top, previousDepth + 1)
+        previousDepth = depth
+        var title = ""
+        for character in heading.title {
+            if "[]\\".contains(character) { title.append("\\") }
+            title.append(character)
+        }
+        lines.append(String(repeating: "  ", count: depth) + "\(bullet) [\(title)](#\(heading.slug))")
+    }
+    return lines.joined(separator: "\n")
+}

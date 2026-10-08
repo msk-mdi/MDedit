@@ -17,6 +17,23 @@ public struct HTMLRenderer {
     public var tableOfContents = true
     /// Reads local images into `data:` URIs, so the page stands alone.
     public var embedImages = false
+    /// What a page loads to draw math and diagrams. Nil uses the CDN.
+    public var scripts: ScriptAssets?
+
+    /// KaTeX and Mermaid inlined into the page, so it works offline.
+    public struct ScriptAssets: Sendable {
+        public var katexCSS: String
+        public var katexJS: String
+        public var autoRenderJS: String
+        public var mermaidJS: String
+
+        public init(katexCSS: String, katexJS: String, autoRenderJS: String, mermaidJS: String) {
+            self.katexCSS = katexCSS
+            self.katexJS = katexJS
+            self.autoRenderJS = autoRenderJS
+            self.mermaidJS = mermaidJS
+        }
+    }
 
     public init(baseURL: URL? = nil, extensions: SyntaxExtensions = .all) {
         self.baseURL = baseURL
@@ -37,10 +54,7 @@ public struct HTMLRenderer {
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
         <title>\(escape(title))</title>
-        <style>
-        \(css)
-        </style>
-        \(headExtras(context))</head>
+        \(css.isEmpty ? "" : "<style>\n\(css)\n</style>\n")\(headExtras(context))</head>
         <body>
         \(body)
         </body>
@@ -328,13 +342,14 @@ public struct HTMLRenderer {
     /// Math and diagrams are drawn in the browser, by KaTeX and Mermaid
     /// loaded from a CDN, and only when the document has any.
     private func headExtras(_ context: Context) -> String {
+        if let scripts { return inlineHeadExtras(context, scripts) }
         var out = ""
         if context.usesMath {
             out += """
             <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
             <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
-              onload="renderMathInElement(document.body, {delimiters: [{left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}], ignoredClasses: ['mermaid']})"></script>
+              onload="\(Self.renderMathCall)"></script>
 
             """
         }
@@ -342,10 +357,33 @@ public struct HTMLRenderer {
             out += """
             <script type="module">
             import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
-            mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
+            \(Self.mermaidInitialize)
             </script>
 
             """
+        }
+        return out
+    }
+
+    private static let renderMathCall = "renderMathInElement(document.body, {delimiters: [{left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}], ignoredClasses: ['mermaid']})"
+    private static let mermaidInitialize = "mermaid.initialize({ startOnLoad: true, theme: matchMedia(\"(prefers-color-scheme: dark)\").matches ? \"dark\" : \"default\" });"
+
+    /// The same, with the libraries' text in the page.
+    private func inlineHeadExtras(_ context: Context, _ scripts: ScriptAssets) -> String {
+        // Script text must not close its own element early.
+        func script(_ source: String) -> String {
+            source.replacingOccurrences(of: "</script", with: "<\\/script", options: .caseInsensitive)
+        }
+        var out = ""
+        if context.usesMath {
+            out += "<style>\n\(scripts.katexCSS)\n</style>\n"
+            out += "<script>\n\(script(scripts.katexJS))\n</script>\n"
+            out += "<script>\n\(script(scripts.autoRenderJS))\n</script>\n"
+            out += "<script>\ndocument.addEventListener(\"DOMContentLoaded\", () => \(Self.renderMathCall));\n</script>\n"
+        }
+        if context.usesMermaid {
+            out += "<script>\n\(script(scripts.mermaidJS))\n</script>\n"
+            out += "<script>\n\(Self.mermaidInitialize)\n</script>\n"
         }
         return out
     }

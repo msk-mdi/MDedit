@@ -36,6 +36,11 @@ final class ImageCache {
         }
     }
 
+    /// Whether any image is still on its way, so printing can wait for it.
+    var isLoading: Bool {
+        entries.values.contains { if case .loading = $0 { true } else { false } }
+    }
+
     /// Forgets an image so the next request reloads it, for files edited on disk.
     func invalidate(_ url: URL) {
         entries[url] = nil

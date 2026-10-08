@@ -195,3 +195,14 @@ struct BlockStructureTests {
         #expect(structure.lines[2].kind == .codeLine)
     }
 }
+
+@Suite("Leaving lists")
+struct LeavingListsTests {
+    @Test("After a blank line, a line left of the item's content is outside the list")
+    func blankThenOutdent() {
+        let depths = parseAll("- a\n  - b\n\n# H\n\n  text").map(\.listDepth)
+        #expect(depths == [1, 2, 2, 0, 0, 0])
+        // Indented to the content, it is still the item's.
+        #expect(parseAll("- a\n\n  more").map(\.listDepth) == [1, 1, 1])
+    }
+}

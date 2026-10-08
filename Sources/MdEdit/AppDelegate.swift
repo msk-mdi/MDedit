@@ -13,9 +13,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     static func main() {
         // A headless render path, so export can be checked without a GUI.
         let arguments = CommandLine.arguments
-        if let index = arguments.firstIndex(of: "--render"), index + 1 < arguments.count {
-            CommandLineRenderer.run(path: arguments[index + 1])
-            return
+        if let index = arguments.firstIndex(of: "--render") {
+            exit(CommandLineRenderer.run(arguments: Array(arguments[(index + 1)...])))
         }
 
         let app = NSApplication.shared

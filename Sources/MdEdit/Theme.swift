@@ -186,21 +186,30 @@ struct Theme {
         syntax: .dark
     )
 
+    static var lightAppearance: NSAppearance { NSAppearance(named: .aqua)! }
+    static var darkAppearance: NSAppearance { NSAppearance(named: .darkAqua)! }
+
     /// The chosen theme in the variant matching an appearance, with the
     /// code palette, fonts, spacing and zoom from Settings applied.
     @MainActor
-    static func current(for appearance: NSAppearance, settings: Settings = Settings()) -> Theme {
+    static func current(
+        for appearance: NSAppearance,
+        settings: Settings = Settings(),
+        themeName: String? = nil,
+        zoomed: Bool = true
+    ) -> Theme {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        let family = ThemeCatalog.family(named: settings.themeName)
+        let family = ThemeCatalog.family(named: themeName ?? settings.themeName)
         var theme = isDark ? family.dark : family.light
         if let palette = ThemeCatalog.codePalette(named: settings.codeThemeName) {
             theme.syntax = isDark ? palette.dark : palette.light
         }
         theme.bodyFontName = settings.fontName
         theme.monoFontName = settings.monoFontName
-        let size = settings.fontSize * settings.zoom
+        let zoom = zoomed ? settings.zoom : 1
+        let size = settings.fontSize * zoom
         theme.bodyFontSize = size
-        theme.monoFontSize = max(6, (settings.fontSize - 2) * settings.zoom)
+        theme.monoFontSize = max(6, (settings.fontSize - 2) * zoom)
         theme.lineHeight = settings.lineHeight
         theme.paragraphSpacing = settings.paragraphSpacing * size
         return theme

@@ -888,23 +888,51 @@ final class MainWindowController: NSWindowController {
 
     @objc func exportHTML(_ sender: Any?) {
         guard let document = activeDocument else { return }
-        Exporter.exportHTML(document: document, theme: theme, in: window) { [weak self] error in
-            self?.show(error: error)
-        }
+        Exporter.exportHTML(document: document, in: window) { [weak self] error in self?.show(error: error) }
     }
 
     @objc func exportPDF(_ sender: Any?) {
-        guard let document = activeDocument, let editor = currentEditor else { return }
-        Exporter.exportPDF(from: editor, document: document, in: window) { [weak self] error in
-            self?.show(error: error)
-        }
+        guard let document = activeDocument else { return }
+        Exporter.exportPDF(document: document, in: window) { [weak self] error in self?.show(error: error) }
+    }
+
+    @objc func exportWord(_ sender: Any?) { exportRich(.word) }
+    @objc func exportRichText(_ sender: Any?) { exportRich(.richText) }
+    @objc func exportPlainText(_ sender: Any?) { exportRich(.plainText) }
+
+    private func exportRich(_ format: RichFormat) {
+        guard let document = activeDocument else { return }
+        Exporter.export(document: document, as: format, in: window) { [weak self] error in self?.show(error: error) }
+    }
+
+    @objc func exportWithPandoc(_ sender: Any?) {
+        guard let document = activeDocument else { return }
+        Exporter.exportWithPandoc(document: document, in: window) { [weak self] error in self?.show(error: error) }
+    }
+
+    /// Named apart from `print(_:)`, which the text view answers first by
+    /// printing itself as it appears on screen.
+    @objc func printDocument(_ sender: Any?) {
+        guard let document = activeDocument else { return }
+        Exporter.print(document: document, in: window)
+    }
+
+    /// The selection, or the whole document when nothing is selected.
+    private func markdownToCopy() -> (markdown: String, baseURL: URL?)? {
+        guard let document = activeDocument else { return nil }
+        let selection = currentEditor?.textView.selectedRange() ?? NSRange(location: 0, length: 0)
+        let text = selection.length > 0 ? (document.text as NSString).substring(with: selection) : document.text
+        return (text, document.url)
     }
 
     @objc func copyAsHTML(_ sender: Any?) {
-        guard let document = activeDocument else { return }
-        let pasteboard = NSPasteboard.general
-        pasteboard.clearContents()
-        pasteboard.setString(Exporter.htmlFragment(for: document), forType: .string)
+        guard let (markdown, baseURL) = markdownToCopy() else { return }
+        Exporter.copyHTML(markdown: markdown, baseURL: baseURL)
+    }
+
+    @objc func copyAsRichText(_ sender: Any?) {
+        guard let (markdown, baseURL) = markdownToCopy() else { return }
+        Exporter.copyRichText(markdown: markdown, baseURL: baseURL)
     }
 
     private func show(error: Error) {
@@ -920,6 +948,10 @@ extension MainWindowController: NSMenuItemValidation {
         switch item.action {
         case #selector(moveTabToNewWindow(_:)):
             return documents.count > 1
+        case #selector(exportWithPandoc(_:)):
+            let installed = Pandoc.executable != nil
+            item.title = installed ? "With Pandoc…" : "With Pandoc (not installed)"
+            return installed
         case #selector(toggleOutline(_:)):
             item.title = isSidebarVisible && sidebar.pane == .outline ? "Hide Outline" : "Show Outline"
         case #selector(toggleFiles(_:)):

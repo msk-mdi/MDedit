@@ -19,6 +19,10 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 if [ -f "$ROOT/Resources/AppIcon.icns" ]; then
 	cp "$ROOT/Resources/AppIcon.icns" "$APP/Contents/Resources/AppIcon.icns"
 fi
+# KaTeX and Mermaid for offline HTML export, if Scripts/fetch-vendor.sh has run.
+if [ -d "$ROOT/Resources/vendor" ]; then
+	cp -R "$ROOT/Resources/vendor" "$APP/Contents/Resources/vendor"
+fi
 printf 'APPL????' > "$APP/Contents/PkgInfo"
 
 # Ad-hoc signature: enough for local launch, not for distribution.

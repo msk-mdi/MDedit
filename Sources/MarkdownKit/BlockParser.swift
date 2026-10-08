@@ -303,6 +303,14 @@ public enum BlockParser {
         let indent = indentWidth(line, from: cursor)
         let bodyStart = skipSpaces(line, from: cursor, limit: Int.max)
 
+        // After a blank line, a line left of an item's content ends that item's
+        // list: `# Heading` below a list is not inside it.
+        if state.previousWasBlank {
+            while let top = state.lists.last, indent < top.indent + 2 {
+                state.lists.removeLast()
+            }
+        }
+
         // 4. Four spaces past the current list level is an indented code block.
         let codeIndentBase = state.lists.last.map { $0.indent + 2 } ?? 0
         if indent >= codeIndentBase + 4, !state.previousWasParagraph {
