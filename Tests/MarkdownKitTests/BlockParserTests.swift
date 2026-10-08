@@ -12,6 +12,18 @@ private func kinds(_ markdown: String) -> [BlockKind] {
 
 @Suite("BlockParser")
 struct BlockParserTests {
+    @Test("A dash under a list item is a new item or a rule, not a setext underline")
+    func setextUnderListItem() {
+        let item = BlockKind.listItem(ordered: false, task: nil)
+        // An empty item, as Return in a list leaves it.
+        #expect(kinds("- one\n- ") == [item, item])
+        #expect(kinds("- one\n---") == [item, .thematicBreak])
+        // Indented into the item, it underlines the item's text.
+        #expect(kinds("- one\n  ---") == [item, .setextUnderline(level: 2)])
+        // Under a plain paragraph it is still an underline.
+        #expect(kinds("one\n- ") == [.paragraph, .setextUnderline(level: 2)])
+    }
+
     @Test("ATX headings")
     func headings() {
         #expect(kinds("# one") == [.atxHeading(level: 1)])

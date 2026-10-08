@@ -419,8 +419,11 @@ public enum BlockParser {
         }
 
         // 6. A setext underline only counts under a paragraph, and beats a
-        //    thematic break for `---`.
-        if state.previousWasParagraph, let level = setextLevel(line, from: bodyStart) {
+        //    thematic break for `---`. Under a list item's text it must be
+        //    indented into the item: an underline is never a lazy
+        //    continuation, so `- one` then `- ` is a second, empty item.
+        let outsideOpenItem = state.lists.last.map { indent <= $0.indent } ?? false
+        if state.previousWasParagraph, !outsideOpenItem, let level = setextLevel(line, from: bodyStart) {
             markers.append(Marker(range: NSRange(location: cursor, length: line.count - cursor), kind: .conceal))
             state.previousWasParagraph = false
             state.previousWasBlank = false
