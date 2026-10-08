@@ -22,6 +22,8 @@ struct MarkdownInputHandler {
             return changeIndent(by: 1, in: textView)
         case #selector(NSResponder.insertBacktab(_:)):
             return changeIndent(by: -1, in: textView)
+        case #selector(NSResponder.deleteBackward(_:)):
+            return deleteEmptyPair(in: textView)
         default:
             return false
         }
@@ -122,10 +124,22 @@ struct MarkdownInputHandler {
         return true
     }
 
-    /// Wraps a selection in a delimiter, or closes a pair on an empty one.
+    /// Brackets that close themselves as you type the opening one.
+    private static let autoPairs: [String: String] = ["(": ")", "[": "]", "{": "}", "`": "`"]
+
+    static let autoPairDefaultsKey = "autoPairBrackets"
+
+    private var autoPairEnabled: Bool {
+        UserDefaults.standard.object(forKey: Self.autoPairDefaultsKey) as? Bool ?? true
+    }
+
+    /// Wraps a selection in a delimiter. With no selection, types over a
+    /// closing bracket that is already there, or closes a new pair.
     func handleInsertion(of input: String, in textView: NSTextView, range: NSRange) -> Bool {
+        if range.length == 0 {
+            return autoPairEnabled && handleTyping(input, in: textView, at: range.location)
+        }
         guard let closing = Self.pairs[input] else { return false }
-        guard range.length > 0 else { return false }
 
         let text = storage.string as NSString
         let selected = text.substring(with: range)
@@ -133,6 +147,46 @@ struct MarkdownInputHandler {
         guard textView.shouldChangeText(in: range, replacementString: replacement) else { return true }
         textView.insertText(replacement, replacementRange: range)
         textView.setSelectedRange(NSRange(location: range.location + input.utf16.count, length: range.length))
+        return true
+    }
+
+    private func handleTyping(_ input: String, in textView: NSTextView, at location: Int) -> Bool {
+        let text = storage.string as NSString
+        let next: String? = location < text.length ? text.substring(with: NSRange(location: location, length: 1)) : nil
+        let previous: String? = location > 0 ? text.substring(with: NSRange(location: location - 1, length: 1)) : nil
+
+        // Typing the closer that auto-pairing put there just steps over it.
+        if Self.autoPairs.values.contains(input), next == input {
+            textView.setSelectedRange(NSRange(location: location + 1, length: 0))
+            return true
+        }
+
+        guard let closing = Self.autoPairs[input] else { return false }
+        // Only pair where a pair makes sense: before space, end of line or a closer.
+        if let next, !(next.first?.isWhitespace ?? false), !")]}".contains(next) { return false }
+        // A backtick after a word or another backtick is a closer or a fence.
+        if input == "`", let previous, previous == "`" || (previous.first?.isLetter ?? false) || (previous.first?.isNumber ?? false) {
+            return false
+        }
+        let pair = input + closing
+        let range = NSRange(location: location, length: 0)
+        guard textView.shouldChangeText(in: range, replacementString: pair) else { return true }
+        textView.insertText(pair, replacementRange: range)
+        textView.setSelectedRange(NSRange(location: location + input.utf16.count, length: 0))
+        return true
+    }
+
+    /// Backspace between `(` and `)` removes both.
+    private func deleteEmptyPair(in textView: NSTextView) -> Bool {
+        let selection = textView.selectedRange()
+        guard autoPairEnabled, selection.length == 0, selection.location > 0 else { return false }
+        let text = storage.string as NSString
+        guard selection.location < text.length else { return false }
+        let pairRange = NSRange(location: selection.location - 1, length: 2)
+        let pair = text.substring(with: pairRange)
+        guard let opening = pair.first.map(String.init), Self.autoPairs[opening] == String(pair.dropFirst()) else { return false }
+        guard textView.shouldChangeText(in: pairRange, replacementString: "") else { return true }
+        textView.insertText("", replacementRange: pairRange)
         return true
     }
 

@@ -28,6 +28,12 @@ final class MarkdownTextStorage: NSTextStorage {
         }
     }
 
+    /// Shows the markdown as written: every marker visible, one monospaced
+    /// font, no image previews. Colours still mark the structure.
+    var sourceMode = false {
+        didSet { if sourceMode != oldValue { restyleAll() } }
+    }
+
     /// The document's location, for resolving relative image paths.
     var baseURL: URL? {
         didSet { if baseURL != oldValue, !requestedImages.isEmpty { restyleAll() } }
@@ -216,7 +222,7 @@ final class MarkdownTextStorage: NSTextStorage {
 
     private func style(line: Int, info: LineInfo, range: NSRange, text: NSString) {
         let characters = structure.characters(of: text, line: line)
-        let revealed = revealedLines?.contains(line) ?? false
+        let revealed = sourceMode || (revealedLines?.contains(line) ?? false)
 
         // A paragraph underlined by `===` is really a heading.
         var headingLevel: Int?
@@ -228,7 +234,9 @@ final class MarkdownTextStorage: NSTextStorage {
         }
 
         let isCode = info.kind.isCode
-        let baseFont: NSFont = if let headingLevel {
+        let baseFont: NSFont = if sourceMode {
+            headingLevel != nil ? NSFontManager.shared.convert(theme.mono, toHaveTrait: .boldFontMask) : theme.mono
+        } else if let headingLevel {
             theme.headingFont(level: headingLevel)
         } else if isCode {
             theme.mono
@@ -292,7 +300,7 @@ final class MarkdownTextStorage: NSTextStorage {
         let nodes = info.kind.hasInlineContent && info.contentStart < characters.count
             ? InlineParser.parse(characters, from: info.contentStart, to: characters.count, references: references)
             : []
-        let inlineImage = info.kind == .paragraph && headingLevel == nil && !isTableHeader
+        let inlineImage = !sourceMode && info.kind == .paragraph && headingLevel == nil && !isTableHeader
             ? soleImage(in: nodes, characters: characters)
             : nil
         if let inlineImage, let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle {
@@ -514,6 +522,8 @@ final class MarkdownTextStorage: NSTextStorage {
             // Hidden unless the caret is on this line, which is the whole point.
             if !revealed { attributes[.mdConcealed] = true }
         }
+        // Source mode keeps markers as typed: no bullets, boxes or clicks.
+        if sourceMode { attributes[.mdMarker] = nil }
         backing.addAttributes(attributes, range: range)
     }
 }

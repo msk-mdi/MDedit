@@ -117,6 +117,7 @@ final class MainWindowController: NSWindowController {
         let editor = EditorViewController(textStorage: document.storage)
         editor.applyTheme(theme)
         editor.onSelectionChange = { [weak self] in self?.refreshStatus() }
+        editor.textView.documentURL = { [weak document] in document?.url }
         editor.onOpenLink = { [weak self, weak document] destination in
             guard let self, let document else { return }
             openLink(destination, from: document)
@@ -561,6 +562,11 @@ final class MainWindowController: NSWindowController {
         currentEditor?.setHeading(level: level)
     }
 
+    @objc func toggleSourceMode(_ sender: Any?) {
+        guard let editor = currentEditor else { return }
+        editor.sourceMode.toggle()
+    }
+
     @objc func toggleTypewriterMode(_ sender: Any?) {
         guard let editor = currentEditor else { return }
         editor.activeLine.typewriterMode.toggle()
@@ -597,6 +603,24 @@ final class MainWindowController: NSWindowController {
     private func show(error: Error) {
         guard let window else { return }
         NSAlert(error: error).beginSheetModal(for: window)
+    }
+}
+
+extension MainWindowController: NSMenuItemValidation {
+    /// View modes belong to each tab, so their check marks follow the tab.
+    func validateMenuItem(_ item: NSMenuItem) -> Bool {
+        let editor = currentEditor
+        switch item.action {
+        case #selector(toggleSourceMode(_:)):
+            item.state = editor?.sourceMode == true ? .on : .off
+        case #selector(toggleTypewriterMode(_:)):
+            item.state = editor?.activeLine.typewriterMode == true ? .on : .off
+        case #selector(toggleFocusMode(_:)):
+            item.state = editor?.activeLine.focusMode == true ? .on : .off
+        default:
+            break
+        }
+        return true
     }
 }
 

@@ -13,10 +13,11 @@ final class PreferencesWindowController: NSWindowController {
     private let sizeField = NSTextField()
     private let widthSlider = NSSlider()
     private let widthLabel = NSTextField(labelWithString: "")
+    private let autoPairBox = NSButton(checkboxWithTitle: "Close brackets and backticks automatically", target: nil, action: nil)
 
     private convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 420, height: 190),
+            contentRect: NSRect(x: 0, y: 0, width: 420, height: 220),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -58,6 +59,11 @@ final class PreferencesWindowController: NSWindowController {
         grid.addRow(with: [NSTextField(labelWithString: "Line width:"), widthSlider])
         grid.addRow(with: [NSTextField(labelWithString: ""), widthLabel])
 
+        autoPairBox.state = UserDefaults.standard.object(forKey: MarkdownInputHandler.autoPairDefaultsKey) as? Bool ?? true ? .on : .off
+        autoPairBox.target = self
+        autoPairBox.action = #selector(settingChanged)
+        grid.addRow(with: [NSTextField(labelWithString: "Typing:"), autoPairBox])
+
         let content = NSView()
         content.addSubview(grid)
         NSLayoutConstraint.activate([
@@ -81,6 +87,7 @@ final class PreferencesWindowController: NSWindowController {
         defaults.set(family == "System" ? "" : family, forKey: "editorFontName")
         defaults.set(sizeField.doubleValue, forKey: "editorFontSize")
         defaults.set(widthSlider.doubleValue, forKey: "editorLineWidth")
+        defaults.set(autoPairBox.state == .on, forKey: MarkdownInputHandler.autoPairDefaultsKey)
         updateWidthLabel()
         NotificationCenter.default.post(name: Self.settingsDidChange, object: nil)
     }

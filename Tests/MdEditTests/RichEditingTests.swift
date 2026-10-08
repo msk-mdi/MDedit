@@ -64,3 +64,98 @@ struct RichEditingTests {
         #expect(!textView.toggleTaskBox(at: 7))
     }
 }
+
+@MainActor
+@Suite("Typing and pasting")
+struct TypingTests {
+    private func makeTextView(_ text: String) -> (MarkdownTextView, MarkdownInputHandler) {
+        let storage = MarkdownTextStorage(theme: .light)
+        let layoutManager = MarkdownLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 400, height: 1000))
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        let textView = MarkdownTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 400), textContainer: container)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        return (textView, MarkdownInputHandler(storage: storage))
+    }
+
+    /// Types one character the way the editor does: the handler first, then plain insertion.
+    private func type(_ character: String, _ textView: MarkdownTextView, _ input: MarkdownInputHandler) {
+        let range = textView.selectedRange()
+        if !input.handleInsertion(of: character, in: textView, range: range) {
+            textView.insertText(character, replacementRange: range)
+        }
+    }
+
+    @Test("Brackets close themselves and are typed over")
+    func autoPair() {
+        UserDefaults.standard.removeObject(forKey: MarkdownInputHandler.autoPairDefaultsKey)
+        let (textView, input) = makeTextView("")
+        for character in ["(", "a", ")"] { type(character, textView, input) }
+        #expect(textView.string == "(a)")
+        #expect(textView.selectedRange().location == 3)
+
+        // A task box types naturally.
+        let (task, taskInput) = makeTextView("- ")
+        task.setSelectedRange(NSRange(location: 2, length: 0))
+        for character in ["[", " ", "]", " "] { type(character, task, taskInput) }
+        #expect(task.string == "- [ ] ")
+
+        // Three backticks make a fence, not three pairs.
+        let (fence, fenceInput) = makeTextView("")
+        for _ in 0..<3 { type("`", fence, fenceInput) }
+        #expect(fence.string == "```")
+
+        // No pairing right before a word.
+        let (word, wordInput) = makeTextView("word")
+        word.setSelectedRange(NSRange(location: 0, length: 0))
+        type("(", word, wordInput)
+        #expect(word.string == "(word")
+    }
+
+    @Test("Backspace inside an empty pair removes both halves")
+    func deletePair() {
+        let (textView, input) = makeTextView("x()")
+        textView.setSelectedRange(NSRange(location: 2, length: 0))
+        #expect(input.handleCommand(#selector(NSResponder.deleteBackward(_:)), in: textView))
+        #expect(textView.string == "x")
+    }
+
+    @Test("Pasted images link relative to the document, saved data goes in assets")
+    func imageImport() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditImport-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let document = folder.appendingPathComponent("notes.md")
+
+        #expect(ImageImporter.markdown(forImageAt: folder.appendingPathComponent("img/a b.png"), documentURL: document)
+            == "![a b](<img/a b.png>)")
+        #expect(ImageImporter.destination(for: URL(fileURLWithPath: "/elsewhere/x.png"), documentURL: document)
+            == "/elsewhere/x.png")
+
+        let image = NSImage(size: NSSize(width: 4, height: 4))
+        image.lockFocus()
+        NSColor.red.setFill()
+        NSRect(x: 0, y: 0, width: 4, height: 4).fill()
+        image.unlockFocus()
+        let date = Date(timeIntervalSince1970: 0)
+        let first = try ImageImporter.save(image, besideDocument: document, date: date)
+        let second = try ImageImporter.save(image, besideDocument: document, date: date)
+        #expect(first.deletingLastPathComponent().lastPathComponent == "assets")
+        #expect(first != second)
+        #expect(FileManager.default.fileExists(atPath: second.path))
+        #expect(throws: ImageImporter.ImportError.self) { try ImageImporter.save(image, besideDocument: nil) }
+    }
+
+    @Test("Source mode shows every marker and drops the bullet substitution")
+    func sourceMode() {
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "# Title\n- item **bold**")
+        storage.revealedLines = nil
+        #expect(storage.attribute(.mdConcealed, at: 0, effectiveRange: nil) != nil)
+        #expect(storage.attribute(.mdMarker, at: 8, effectiveRange: nil) != nil)
+        storage.sourceMode = true
+        #expect(storage.attribute(.mdConcealed, at: 0, effectiveRange: nil) == nil)
+        #expect(storage.attribute(.mdConcealed, at: 15, effectiveRange: nil) == nil)
+        #expect(storage.attribute(.mdMarker, at: 8, effectiveRange: nil) == nil)
+    }
+}

@@ -27,6 +27,11 @@ final class EditorViewController: NSViewController {
         set { textView.onOpenLink = newValue }
     }
 
+    var sourceMode: Bool {
+        get { storage.sourceMode }
+        set { storage.sourceMode = newValue }
+    }
+
     /// Width of the centred text column.
     var lineWidth: CGFloat = Metrics.defaultLineWidth {
         didSet { view.needsLayout = true }
@@ -162,7 +167,7 @@ extension EditorViewController: NSTextViewDelegate {
         shouldChangeTextIn affectedCharRange: NSRange,
         replacementString: String?
     ) -> Bool {
-        guard let replacementString, affectedCharRange.length > 0 else { return true }
+        guard let replacementString else { return true }
         return !input.handleInsertion(of: replacementString, in: textView, range: affectedCharRange)
     }
 

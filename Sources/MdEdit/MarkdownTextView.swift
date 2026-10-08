@@ -6,6 +6,70 @@ import MarkdownKit
 final class MarkdownTextView: NSTextView {
     /// Asked to follow a link's destination exactly as written in the markdown.
     var onOpenLink: ((String) -> Void)?
+    /// The document's file, for placing and linking pasted images.
+    var documentURL: () -> URL? = { nil }
+
+    // MARK: - Paste and drop
+
+    /// Images paste as markdown; a URL pasted over a selection makes a link.
+    override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        if insertImages(from: pasteboard, at: selectedRange()) { return }
+        if pasteLinkOverSelection(from: pasteboard) { return }
+        super.paste(sender)
+    }
+
+    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        let point = convert(sender.draggingLocation, from: nil)
+        let location = characterIndexForInsertion(at: point)
+        if insertImages(from: sender.draggingPasteboard, at: NSRange(location: location, length: 0)) {
+            window?.makeFirstResponder(self)
+            return true
+        }
+        return super.performDragOperation(sender)
+    }
+
+    private func insertImages(from pasteboard: NSPasteboard, at range: NSRange) -> Bool {
+        let files = (pasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? [])
+            .filter(ImageImporter.isImageFile)
+        var markdown: [String] = []
+        if !files.isEmpty {
+            markdown = files.map { ImageImporter.markdown(forImageAt: $0, documentURL: documentURL()) }
+        } else if pasteboard.string(forType: .string) == nil,
+                  let image = NSImage(pasteboard: pasteboard) {
+            // Raw image data, as from a screenshot: it needs a file of its own.
+            do {
+                let saved = try ImageImporter.save(image, besideDocument: documentURL())
+                markdown = [ImageImporter.markdown(forImageAt: saved, documentURL: documentURL())]
+            } catch {
+                if let window { NSAlert(error: error).beginSheetModal(for: window) }
+                return true
+            }
+        }
+        guard !markdown.isEmpty else { return false }
+
+        let insertion = markdown.joined(separator: "\n")
+        guard shouldChangeText(in: range, replacementString: insertion) else { return true }
+        insertText(insertion, replacementRange: range)
+        return true
+    }
+
+    private func pasteLinkOverSelection(from pasteboard: NSPasteboard) -> Bool {
+        let selection = selectedRange()
+        guard selection.length > 0,
+              let pasted = pasteboard.string(forType: .string)?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !pasted.contains(where: \.isWhitespace),
+              let url = URL(string: pasted), let scheme = url.scheme?.lowercased(),
+              ["http", "https", "mailto"].contains(scheme),
+              let storage = textStorage
+        else { return false }
+        let selected = (storage.string as NSString).substring(with: selection)
+        guard !selected.contains("\n") else { return false }
+        let link = "[\(selected)](\(pasted))"
+        guard shouldChangeText(in: selection, replacementString: link) else { return true }
+        insertText(link, replacementRange: selection)
+        return true
+    }
 
     override func mouseDown(with event: NSEvent) {
         guard let index = characterIndex(under: event) else {
