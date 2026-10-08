@@ -262,7 +262,9 @@ final class EditorViewController: NSViewController {
 
 extension EditorViewController: NSTextViewDelegate {
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
-        input.handleCommand(commandSelector, in: textView)
+        // Several carets type plainly: no list continuation or pairing.
+        if self.textView.hasMultipleTargets { return false }
+        return input.handleCommand(commandSelector, in: textView)
     }
 
     /// Typing a delimiter with text selected wraps it instead of replacing it.
@@ -271,7 +273,7 @@ extension EditorViewController: NSTextViewDelegate {
         shouldChangeTextIn affectedCharRange: NSRange,
         replacementString: String?
     ) -> Bool {
-        guard let replacementString else { return true }
+        guard let replacementString, !self.textView.isEditingAtCarets, !self.textView.hasMultipleTargets else { return true }
         return !input.handleInsertion(of: replacementString, in: textView, range: affectedCharRange)
     }
 

@@ -67,6 +67,125 @@ final class MarkdownTextStorage: NSTextStorage {
 
     private var headingNumberCache: [Int: String]?
 
+    // MARK: - Folding
+
+    /// Heading lines whose sections are folded away.
+    private(set) var foldedHeadings: Set<Int> = []
+    /// Lines hidden by folds, worked out when folds or text change.
+    private var hiddenLines: IndexSet = []
+
+    /// The lines a heading's section covers below it: up to the next heading
+    /// of the same or a higher level. Nil when the line is not a heading or
+    /// its section is empty.
+    func foldableRange(forHeadingLine line: Int) -> ClosedRange<Int>? {
+        let headings = structure.headings(in: backing.string as NSString)
+        guard let index = headings.firstIndex(where: { $0.line == line }) else { return nil }
+        let heading = headings[index]
+        // A setext heading's underline stays with its title.
+        let isSetext = structure.info(forLine: line).map { if case .atxHeading = $0.kind { false } else { true } } ?? false
+        let first = line + (isSetext ? 2 : 1)
+        let next = headings[(index + 1)...].first { $0.level <= heading.level }?.line ?? structure.lineCount
+        var last = next - 1
+        // The blank lines before the next heading stay, so it keeps its space.
+        while last >= first, structure.info(forLine: last)?.kind == .blank { last -= 1 }
+        return first <= last ? first...last : nil
+    }
+
+    /// The innermost heading whose section holds a line, or which is on it.
+    func enclosingHeading(ofLine line: Int) -> Int? {
+        let headings = structure.headings(in: backing.string as NSString)
+        for index in headings.indices.reversed() where headings[index].line <= line {
+            let heading = headings[index]
+            let next = headings[(index + 1)...].first { $0.level <= heading.level }?.line ?? structure.lineCount
+            if line < next { return heading.line }
+        }
+        return nil
+    }
+
+    func isHidden(line: Int) -> Bool {
+        hiddenLines.contains(line)
+    }
+
+    /// Folds or unfolds a heading's section. Returns false when there is
+    /// nothing to fold.
+    @discardableResult
+    func setFolded(_ folded: Bool, headingLine line: Int) -> Bool {
+        guard folded != foldedHeadings.contains(line) else { return true }
+        guard let range = foldableRange(forHeadingLine: line) else { return false }
+        if folded { foldedHeadings.insert(line) } else { foldedHeadings.remove(line) }
+        refreshFolds(restyling: range)
+        return true
+    }
+
+    func unfoldAll() {
+        guard !foldedHeadings.isEmpty else { return }
+        foldedHeadings.removeAll()
+        let previous = hiddenLines
+        hiddenLines = []
+        if let first = previous.first, let last = previous.last { restyle(lines: max(0, first - 1)...last) }
+    }
+
+    /// Unfolds whatever hides a line, so the caret or a search match can land there.
+    func reveal(line: Int) {
+        guard hiddenLines.contains(line) else { return }
+        for heading in foldedHeadings.sorted(by: >) {
+            if let range = foldableRange(forHeadingLine: heading), range.contains(line) {
+                setFolded(false, headingLine: heading)
+            }
+        }
+    }
+
+    private func refreshFolds(restyling range: ClosedRange<Int>?) {
+        var hidden = IndexSet()
+        for heading in foldedHeadings {
+            if let section = foldableRange(forHeadingLine: heading) {
+                hidden.insert(integersIn: section)
+            }
+        }
+        hiddenLines = hidden
+        if let range { restyle(lines: max(0, range.lowerBound - 1)...range.upperBound) }
+    }
+
+    /// Restyles lines and has the layout follow.
+    private func restyle(lines: ClosedRange<Int>) {
+        guard let lines = clampedLineRange(lines) else { return }
+        beginEditing()
+        applyStyles(lineRange: lines)
+        edited(.editedAttributes, range: characterRange(forLines: lines), changeInLength: 0)
+        endEditing()
+        pendingInvalidation = characterRange(forLines: lines)
+        flushPendingInvalidation()
+    }
+
+    /// Where each fold sat before an edit, in characters: its heading's start
+    /// and the end of its section.
+    private func foldExtents() -> [Int: (start: Int, end: Int)] {
+        var extents: [Int: (Int, Int)] = [:]
+        for heading in foldedHeadings {
+            guard let section = foldableRange(forHeadingLine: heading) else { continue }
+            extents[heading] = (structure.index.range(ofLine: heading).location, NSMaxRange(structure.index.range(ofLine: section.upperBound)))
+        }
+        return extents
+    }
+
+    /// Keeps folds on their headings through an edit: folds below the edit
+    /// shift with it, folds above it stay, and a fold the edit touches opens.
+    private func adjustFolds(extents: [Int: (start: Int, end: Int)], lineDelta: Int) {
+        let location = editedRange.location
+        let oldEnd = location + editedRange.length - changeInLength
+        let inserted = (backing.string as NSString).substring(with: editedRange)
+        var adjusted: Set<Int> = []
+        for (heading, extent) in extents {
+            if oldEnd < extent.start || (oldEnd == extent.start && (inserted.hasSuffix("\n") || inserted.isEmpty && location < oldEnd)) {
+                adjusted.insert(heading + lineDelta)
+            } else if location >= extent.end {
+                adjusted.insert(heading)
+            }
+        }
+        foldedHeadings = adjusted.filter { foldableRange(forHeadingLine: $0) != nil }
+        refreshFolds(restyling: nil)
+    }
+
     /// The outline number of the heading on a line, if it is one.
     func headingNumber(forLine line: Int) -> String? {
         if headingNumberCache == nil {
@@ -164,6 +283,9 @@ final class MarkdownTextStorage: NSTextStorage {
         isProcessingEdit = true
         if editedMask.contains(.editedCharacters) {
             let text = backing.string as NSString
+            let extents = foldedHeadings.isEmpty ? [:] : foldExtents()
+            let oldLineCount = structure.lineCount
+            let previouslyHidden = hiddenLines
             let updated = structure.update(
                 text: text,
                 editedRange: editedRange,
@@ -171,8 +293,18 @@ final class MarkdownTextStorage: NSTextStorage {
             )
             references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
             headingNumberCache = nil
+            if !extents.isEmpty {
+                adjustFolds(extents: extents, lineDelta: structure.lineCount - oldLineCount)
+            }
             // The line above takes its spacing from whether this one is blank.
-            let lineRange = max(0, updated.lowerBound - 1)...updated.upperBound
+            var lineRange = max(0, updated.lowerBound - 1)...updated.upperBound
+            // Lines a fold hid or now hides restyle too; old lines past the
+            // end are clamped away.
+            let touchedFolds = hiddenLines.union(previouslyHidden)
+            if let first = touchedFolds.first, let last = touchedFolds.last {
+                lineRange = min(lineRange.lowerBound, first)...max(lineRange.upperBound, last)
+            }
+            lineRange = clampedLineRange(lineRange) ?? lineRange
             applyStyles(lineRange: lineRange)
             pendingInvalidation = characterRange(forLines: lineRange)
         }
@@ -272,6 +404,17 @@ final class MarkdownTextStorage: NSTextStorage {
     }
 
     private func style(line: Int, info: LineInfo, range: NSRange, text: NSString) {
+        if hiddenLines.contains(line) {
+            // Folded away: no glyphs, and a line too short to see.
+            backing.setAttributes([
+                .font: theme.body,
+                .foregroundColor: theme.text,
+                .paragraphStyle: Self.hiddenStyle,
+                .mdConcealed: true,
+                .mdFolded: true,
+            ], range: range)
+            return
+        }
         let characters = structure.characters(of: text, line: line)
         let revealed = sourceMode || (revealedLines?.contains(line) ?? false)
 
@@ -442,6 +585,15 @@ final class MarkdownTextStorage: NSTextStorage {
             backing.addAttributes([.foregroundColor: theme.secondaryText, .font: captionFont], range: caption)
         }
     }
+
+    private nonisolated(unsafe) static let hiddenStyle: NSParagraphStyle = {
+        let style = NSMutableParagraphStyle()
+        // Zero would mean "no limit"; this is as close as layout allows.
+        style.minimumLineHeight = 0.001
+        style.maximumLineHeight = 0.001
+        style.lineHeightMultiple = 0
+        return style
+    }()
 
     private var captionFont: NSFont {
         NSFontManager.shared.convert(theme.body, toSize: theme.bodyFontSize * 0.85)

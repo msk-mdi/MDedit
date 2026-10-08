@@ -52,6 +52,8 @@ final class MarkdownLayoutManager: NSLayoutManager {
             let lineCharacters = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
             guard lineCharacters.location < storage.length else { return }
             let attributes = storage.attributes(at: lineCharacters.location, effectiveRange: nil)
+            // Folded lines are a hair tall; nothing of theirs is drawn.
+            if attributes[.mdFolded] != nil { return }
             // An image sits in the space its paragraph reserved above the
             // first line, so only the paragraph's first fragment draws it.
             if let inline = attributes[.mdImage] as? InlineImage,
@@ -113,6 +115,15 @@ final class MarkdownLayoutManager: NSLayoutManager {
             }
         }
 
+        // A folded heading ends in a ⋯ chip, which unfolds it when clicked.
+        if let markdown = storage as? MarkdownTextStorage, !markdown.foldedHeadings.isEmpty {
+            let lines = markdown.line(at: characterRange.location)...markdown.line(at: NSMaxRange(characterRange))
+            for heading in markdown.foldedHeadings where lines.contains(heading) {
+                guard let chip = foldIndicatorRect(forHeadingLine: heading) else { continue }
+                drawFoldIndicator(in: chip.offsetBy(dx: origin.x, dy: origin.y))
+            }
+        }
+
         // Inline code gets a rounded chip behind it.
         storage.enumerateAttribute(.mdInlineCode, in: characterRange) { value, range, _ in
             guard value != nil else { return }
@@ -149,6 +160,35 @@ final class MarkdownLayoutManager: NSLayoutManager {
         let indent = (attributes[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent ?? 0
         let right = origin.x + container.lineFragmentPadding + indent - 10
         label.draw(at: NSPoint(x: right - size.width, y: origin.y + fragment.minY + baseline - numberFont.ascender))
+    }
+
+    /// Where a folded heading's ⋯ chip sits, in container coordinates: just
+    /// past the heading's last glyph, centred on its line.
+    func foldIndicatorRect(forHeadingLine line: Int) -> NSRect? {
+        guard let storage = textStorage as? MarkdownTextStorage, line < storage.structure.lineCount,
+              let container = textContainers.first
+        else { return nil }
+        let content = storage.structure.index.contentRange(ofLine: line, in: storage.string as NSString)
+        let last = max(content.location, NSMaxRange(content) - 1)
+        guard last < storage.length else { return nil }
+        let glyphs = glyphRange(forCharacterRange: NSRange(location: last, length: 1), actualCharacterRange: nil)
+        guard glyphs.location < numberOfGlyphs else { return nil }
+        let used = lineFragmentUsedRect(forGlyphAt: glyphs.location, effectiveRange: nil)
+        let glyphBounds = boundingRect(forGlyphRange: glyphs, in: container)
+        let height: CGFloat = 16
+        let lineBox = glyphBounds.height > 0 ? glyphBounds : used
+        return NSRect(x: max(used.maxX, glyphBounds.maxX) + 8, y: lineBox.midY - height / 2, width: 26, height: height)
+    }
+
+    private func drawFoldIndicator(in rect: NSRect) {
+        theme.codeBackground.setFill()
+        NSBezierPath(roundedRect: rect, xRadius: rect.height / 2, yRadius: rect.height / 2).fill()
+        let dots = NSAttributedString(string: "⋯", attributes: [
+            .font: NSFont.systemFont(ofSize: 12, weight: .bold),
+            .foregroundColor: theme.secondaryText,
+        ])
+        let size = dots.size()
+        dots.draw(at: NSPoint(x: rect.midX - size.width / 2, y: rect.midY - size.height / 2))
     }
 
     /// A fragment's characters start after any concealed glyphs, so the

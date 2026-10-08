@@ -131,7 +131,7 @@ extension EditorViewController {
 
     /// The word around a location, so a command with no selection still has
     /// something to act on.
-    private func wordRange(around location: Int) -> NSRange {
+    func wordRange(around location: Int) -> NSRange {
         let text = storage.string as NSString
         guard text.length > 0 else { return NSRange(location: location, length: 0) }
         let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*_`[]()#>"))
@@ -183,5 +183,97 @@ extension EditorViewController {
                 length: max(0, selection.length + (selection.length > 0 ? lengthDelta : 0))
             )
         )
+    }
+}
+
+// MARK: - Folding
+
+extension EditorViewController {
+    private var caretLine: Int {
+        storage.line(at: textView.selectedRange().location)
+    }
+
+    /// Puts the caret at the end of a heading's line, out of the way of its fold.
+    private func moveCaret(toHeading line: Int) {
+        let content = storage.structure.index.contentRange(ofLine: line, in: storage.string as NSString)
+        textView.setSelectedRange(NSRange(location: NSMaxRange(content), length: 0))
+    }
+
+    /// Folds the section the caret is in, under its heading.
+    func foldSection() {
+        guard let heading = storage.enclosingHeading(ofLine: caretLine), storage.foldableRange(forHeadingLine: heading) != nil else {
+            return NSSound.beep()
+        }
+        moveCaret(toHeading: heading)
+        storage.setFolded(true, headingLine: heading)
+    }
+
+    /// Unfolds the caret's heading, or the section the caret is in.
+    func unfoldSection() {
+        let line = caretLine
+        if storage.foldedHeadings.contains(line) {
+            storage.setFolded(false, headingLine: line)
+        } else if let heading = storage.enclosingHeading(ofLine: line), storage.foldedHeadings.contains(heading) {
+            storage.setFolded(false, headingLine: heading)
+        } else {
+            NSSound.beep()
+        }
+    }
+
+    /// Folds every heading's section, leaving the caret on a heading that shows.
+    func foldAll() {
+        let headings = storage.structure.headings(in: storage.string as NSString)
+        let foldable = headings.filter { storage.foldableRange(forHeadingLine: $0.line) != nil }
+        guard !foldable.isEmpty else { return NSSound.beep() }
+        // The outermost section holding the caret is where it will end up.
+        let line = caretLine
+        if let outer = foldable.first(where: { heading in
+            heading.line <= line && (storage.foldableRange(forHeadingLine: heading.line)?.contains(line) ?? false)
+        }) {
+            moveCaret(toHeading: outer.line)
+        }
+        for heading in foldable { storage.setFolded(true, headingLine: heading.line) }
+    }
+
+    func unfoldAll() {
+        storage.unfoldAll()
+    }
+}
+
+// MARK: - Several carets
+
+extension EditorViewController {
+    func addNextOccurrence() {
+        textView.addNextOccurrence { [unowned self] in wordRange(around: $0) }
+    }
+
+    func selectAllOccurrences() {
+        textView.selectAllOccurrences { [unowned self] in wordRange(around: $0) }
+    }
+
+    func addCaret(below: Bool) {
+        textView.addCaret(below: below)
+    }
+}
+
+// MARK: - Table of contents
+
+extension EditorViewController {
+    /// Inserts a linked list of the document's headings at the caret, set off
+    /// by blank lines.
+    func insertTableOfContents() {
+        let text = storage.string as NSString
+        let headings = storage.structure.headings(in: text)
+        guard !headings.isEmpty else { return NSSound.beep() }
+        let list = tableOfContentsMarkdown(headings, bullet: Settings().bulletMarker)
+        let range = textView.selectedRange()
+        let before = text.substring(to: range.location)
+        let after = text.substring(from: NSMaxRange(range))
+        let leading = before.isEmpty || before.hasSuffix("\n\n") ? "" : before.hasSuffix("\n") ? "\n" : "\n\n"
+        let trailing = after.hasPrefix("\n\n") ? "" : after.hasPrefix("\n") ? "\n" : "\n\n"
+        let insertion = leading + list + trailing
+        let end = range.location + (insertion as NSString).length
+        replace(range, with: insertion, select: NSRange(location: end, length: 0))
+        textView.undoManager?.setActionName("Insert Table of Contents")
     }
 }

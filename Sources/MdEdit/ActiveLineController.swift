@@ -31,6 +31,10 @@ final class ActiveLineController {
             ? storage.line(at: NSMaxRange(selection))
             : firstLine
 
+        // The caret never sits in a fold: moving into one opens it.
+        for line in [firstLine, lastLine] where storage.isHidden(line: line) {
+            storage.reveal(line: line)
+        }
         storage.revealedLines = firstLine...lastLine
 
         if let manager = textView.layoutManager as? MarkdownLayoutManager {

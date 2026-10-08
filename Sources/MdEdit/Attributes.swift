@@ -23,6 +23,8 @@ extension NSAttributedString.Key {
     static let mdEmoji = NSAttributedString.Key("mdEmoji")
     /// An `InlineImage` drawn above a line that holds only an image.
     static let mdImage = NSAttributedString.Key("mdImage")
+    /// Set on lines folded away under a heading.
+    static let mdFolded = NSAttributedString.Key("mdFolded")
 }
 
 /// Paragraph styles are shared: one per shape of line, built once.

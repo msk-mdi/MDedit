@@ -11,6 +11,23 @@ final class MarkdownTextView: NSTextView {
     /// Asked to open markdown files dropped onto the text.
     var onOpenFiles: (([URL]) -> Void)?
 
+    /// Insertion points besides the selection, for typing in several places.
+    var additionalCarets: [Int] = [] {
+        didSet { if additionalCarets != oldValue { needsDisplay = true } }
+    }
+    /// Set while an edit at several places runs, so the selection it leaves
+    /// behind does not clear the extra carets, and the delegate stays out.
+    private(set) var isEditingAtCarets = false
+
+    func setEditingAtCarets(_ editing: Bool) {
+        isEditingAtCarets = editing
+    }
+
+    override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
+        if !isEditingAtCarets, !additionalCarets.isEmpty { additionalCarets = [] }
+        super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
+    }
+
     // MARK: - Paste and drop
 
     /// Images paste as markdown; a URL pasted over a selection makes a link.
@@ -100,6 +117,17 @@ final class MarkdownTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if unfoldIndicator(at: event) { return }
+        // ⌥-click adds a caret; ⌥-drag still makes a column selection.
+        if event.modifierFlags.contains(.option), !event.modifierFlags.contains(.command) {
+            let before = editTargets
+            super.mouseDown(with: event)
+            if selectedRanges.count == 1, selectedRange().length == 0, before.allSatisfy({ $0.length == 0 }) {
+                let caret = selectedRange().location
+                additionalCarets = Array(Set(before.map(\.location)).subtracting([caret])).sorted()
+            }
+            return
+        }
         guard let index = characterIndex(under: event) else {
             return super.mouseDown(with: event)
         }
@@ -114,6 +142,22 @@ final class MarkdownTextView: NSTextView {
         }
         if toggleTaskBox(at: index) { return }
         super.mouseDown(with: event)
+    }
+
+    /// A click on a folded heading's ⋯ chip unfolds it.
+    private func unfoldIndicator(at event: NSEvent) -> Bool {
+        guard let storage = textStorage as? MarkdownTextStorage, !storage.foldedHeadings.isEmpty,
+              let layoutManager = layoutManager as? MarkdownLayoutManager
+        else { return false }
+        let point = convert(event.locationInWindow, from: nil)
+        let containerPoint = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        for heading in storage.foldedHeadings {
+            if let chip = layoutManager.foldIndicatorRect(forHeadingLine: heading), chip.insetBy(dx: -3, dy: -3).contains(containerPoint) {
+                storage.setFolded(false, headingLine: heading)
+                return true
+            }
+        }
+        return false
     }
 
     /// The pointing hand over links while Command is held, so they look clickable.

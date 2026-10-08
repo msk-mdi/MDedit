@@ -99,6 +99,7 @@ final class MainWindowController: NSWindowController {
         window.addTitlebarAccessoryViewController(accessory)
 
         canvas.addSubview(statusBar)
+        statusBar.onShowStatistics = { [weak self] anchor in self?.showStatistics(from: anchor) }
         canvas.addSubview(sidebar)
         sidebar.isHidden = !isSidebarVisible
         sidebar.show(SidebarView.Pane(rawValue: UserDefaults.standard.integer(forKey: "sidebarPane")) ?? .outline)
@@ -324,15 +325,50 @@ final class MainWindowController: NSWindowController {
 
     func refreshStatus() {
         guard let document = activeDocument, let editor = currentEditor else { return }
-        let counts = document.counts()
+        let statistics = document.statistics()
+        let selection = selectionStatistics()
         let (line, column) = editor.caretPosition()
-        statusBar.update(
-            words: counts.words,
-            characters: counts.characters,
-            lines: editor.storage.structure.lineCount,
-            line: line,
-            column: column
-        )
+        statusBar.update(statistics: statistics, selection: selection, goal: document.wordGoal, line: line, column: column)
+        if statisticsPopover.isShown {
+            statisticsController.show(selection ?? statistics, isSelection: selection != nil, goal: document.wordGoal)
+        }
+    }
+
+    /// Counts for the selected text, if any.
+    private func selectionStatistics() -> TextStatistics? {
+        guard let editor = currentEditor else { return nil }
+        let ranges = editor.textView.selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
+        guard !ranges.isEmpty else { return nil }
+        let text = editor.storage.string as NSString
+        return TextStatistics(ranges.map { text.substring(with: $0) }.joined(separator: "\n"))
+    }
+
+    private lazy var statisticsController: StatisticsViewController = {
+        let controller = StatisticsViewController()
+        controller.onSetGoal = { [weak self] goal in
+            self?.activeDocument?.wordGoal = goal
+            self?.refreshStatus()
+        }
+        return controller
+    }()
+
+    private lazy var statisticsPopover: NSPopover = {
+        let popover = NSPopover()
+        popover.behavior = .transient
+        popover.contentViewController = statisticsController
+        return popover
+    }()
+
+    private func showStatistics(from anchor: NSView) {
+        guard let document = activeDocument else { return }
+        if statisticsPopover.isShown { return statisticsPopover.performClose(nil) }
+        let selection = selectionStatistics()
+        statisticsController.show(selection ?? document.statistics(), isSelection: selection != nil, goal: document.wordGoal)
+        statisticsPopover.show(relativeTo: anchor.bounds, of: anchor, preferredEdge: .maxY)
+    }
+
+    @objc func showDocumentStatistics(_ sender: Any?) {
+        showStatistics(from: statusBar.statisticsAnchor)
     }
 
     // MARK: - File commands
@@ -863,6 +899,17 @@ final class MainWindowController: NSWindowController {
         onSessionChange?()
     }
 
+    @objc func addNextOccurrence(_ sender: Any?) { currentEditor?.addNextOccurrence() }
+    @objc func selectAllOccurrences(_ sender: Any?) { currentEditor?.selectAllOccurrences() }
+    @objc func addCaretAbove(_ sender: Any?) { currentEditor?.addCaret(below: false) }
+    @objc func addCaretBelow(_ sender: Any?) { currentEditor?.addCaret(below: true) }
+    @objc func insertTableOfContents(_ sender: Any?) { currentEditor?.insertTableOfContents() }
+
+    @objc func foldSection(_ sender: Any?) { currentEditor?.foldSection() }
+    @objc func unfoldSection(_ sender: Any?) { currentEditor?.unfoldSection() }
+    @objc func foldAllSections(_ sender: Any?) { currentEditor?.foldAll() }
+    @objc func unfoldAllSections(_ sender: Any?) { currentEditor?.unfoldAll() }
+
     // MARK: - Zoom
 
     /// Zoom is app-wide, like the font size it multiplies.
@@ -894,6 +941,45 @@ final class MainWindowController: NSWindowController {
     @objc func exportPDF(_ sender: Any?) {
         guard let document = activeDocument else { return }
         Exporter.exportPDF(document: document, in: window) { [weak self] error in self?.show(error: error) }
+    }
+
+    // MARK: - Versions
+
+    private var versionBrowser: VersionBrowserController?
+
+    @objc func browseVersions(_ sender: Any?) {
+        guard let window, let document = activeDocument, let url = document.url else { return NSSound.beep() }
+        let browser = VersionBrowserController(versions: document.history.allVersions(for: url), title: document.displayName)
+        browser.onFinish = { [weak self, weak document] text in
+            self?.versionBrowser = nil
+            guard let self, let document, let text else { return }
+            replaceText(of: document, with: text, actionName: "Restore Version")
+        }
+        versionBrowser = browser
+        if let sheet = browser.window { window.beginSheet(sheet) }
+    }
+
+    /// Puts back the file as it is on disk, as an edit that can be undone.
+    @objc func revertToSaved(_ sender: Any?) {
+        guard let document = activeDocument, let url = document.url else { return NSSound.beep() }
+        do {
+            let text = try FileFormat.decode(Data(contentsOf: url)).text
+            replaceText(of: document, with: text, actionName: "Revert to Saved")
+        } catch {
+            show(error: error)
+        }
+    }
+
+    private func replaceText(of document: Document, with text: String, actionName: String) {
+        guard let editor = editors[ObjectIdentifier(document)] else { return }
+        let textView = editor.textView
+        let all = NSRange(location: 0, length: document.storage.length)
+        document.storage.unfoldAll()
+        guard textView.shouldChangeText(in: all, replacementString: text) else { return }
+        textView.insertText(text, replacementRange: all)
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
+        textView.undoManager?.setActionName(actionName)
     }
 
     @objc func exportWord(_ sender: Any?) { exportRich(.word) }
@@ -966,6 +1052,12 @@ extension MainWindowController: NSMenuItemValidation {
             item.state = editor?.activeLine.typewriterMode == true ? .on : .off
         case #selector(toggleFocusMode(_:)):
             item.state = editor?.activeLine.focusMode == true ? .on : .off
+        case #selector(browseVersions(_:)):
+            return activeDocument?.url != nil
+        case #selector(revertToSaved(_:)):
+            return activeDocument?.url != nil && activeDocument?.isDirty == true
+        case #selector(unfoldAllSections(_:)):
+            return !(editor?.storage.foldedHeadings.isEmpty ?? true)
         case #selector(zoomIn(_:)):
             return Settings().zoom < Settings.zoomRange.upperBound - 0.001
         case #selector(zoomOut(_:)):

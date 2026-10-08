@@ -47,6 +47,15 @@ markdown comes back. There is no split pane and no preview mode to switch to.
 - **Syntax highlighting** in fenced code blocks for ~30 languages.
 - **Liquid Glass chrome** (macOS 26): a segmented tab track with a sliding glass
   thumb, a unified titlebar, and a full-width status bar.
+- **Writing tools.** Click the word count (or `⇧⌘I`) for statistics — words,
+  characters, paragraphs, sentences, reading and speaking time — of the document
+  or the selection, and set a word goal the status bar tracks. Fold a heading's
+  section away (`⌥⌘←` / `⌥⌘→`, or all of them with `⌃`). Type at several places
+  at once: `⌥`-click adds a caret, `⌃⇧↑` / `⌃⇧↓` add one above or below, `⌘D`
+  adds the next occurrence of the selection, `⌃⌘G` selects them all, and a
+  `⌥`-drag column selection types line by line. Format ▸ Table of Contents
+  inserts linked headings. Every open and save keeps a version: File ▸ Revert To
+  browses them, alongside any macOS keeps.
 - **Tabs**, find and replace, word and character counts with reading time,
   typewriter and focus modes, and light/dark themes that follow the system.
 - **Themes and settings.** Built-in Default, Paper, Solarized and Nord themes in
@@ -110,6 +119,11 @@ which is enough to run it locally but not to distribute it.
 | `⇧⌘E` / `⇧⌘L` / `⇧⌘F` | Files / outline / Find in Folder |
 | `⌘/` | Source mode |
 | `⌘+` / `⌘-` / `⌘0` | Zoom in / out / actual size |
+| `⌥⌘←` / `⌥⌘→` | Fold / unfold section (add `⌃` for all) |
+| `⌘D` / `⌃⌘G` | Add next occurrence / select all occurrences |
+| `⌃⇧↑` / `⌃⇧↓`, `⌥`-click | Add a caret above / below / anywhere |
+| `⇧⌘I` | Statistics and word goal |
+| `⌥⌘P` | Print |
 
 Return continues lists and blockquotes (and renumbers ordered items); on an empty
 item it ends the list instead. Tab and `⇧Tab` indent and outdent list items. Typing
@@ -222,8 +236,9 @@ storage's line-range handling.
 
 ## Not implemented
 
-Math and Mermaid diagrams are typeset only in HTML export (loaded from a CDN), not
-in the editor. There are no image upload services. The app is unsandboxed and ad-hoc signed.
+Math and Mermaid diagrams are typeset only in HTML export (loaded from a CDN, or
+inlined when `Scripts/fetch-vendor.sh` has run before `make-app.sh`), not in the
+editor. Extra carets do not blink. There are no image upload services. The app is unsandboxed and ad-hoc signed.
 
 ## License
 

@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownKit
 
 /// How a file's text was stored on disk, so saving writes it back the same way.
 struct FileFormat: Equatable {
@@ -127,6 +128,8 @@ final class Document {
         document.format = format
         document.beginWatching()
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
+        // The file as found, before any of this session's edits.
+        document.recordVersion(text)
         return document
     }
 
@@ -144,26 +147,52 @@ final class Document {
         try data.write(to: destination, options: .atomic)
         let needsWatcher = url != destination || isMissingOnDisk
         url = destination
+        if let goal = untitledGoal {
+            WordGoals.set(goal, for: destination)
+            untitledGoal = nil
+        }
         savedText = contents
         isMissingOnDisk = false
         if needsWatcher { beginWatching() }
         NSDocumentController.shared.noteNewRecentDocumentURL(destination)
+        recordVersion(contents)
     }
 
-    /// Word and character counts for the status pill.
-    func counts() -> (words: Int, characters: Int) {
-        let string = storage.string
-        var words = 0
-        var inWord = false
-        for scalar in string.unicodeScalars {
-            let isSeparator = CharacterSet.whitespacesAndNewlines.contains(scalar)
-            if isSeparator {
-                inWord = false
-            } else if !inWord {
-                inWord = true
-                words += 1
-            }
+    /// Where earlier versions of the file are kept.
+    var history = VersionHistory.standard
+
+    private func recordVersion(_ text: String) {
+        guard let url, VersionHistory.isWorthKeeping(url) else { return }
+        try? history.record(text, for: url)
+    }
+
+    /// Counts for the status bar.
+    func statistics() -> TextStatistics {
+        TextStatistics(storage.string)
+    }
+
+    /// A target word count, kept per file across launches.
+    var wordGoal: Int? {
+        get { url.flatMap { WordGoals.goal(for: $0) } ?? untitledGoal }
+        set {
+            if let url { WordGoals.set(newValue, for: url) } else { untitledGoal = newValue }
         }
-        return (words, string.count)
+    }
+
+    private var untitledGoal: Int?
+}
+
+/// Word goals by file path, in user defaults.
+enum WordGoals {
+    private static let key = "wordGoals"
+
+    static func goal(for url: URL, in defaults: UserDefaults = .standard) -> Int? {
+        (defaults.dictionary(forKey: key)?[url.standardizedFileURL.path] as? Int).flatMap { $0 > 0 ? $0 : nil }
+    }
+
+    static func set(_ goal: Int?, for url: URL, in defaults: UserDefaults = .standard) {
+        var goals = defaults.dictionary(forKey: key) ?? [:]
+        goals[url.standardizedFileURL.path] = goal.flatMap { $0 > 0 ? $0 : nil }
+        defaults.set(goals, forKey: key)
     }
 }
