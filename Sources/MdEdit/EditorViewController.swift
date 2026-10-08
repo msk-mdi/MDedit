@@ -81,8 +81,8 @@ final class EditorViewController: NSViewController {
         scrollView.hasHorizontalScroller = false
         scrollView.drawsBackground = true
         scrollView.autohidesScrollers = true
-        // Lets text scroll under the glass chrome instead of starting below it.
-        scrollView.automaticallyAdjustsContentInsets = true
+        // The editor starts below the titlebar, so there is nothing to inset for.
+        scrollView.automaticallyAdjustsContentInsets = false
         view = scrollView
         applyTheme(theme)
     }
@@ -94,6 +94,10 @@ final class EditorViewController: NSViewController {
         textView.allowsUndo = true
         textView.isVerticallyResizable = true
         textView.isHorizontallyResizable = false
+        // Created with a zero frame, the view would otherwise cap its height
+        // there and stop scrolling short of the end of a long document.
+        textView.minSize = .zero
+        textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
         textView.autoresizingMask = [.width]
         textView.textContainerInset = CGSize(width: 0, height: 28)
         textView.drawsBackground = true
@@ -174,19 +178,10 @@ final class EditorViewController: NSViewController {
 
     /// Line and column of the insertion point, both 1-based.
     func caretPosition() -> (line: Int, column: Int) {
-        let text = textView.string as NSString
-        let location = min(textView.selectedRange().location, text.length)
-        var line = 1
-        var lineStart = 0
-        var index = 0
-        while index < location {
-            let range = text.lineRange(for: NSRange(location: index, length: 0))
-            if NSMaxRange(range) > location { lineStart = range.location; break }
-            index = NSMaxRange(range)
-            lineStart = index
-            line += 1
-        }
-        return (line, location - lineStart + 1)
+        let location = min(textView.selectedRange().location, storage.length)
+        let line = storage.line(at: location)
+        let lineStart = storage.structure.index.range(ofLine: line).location
+        return (line + 1, location - lineStart + 1)
     }
 
     func applyTheme(_ theme: Theme) {

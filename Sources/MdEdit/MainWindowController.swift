@@ -2,7 +2,7 @@ import AppKit
 import MarkdownKit
 
 /// The single window: a transparent titlebar carrying the glass tab strip, an
-/// opaque canvas that scrolls beneath it, and a floating status pill.
+/// opaque canvas below it, and a floating status pill.
 @MainActor
 final class MainWindowController: NSWindowController {
     private var documents: [Document] = []
@@ -16,6 +16,12 @@ final class MainWindowController: NSWindowController {
     private var editorLeading: NSLayoutConstraint?
     private var isSidebarVisible = UserDefaults.standard.bool(forKey: "showSidebar")
     private var pendingOutlineRefresh: DispatchWorkItem?
+    /// Typing changes the text and the selection, and each asks for the
+    /// status; one refresh per run-loop turn answers both.
+    private var isStatusRefreshScheduled = false
+    /// Recounting a long document on every keystroke makes typing lag, so
+    /// the count waits for a pause.
+    private var pendingStatisticsRefresh: DispatchWorkItem?
     private(set) var workspace: Workspace?
     private var directoryWatcher: DirectoryWatcher?
     private lazy var quickOpenPanel: QuickOpenController = {
@@ -232,7 +238,9 @@ final class MainWindowController: NSWindowController {
         NSLayoutConstraint.activate([
             leading,
             editor.view.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
-            editor.view.topAnchor.constraint(equalTo: canvas.topAnchor),
+            // Below the titlebar, which stays an opaque band of canvas colour
+            // rather than showing the text scrolled beneath it.
+            editor.view.topAnchor.constraint(equalTo: (window?.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? canvas.topAnchor),
             editor.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
     }
@@ -324,14 +332,41 @@ final class MainWindowController: NSWindowController {
     }
 
     func refreshStatus() {
+        guard !isStatusRefreshScheduled else { return }
+        isStatusRefreshScheduled = true
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            isStatusRefreshScheduled = false
+            updateStatus()
+        }
+    }
+
+    private func updateStatus() {
         guard let document = activeDocument, let editor = currentEditor else { return }
-        let statistics = document.statistics()
+        let statistics: TextStatistics
+        if !document.hasCurrentStatistics, let latest = document.latestStatistics {
+            statistics = latest
+            scheduleStatisticsRefresh()
+        } else {
+            statistics = document.statistics()
+        }
         let selection = selectionStatistics()
         let (line, column) = editor.caretPosition()
         statusBar.update(statistics: statistics, selection: selection, goal: document.wordGoal, line: line, column: column)
         if statisticsPopover.isShown {
             statisticsController.show(selection ?? statistics, isSelection: selection != nil, goal: document.wordGoal)
         }
+    }
+
+    private func scheduleStatisticsRefresh() {
+        pendingStatisticsRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self, let document = activeDocument else { return }
+            _ = document.statistics()
+            updateStatus()
+        }
+        pendingStatisticsRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
     /// Counts for the selected text, if any.
@@ -594,7 +629,7 @@ final class MainWindowController: NSWindowController {
     private func refreshOutline() {
         guard isSidebarVisible, sidebar.pane == .outline, let document = activeDocument else { return }
         let storage = document.storage
-        sidebar.outline.setHeadings(storage.structure.headings(in: storage.string as NSString))
+        sidebar.outline.setHeadings(storage.headings)
         followCaretInOutline()
     }
 

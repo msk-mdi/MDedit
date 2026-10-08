@@ -48,9 +48,10 @@ final class MarkdownTextStorage: NSTextStorage {
     var extensions: SyntaxExtensions = .all {
         didSet {
             guard extensions != oldValue else { return }
-            structure = BlockStructure(text: backing.string as NSString, extensions: extensions)
+            structure = BlockStructure(text: text, extensions: extensions)
             references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
             headingNumberCache = nil
+            cachedHeadings = nil
             restyleAll()
         }
     }
@@ -66,6 +67,16 @@ final class MarkdownTextStorage: NSTextStorage {
     }
 
     private var headingNumberCache: [Int: String]?
+    private var cachedHeadings: [Heading]?
+
+    /// Every heading, in order; kept until the structure next changes, since
+    /// folds ask for it once per folded section on every edit.
+    var headings: [Heading] {
+        if let cachedHeadings { return cachedHeadings }
+        let headings = structure.headings(in: text)
+        cachedHeadings = headings
+        return headings
+    }
 
     // MARK: - Folding
 
@@ -78,7 +89,7 @@ final class MarkdownTextStorage: NSTextStorage {
     /// of the same or a higher level. Nil when the line is not a heading or
     /// its section is empty.
     func foldableRange(forHeadingLine line: Int) -> ClosedRange<Int>? {
-        let headings = structure.headings(in: backing.string as NSString)
+        let headings = self.headings
         guard let index = headings.firstIndex(where: { $0.line == line }) else { return nil }
         let heading = headings[index]
         // A setext heading's underline stays with its title.
@@ -93,7 +104,7 @@ final class MarkdownTextStorage: NSTextStorage {
 
     /// The innermost heading whose section holds a line, or which is on it.
     func enclosingHeading(ofLine line: Int) -> Int? {
-        let headings = structure.headings(in: backing.string as NSString)
+        let headings = self.headings
         for index in headings.indices.reversed() where headings[index].line <= line {
             let heading = headings[index]
             let next = headings[(index + 1)...].first { $0.level <= heading.level }?.line ?? structure.lineCount
@@ -173,7 +184,7 @@ final class MarkdownTextStorage: NSTextStorage {
     private func adjustFolds(extents: [Int: (start: Int, end: Int)], lineDelta: Int) {
         let location = editedRange.location
         let oldEnd = location + editedRange.length - changeInLength
-        let inserted = (backing.string as NSString).substring(with: editedRange)
+        let inserted = (text).substring(with: editedRange)
         var adjusted: Set<Int> = []
         for (heading, extent) in extents {
             if oldEnd < extent.start || (oldEnd == extent.start && (inserted.hasSuffix("\n") || inserted.isEmpty && location < oldEnd)) {
@@ -189,7 +200,7 @@ final class MarkdownTextStorage: NSTextStorage {
     /// The outline number of the heading on a line, if it is one.
     func headingNumber(forLine line: Int) -> String? {
         if headingNumberCache == nil {
-            let headings = structure.headings(in: backing.string as NSString)
+            let headings = self.headings
             headingNumberCache = Dictionary(
                 zip(headings.map(\.line), HeadingNumberer.numbers(for: headings)),
                 uniquingKeysWith: { first, _ in first }
@@ -221,7 +232,7 @@ final class MarkdownTextStorage: NSTextStorage {
         NotificationCenter.default.addObserver(self, selector: #selector(imageDidLoad(_:)), name: ImageCache.didLoad, object: nil)
         if !text.isEmpty {
             backing.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
-            structure = BlockStructure(text: backing.string as NSString)
+            structure = BlockStructure(text: self.text)
             references = .collect(from: structure, requireDefinitions: false)
             applyStyles(lineRange: 0...max(0, structure.lineCount - 1))
         }
@@ -232,6 +243,16 @@ final class MarkdownTextStorage: NSTextStorage {
 
     @objc private func imageDidLoad(_ notification: Notification) {
         guard let url = notification.object as? URL, requestedImages.contains(url) else { return }
+        // Images tend to arrive in a burst; one restyle covers them all.
+        guard !isImageRestyleScheduled else { return }
+        isImageRestyleScheduled = true
+        perform(#selector(restyleForImages), with: nil, afterDelay: 0)
+    }
+
+    private var isImageRestyleScheduled = false
+
+    @objc private func restyleForImages() {
+        isImageRestyleScheduled = false
         restyleAll()
     }
 
@@ -242,7 +263,53 @@ final class MarkdownTextStorage: NSTextStorage {
 
     // MARK: - NSTextStorage
 
-    override var string: String { backing.string }
+    /// Bridging the backing's mutable string to `String` copies the whole
+    /// document, and AppKit asks for `string` constantly during layout — once
+    /// per line break — so the copy is kept until the next edit.
+    private var cachedString: String?
+
+    /// Counts edits to the characters, so callers can cache what they derive.
+    private(set) var editGeneration = 0
+
+    override var string: String {
+        if let cachedString { return cachedString }
+        let copy = backing.string
+        cachedString = copy
+        return copy
+    }
+
+    /// The text, without the copy: valid until the next edit.
+    private var text: NSString { backing.mutableString }
+
+    /// Answered from the backing directly; the inherited version goes through
+    /// `attributes(at:)`, bridging a whole dictionary to read one value.
+    override func attribute(
+        _ attrName: NSAttributedString.Key,
+        at location: Int,
+        effectiveRange range: NSRangePointer?
+    ) -> Any? {
+        backing.attribute(attrName, at: location, effectiveRange: range)
+    }
+
+    /// The inherited version walks runs one call at a time; attribute fixing
+    /// asks this on every edit.
+    override func attribute(
+        _ attrName: NSAttributedString.Key,
+        at location: Int,
+        longestEffectiveRange range: NSRangePointer?,
+        in rangeLimit: NSRange
+    ) -> Any? {
+        backing.attribute(attrName, at: location, longestEffectiveRange: range, in: rangeLimit)
+    }
+
+    override func attributes(
+        at location: Int,
+        longestEffectiveRange range: NSRangePointer?,
+        in rangeLimit: NSRange
+    ) -> [NSAttributedString.Key: Any] {
+        guard backing.length > 0 else { return [:] }
+        return backing.attributes(at: location, longestEffectiveRange: range, in: rangeLimit)
+    }
 
     override func attributes(
         at location: Int,
@@ -254,6 +321,8 @@ final class MarkdownTextStorage: NSTextStorage {
 
     override func replaceCharacters(in range: NSRange, with str: String) {
         beginEditing()
+        cachedString = nil
+        editGeneration += 1
         backing.replaceCharacters(in: range, with: str)
         edited(.editedCharacters, range: range, changeInLength: (str as NSString).length - range.length)
         endEditing()
@@ -282,7 +351,7 @@ final class MarkdownTextStorage: NSTextStorage {
     override func processEditing() {
         isProcessingEdit = true
         if editedMask.contains(.editedCharacters) {
-            let text = backing.string as NSString
+            let text = self.text
             let extents = foldedHeadings.isEmpty ? [:] : foldExtents()
             let oldLineCount = structure.lineCount
             let previouslyHidden = hiddenLines
@@ -291,8 +360,11 @@ final class MarkdownTextStorage: NSTextStorage {
                 editedRange: editedRange,
                 changeInLength: changeInLength
             )
-            references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
+            if structure.touchedDefinitions {
+                references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
+            }
             headingNumberCache = nil
+            cachedHeadings = nil
             if !extents.isEmpty {
                 adjustFolds(extents: extents, lineDelta: structure.lineCount - oldLineCount)
             }
@@ -390,7 +462,7 @@ final class MarkdownTextStorage: NSTextStorage {
     }
 
     private func applyStyles(lineRange: ClosedRange<Int>) {
-        let text = backing.string as NSString
+        let text = self.text
         let lower = max(0, lineRange.lowerBound)
         let upper = min(lineRange.upperBound, structure.lineCount - 1)
         guard lower <= upper else { return }
@@ -519,7 +591,7 @@ final class MarkdownTextStorage: NSTextStorage {
             : nil
         if let inlineImage, let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle {
             let spaced = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
-            let captionHeight = NSLayoutManager().defaultLineHeight(for: captionFont) * max(1, spaced.lineHeightMultiple)
+            let captionHeight = Self.lineHeightManager.defaultLineHeight(for: captionFont) * max(1, spaced.lineHeightMultiple)
             spaced.minimumLineHeight = inlineImage.size.height + Metrics.imageSpacing * 2 + captionHeight
             attributes[.paragraphStyle] = spaced
             attributes[.mdImage] = inlineImage
@@ -594,6 +666,9 @@ final class MarkdownTextStorage: NSTextStorage {
         style.lineHeightMultiple = 0
         return style
     }()
+
+    /// Only asked for line heights; making one per image line is wasteful.
+    private nonisolated(unsafe) static let lineHeightManager = NSLayoutManager()
 
     private var captionFont: NSFont {
         NSFontManager.shared.convert(theme.body, toSize: theme.bodyFontSize * 0.85)

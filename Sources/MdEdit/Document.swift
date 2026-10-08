@@ -63,7 +63,12 @@ final class Document {
     var format = FileFormat()
 
     /// Contents as last read from or written to disk, used to detect dirtiness.
-    private var savedText: String
+    private var savedText: String {
+        didSet { savedLength = (savedText as NSString).length }
+    }
+    /// Comparing lengths first keeps the dirty check off the whole text
+    /// for almost every keystroke.
+    private var savedLength = 0
     /// The file vanished from disk; the editor holds the only copy.
     private(set) var isMissingOnDisk = false
 
@@ -81,6 +86,7 @@ final class Document {
         storage.baseURL = url
         storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
         savedText = text
+        savedLength = (text as NSString).length
     }
 
     var text: String { storage.string }
@@ -116,7 +122,9 @@ final class Document {
         isMissingOnDisk = true
     }
 
-    var isDirty: Bool { isMissingOnDisk || storage.string != savedText }
+    var isDirty: Bool {
+        isMissingOnDisk || storage.length != savedLength || storage.string != savedText
+    }
 
     var displayName: String {
         url?.lastPathComponent ?? "Untitled"
@@ -166,10 +174,21 @@ final class Document {
         try? history.record(text, for: url)
     }
 
-    /// Counts for the status bar.
+    /// Counts for the status bar, kept until the text next changes.
     func statistics() -> TextStatistics {
-        TextStatistics(storage.string)
+        if let cached = cachedStatistics, cached.generation == storage.editGeneration { return cached.value }
+        let value = TextStatistics(storage.string)
+        cachedStatistics = (storage.editGeneration, value)
+        return value
     }
+
+    /// The last counts, even if the text has changed since: cheap enough to
+    /// show while typing, until the count catches up.
+    var latestStatistics: TextStatistics? { cachedStatistics?.value }
+
+    var hasCurrentStatistics: Bool { cachedStatistics?.generation == storage.editGeneration }
+
+    private var cachedStatistics: (generation: Int, value: TextStatistics)?
 
     /// A target word count, kept per file across launches.
     var wordGoal: Int? {

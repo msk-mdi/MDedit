@@ -13,12 +13,19 @@ public struct LineIndex: Equatable {
     public init(text: NSString) {
         starts = [0]
         length = text.length
-        var index = 0
-        while index < text.length {
-            if text.character(at: index) == 0x0A {  // \n
-                starts.append(index + 1)
+        // Read in chunks: a message per character is slow on long documents.
+        let chunk = 16_384
+        var buffer = [UInt16](repeating: 0, count: chunk)
+        var offset = 0
+        while offset < length {
+            let count = min(chunk, length - offset)
+            buffer.withUnsafeMutableBufferPointer { pointer in
+                text.getCharacters(pointer.baseAddress!, range: NSRange(location: offset, length: count))
+                for index in 0..<count where pointer[index] == 0x0A {  // \n
+                    starts.append(offset + index + 1)
+                }
             }
-            index += 1
+            offset += count
         }
     }
 
@@ -87,21 +94,18 @@ public struct LineIndex: Equatable {
             index += 1
         }
 
-        // Lines after the rescanned region keep their identity, shifted by delta.
-        let tailStartLine = lastOldLine + 1
-        var tail: [Int] = []
-        if tailStartLine < starts.count {
-            tail = starts[tailStartLine...].map { $0 + delta }
+        // Lines after the rescanned region keep their identity, shifted by
+        // delta, in place rather than through copies of the whole array.
+        var tailStart = min(lastOldLine + 1, starts.count)
+        for line in tailStart..<starts.count { starts[line] += delta }
+        // Drop any shifted starts that the rescan already produced (the tail
+        // is sorted, so they lead it). A newline ending the rescanned region
+        // yields a start equal to the first tail entry, so that one goes too.
+        while tailStart < starts.count, starts[tailStart] < scanEnd { tailStart += 1 }
+        if let lastRescanned = replacement.last, tailStart < starts.count, starts[tailStart] == lastRescanned {
+            tailStart += 1
         }
-        // Drop any shifted starts that the rescan already produced. A newline
-        // ending the rescanned region yields a start equal to the first tail
-        // entry, so that one is dropped too.
-        tail = tail.filter { $0 >= scanEnd }
-        if let lastRescanned = replacement.last, tail.first == lastRescanned {
-            tail.removeFirst()
-        }
-
-        starts = Array(starts[...firstLine]) + replacement + tail
+        starts.replaceSubrange((firstLine + 1)..<max(firstLine + 1, tailStart), with: replacement)
         length = text.length
 
         // The rescanned region ends at a line boundary when its last newline is

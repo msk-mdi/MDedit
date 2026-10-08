@@ -27,8 +27,11 @@ public struct TextStatistics: Equatable, Sendable {
             wordHasContent = false
         }
 
+        // One pass. ASCII, nearly all of a markdown file, is classified
+        // inline; `CharacterSet` lookups are kept for the rest.
         for scalar in text.unicodeScalars {
-            if scalar == "\n" {
+            let value = scalar.value
+            if value == 0x0A {
                 endWord()
                 if lineHasContent {
                     if !inParagraph { paragraphs += 1 }
@@ -40,16 +43,27 @@ public struct TextStatistics: Equatable, Sendable {
                 lines += 1
                 continue
             }
-            if CharacterSet.whitespaces.contains(scalar) {
+            let isWhitespace: Bool
+            let isAlphanumeric: Bool
+            if value < 0x80 {
+                isWhitespace = value == 0x20 || value == 0x09
+                isAlphanumeric = (value >= 0x30 && value <= 0x39) || ((value | 0x20) >= 0x61 && (value | 0x20) <= 0x7A)
+                if !isWhitespace, value != 0x0B, value != 0x0C, value != 0x0D { charactersExcludingSpaces += 1 }
+            } else {
+                isWhitespace = CharacterSet.whitespaces.contains(scalar)
+                isAlphanumeric = !isWhitespace && CharacterSet.alphanumerics.contains(scalar)
+                if !CharacterSet.whitespacesAndNewlines.contains(scalar) { charactersExcludingSpaces += 1 }
+            }
+            if isWhitespace {
                 endWord()
                 continue
             }
             lineHasContent = true
             inWord = true
-            if CharacterSet.alphanumerics.contains(scalar) {
+            if isAlphanumeric {
                 wordHasContent = true
                 sentencePending = true
-            } else if ".!?。！？".unicodeScalars.contains(scalar), sentencePending {
+            } else if Self.sentenceEnds.contains(value), sentencePending {
                 sentences += 1
                 sentencePending = false
             }
@@ -59,8 +73,10 @@ public struct TextStatistics: Equatable, Sendable {
         // Text that trails off without a full stop is still a sentence.
         if sentencePending { sentences += 1 }
         characters = text.count
-        charactersExcludingSpaces = text.unicodeScalars.filter { !CharacterSet.whitespacesAndNewlines.contains($0) }.count
     }
+
+    /// `.!?。！？`
+    private static let sentenceEnds: Set<UInt32> = [0x2E, 0x21, 0x3F, 0x3002, 0xFF01, 0xFF1F]
 
     /// At 230 words a minute, rounded up.
     public var readingMinutes: Int { minutes(atWordsPerMinute: 230) }

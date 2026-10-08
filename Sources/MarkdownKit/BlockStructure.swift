@@ -27,6 +27,10 @@ public final class BlockStructure {
 
     public var lineCount: Int { index.count }
 
+    /// Whether the last update added, removed or changed a link or footnote
+    /// definition, so references need collecting again.
+    public private(set) var touchedDefinitions = false
+
     public func info(forLine line: Int) -> LineInfo? {
         lines.indices.contains(line) ? lines[line] : nil
     }
@@ -47,21 +51,31 @@ public final class BlockStructure {
         let first = touched.lowerBound
         let lastTouched = touched.upperBound
 
-        var result = Array(lines[0..<min(first, lines.count)])
+        // Only the reparsed run is rebuilt; lines either side stay in place.
+        let prefix = min(first, oldLineCount)
+        var fresh: [LineInfo] = []
         // A shrinking document can leave `first` past the end of the old array.
-        while result.count < first {
-            result.append(lines.last ?? BlockParser.parse(line: [], carry: .start(extensions: extensions)))
+        while prefix + fresh.count < first {
+            fresh.append(lines.last ?? BlockParser.parse(line: [], carry: .start(extensions: extensions)))
         }
 
-        var carry = first > 0 ? result[first - 1].state : CarryState.start(extensions: extensions)
+        var carry = if first == 0 {
+            CarryState.start(extensions: extensions)
+        } else if first - 1 < prefix {
+            lines[first - 1].state
+        } else {
+            fresh[first - 1 - prefix].state
+        }
         var line = first
         // The last line whose styling actually has to change. Lines parsed
         // beyond the edit only to confirm the state matched are not restyled.
         var lastChanged = first
+        // The first old line kept as it was, once the parse caught up.
+        var resumeOld = oldLineCount
 
         while line < index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)
-            result.append(info)
+            fresh.append(info)
             carry = info.state
 
             if line <= lastTouched {
@@ -71,18 +85,21 @@ public final class BlockStructure {
                 let unchanged = oldLine >= 0 && oldLine < oldLineCount && lines[oldLine] == info
                 if !unchanged { lastChanged = line }
                 if oldLine >= 0, oldLine < oldLineCount, lines[oldLine].state == info.state {
-                    result.append(contentsOf: lines[(oldLine + 1)...])
+                    resumeOld = oldLine + 1
                     break
                 }
             }
             line += 1
         }
 
-        lines = result
+        let replaced = prefix..<max(prefix, resumeOld)
+        touchedDefinitions = lines[replaced].contains(where: \.kind.isDefinition) || fresh.contains(where: \.kind.isDefinition)
+        lines.replaceSubrange(replaced, with: fresh)
         if lines.count != index.count {
             // A safety net: structure and index must agree, so fall back to a
             // full parse rather than style against a stale array.
             rebuild(text: text)
+            touchedDefinitions = true
             return 0...max(0, index.count - 1)
         }
         return first...max(first, min(lastChanged, index.count - 1))
@@ -114,5 +131,15 @@ public final class BlockStructure {
     /// Characters of a line in this structure's current text.
     public func characters(of text: NSString, line: Int) -> [UInt16] {
         Self.characters(of: text, index: index, line: line)
+    }
+}
+
+extension BlockKind {
+    /// Link reference and footnote definitions, which other lines resolve against.
+    var isDefinition: Bool {
+        switch self {
+        case .linkReferenceDefinition, .footnoteDefinition: true
+        default: false
+        }
     }
 }

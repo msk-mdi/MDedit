@@ -231,18 +231,24 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
         var newProperties = Array(UnsafeBufferPointer(start: properties, count: glyphRange.length))
         var newGlyphs = Array(UnsafeBufferPointer(start: glyphs, count: glyphRange.length))
         var changed = false
+        // Attributes come in runs, so each is looked up once per run rather
+        // than once per glyph: this runs for every glyph laid out.
+        let length = storage.length
+        var concealed = AttributeRun(key: .mdConcealed)
+        var emojis = AttributeRun(key: .mdEmoji)
+        var markers = AttributeRun(key: .mdMarker)
 
         for offset in 0..<glyphRange.length {
             let characterIndex = characterIndexes[offset]
-            guard characterIndex < storage.length else { continue }
+            guard characterIndex < length else { continue }
 
-            if storage.attribute(.mdConcealed, at: characterIndex, effectiveRange: nil) != nil {
+            if concealed.value(at: characterIndex, in: storage) != nil {
                 newProperties[offset] = .null
                 changed = true
                 continue
             }
 
-            if let emoji = storage.attribute(.mdEmoji, at: characterIndex, effectiveRange: nil) as? String,
+            if let emoji = emojis.value(at: characterIndex, in: storage) as? String,
                let substitute = glyph(for: emoji, in: font) {
                 newGlyphs[offset] = substitute
                 // The colon has no glyph in the emoji font, so it arrives
@@ -252,7 +258,7 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
                 continue
             }
 
-            guard let raw = storage.attribute(.mdMarker, at: characterIndex, effectiveRange: nil) as? Int,
+            guard let raw = markers.value(at: characterIndex, in: storage) as? Int,
                   let kind = MarkerKind(rawValue: raw)
             else { continue }
 
@@ -289,5 +295,23 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
         return character == UInt16(UnicodeScalar("-").value)
             || character == UInt16(UnicodeScalar("*").value)
             || character == UInt16(UnicodeScalar("+").value)
+    }
+}
+
+/// One attribute's value over the run holding the last index asked about.
+private struct AttributeRun {
+    let key: NSAttributedString.Key
+    private var range = NSRange(location: NSNotFound, length: 0)
+    private var current: Any?
+
+    init(key: NSAttributedString.Key) {
+        self.key = key
+    }
+
+    mutating func value(at index: Int, in storage: NSTextStorage) -> Any? {
+        if !NSLocationInRange(index, range) {
+            current = storage.attribute(key, at: index, effectiveRange: &range)
+        }
+        return current
     }
 }
