@@ -54,6 +54,11 @@ public struct Language: Sendable {
         guard let token, !token.isEmpty else { return nil }
         return registry[token]
     }
+
+    /// Every highlighted language's canonical name, sorted, for pickers.
+    public static var allNames: [String] {
+        Set(registry.values.map(\.id)).sorted()
+    }
 }
 
 extension Language: Equatable {

@@ -18,7 +18,26 @@ final class MarkdownTextView: NSTextView {
         let pasteboard = NSPasteboard.general
         if insertImages(from: pasteboard, at: selectedRange()) { return }
         if pasteLinkOverSelection(from: pasteboard) { return }
+        if pasteHTMLAsMarkdown(from: pasteboard) { return }
         super.paste(sender)
+    }
+
+    /// Formatted text from a browser or document pastes as markdown. Inside a
+    /// code block, and for HTML with no real formatting, the plain text wins.
+    private func pasteHTMLAsMarkdown(from pasteboard: NSPasteboard) -> Bool {
+        guard let html = pasteboard.string(forType: .html), !isInCodeBlock(),
+              let markdown = HTMLToMarkdown.convert(html)
+        else { return false }
+        let range = selectedRange()
+        guard shouldChangeText(in: range, replacementString: markdown) else { return true }
+        insertText(markdown, replacementRange: range)
+        return true
+    }
+
+    private func isInCodeBlock() -> Bool {
+        guard let storage = textStorage as? MarkdownTextStorage else { return false }
+        let line = storage.line(at: selectedRange().location)
+        return storage.structure.info(forLine: line)?.kind.isCode ?? false
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
