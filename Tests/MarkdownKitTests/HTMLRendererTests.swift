@@ -10,9 +10,9 @@ private func html(_ markdown: String) -> String {
 struct HTMLRendererTests {
     @Test("Headings, paragraphs and rules")
     func basics() {
-        #expect(html("# Title") == "<h1>Title</h1>")
-        #expect(html("## Title ##") == "<h2>Title</h2>")
-        #expect(html("Title\n===") == "<h1>Title</h1>")
+        #expect(html("# Title") == "<h1 id=\"title\">Title</h1>")
+        #expect(html("## Title ##") == "<h2 id=\"title\">Title</h2>")
+        #expect(html("Title\n===") == "<h1 id=\"title\">Title</h1>")
         #expect(html("one\ntwo") == "<p>one\ntwo</p>")
         #expect(html("one\n\ntwo") == "<p>one</p>\n<p>two</p>")
         #expect(html("***") == "<hr />")

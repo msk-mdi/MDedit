@@ -28,6 +28,20 @@ final class MarkdownTextStorage: NSTextStorage {
         }
     }
 
+    /// The document's location, for resolving relative image paths.
+    var baseURL: URL? {
+        didSet { if baseURL != oldValue, !requestedImages.isEmpty { restyleAll() } }
+    }
+
+    /// Images are scaled down to fit the text column.
+    var maxImageWidth: CGFloat = Metrics.defaultLineWidth {
+        didSet { if abs(maxImageWidth - oldValue) > 1, !requestedImages.isEmpty { restyleAll() } }
+    }
+
+    /// Images this document has asked the cache for, so it knows which
+    /// arrivals are its own.
+    private var requestedImages: Set<URL> = []
+
     private var isProcessingEdit = false
     private var hasDeferredReveal = false
     private var deferredRevealOld: ClosedRange<Int>?
@@ -43,6 +57,8 @@ final class MarkdownTextStorage: NSTextStorage {
         self.theme = theme
         structure = BlockStructure(text: text as NSString)
         super.init()
+        // Posted on the main thread, where all styling happens.
+        NotificationCenter.default.addObserver(self, selector: #selector(imageDidLoad(_:)), name: ImageCache.didLoad, object: nil)
         if !text.isEmpty {
             backing.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
             structure = BlockStructure(text: backing.string as NSString)
@@ -53,6 +69,11 @@ final class MarkdownTextStorage: NSTextStorage {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not used") }
+
+    @objc private func imageDidLoad(_ notification: Notification) {
+        guard let url = notification.object as? URL, requestedImages.contains(url) else { return }
+        restyleAll()
+    }
 
     @available(*, unavailable)
     required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) {
@@ -264,6 +285,24 @@ final class MarkdownTextStorage: NSTextStorage {
             attributes[.font] = theme.mono
         }
 
+        // A line holding nothing but an image shows the image above it, in a
+        // line made tall enough for both; the alt text becomes a caption.
+        // (`paragraphSpacingBefore` would be simpler, but TextKit 1 drops it
+        // when a paragraph's first glyphs are concealed, as `![` is.)
+        let nodes = info.kind.hasInlineContent && info.contentStart < characters.count
+            ? InlineParser.parse(characters, from: info.contentStart, to: characters.count, references: references)
+            : []
+        let inlineImage = info.kind == .paragraph && headingLevel == nil && !isTableHeader
+            ? soleImage(in: nodes, characters: characters)
+            : nil
+        if let inlineImage, let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle {
+            let spaced = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
+            let captionHeight = NSLayoutManager().defaultLineHeight(for: captionFont) * max(1, spaced.lineHeightMultiple)
+            spaced.minimumLineHeight = inlineImage.size.height + Metrics.imageSpacing * 2 + captionHeight
+            attributes[.paragraphStyle] = spaced
+            attributes[.mdImage] = inlineImage
+        }
+
         backing.setAttributes(attributes, range: range)
 
         // Syntax colouring for fenced code, from tokens the parser produced.
@@ -280,8 +319,7 @@ final class MarkdownTextStorage: NSTextStorage {
         }
 
         // Inline markup, then markers on top of it.
-        if info.kind.hasInlineContent, info.contentStart < characters.count {
-            let nodes = InlineParser.parse(characters, from: info.contentStart, to: characters.count, references: references)
+        if !nodes.isEmpty {
             applyInline(
                 nodes,
                 characters: characters,
@@ -295,6 +333,57 @@ final class MarkdownTextStorage: NSTextStorage {
         for marker in info.markers {
             applyMarker(marker, lineStart: range.location, revealed: revealed, baseFont: baseFont)
         }
+
+        if inlineImage != nil {
+            let caption = NSRange(location: range.location + info.contentStart, length: characters.count - info.contentStart)
+            backing.addAttributes([.foregroundColor: theme.secondaryText, .font: captionFont], range: caption)
+        }
+    }
+
+    private var captionFont: NSFont {
+        NSFontManager.shared.convert(theme.body, toSize: theme.bodyFontSize * 0.85)
+    }
+
+    /// The image, sized to fit, when a line's only content is one image that
+    /// has loaded. Starts the load otherwise.
+    private func soleImage(in nodes: [InlineNode], characters: [UInt16]) -> InlineImage? {
+        var source: String?
+        for node in nodes {
+            switch node {
+            case let .image(_, _, imageSource, _) where source == nil:
+                source = imageSource
+            case let .text(range):
+                let text = (String(utf16CodeUnits: Array(characters[range.location..<NSMaxRange(range)]), count: range.length))
+                guard text.allSatisfy(\.isWhitespace) else { return nil }
+            default:
+                return nil
+            }
+        }
+        guard let source, let url = imageURL(for: source) else { return nil }
+        requestedImages.insert(url)
+        guard let image = MainActor.assumeIsolated({ ImageCache.shared.image(for: url) }) else { return nil }
+
+        var size = image.size
+        let maxWidth = max(80, maxImageWidth)
+        if size.width > maxWidth {
+            size = CGSize(width: maxWidth, height: size.height * maxWidth / size.width)
+        }
+        if size.height > Metrics.maxImageHeight {
+            size = CGSize(width: size.width * Metrics.maxImageHeight / size.height, height: Metrics.maxImageHeight)
+        }
+        return InlineImage(image: image, size: size)
+    }
+
+    /// Web and file URLs as written; other paths relative to the document.
+    private func imageURL(for source: String) -> URL? {
+        guard !source.isEmpty else { return nil }
+        if let url = URL(string: source), let scheme = url.scheme?.lowercased() {
+            return ["http", "https", "file"].contains(scheme) ? url : nil
+        }
+        let path = ((source.removingPercentEncoding ?? source) as NSString).expandingTildeInPath
+        if path.hasPrefix("/") { return URL(fileURLWithPath: path) }
+        guard let baseURL else { return nil }
+        return URL(fileURLWithPath: path, relativeTo: baseURL.deletingLastPathComponent()).standardizedFileURL
     }
 
     private func isTableDelimiter(_ kind: BlockKind) -> Bool {
@@ -357,12 +446,14 @@ final class MarkdownTextStorage: NSTextStorage {
                 backing.addAttributes([
                     .foregroundColor: theme.link,
                     .mdLink: destination,
+                    .toolTip: linkToolTip(destination),
                 ], range: absolute)
 
             case let .image(_, _, source, _):
                 backing.addAttributes([
                     .foregroundColor: theme.link,
                     .mdLink: source,
+                    .toolTip: linkToolTip(source),
                 ], range: absolute)
 
             case let .autolink(_, _, url):
@@ -370,6 +461,7 @@ final class MarkdownTextStorage: NSTextStorage {
                     .foregroundColor: theme.link,
                     .underlineStyle: NSUnderlineStyle.single.rawValue,
                     .mdLink: url,
+                    .toolTip: linkToolTip(url),
                 ], range: absolute)
 
             case .escape, .rawHTML:
@@ -389,6 +481,10 @@ final class MarkdownTextStorage: NSTextStorage {
                 applyMarker(marker, lineStart: lineStart, revealed: revealed, baseFont: baseFont)
             }
         }
+    }
+
+    private func linkToolTip(_ destination: String) -> String {
+        destination.isEmpty ? "Undefined reference" : "\(destination)\n⌘-click to open"
     }
 
     private func applyMarker(_ marker: Marker, lineStart: Int, revealed: Bool, baseFont: NSFont) {

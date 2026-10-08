@@ -45,7 +45,9 @@ public struct HTMLRenderer {
 
             case let .atxHeading(level):
                 closeParagraph(&state, &out)
-                out += "<h\(level)>\(inlineHTML(characters, from: info.contentStart, to: headingEnd(info, characters), context))</h\(level)>\n"
+                let end = headingContentEnd(info, characters)
+                let id = context.slugs.slug(for: plainText(characters, from: info.contentStart, to: end))
+                out += "<h\(level) id=\"\(escape(id))\">\(inlineHTML(characters, from: info.contentStart, to: end, context))</h\(level)>\n"
 
             case .setextUnderline:
                 break  // consumed by the paragraph above
@@ -99,7 +101,8 @@ public struct HTMLRenderer {
                 // A paragraph followed by `===` or `---` is a heading.
                 if case let .setextUnderline(level)? = next?.kind {
                     closeParagraph(&state, &out)
-                    out += "<h\(level)>\(inlineHTML(characters, from: info.contentStart, to: characters.count, context))</h\(level)>\n"
+                    let id = context.slugs.slug(for: plainText(characters, from: info.contentStart, to: characters.count))
+                    out += "<h\(level) id=\"\(escape(id))\">\(inlineHTML(characters, from: info.contentStart, to: characters.count, context))</h\(level)>\n"
                     break
                 }
                 // A paragraph followed by `| --- |` is a table header.
@@ -220,6 +223,8 @@ public struct HTMLRenderer {
         var footnoteOrder: [String] = []
         var footnoteReferenceCounts: [String: Int] = [:]
         var footnoteBodies: [String: String] = [:]
+        /// Heading ids, matching `BlockStructure.headings` so `#anchors` agree.
+        var slugs = SlugGenerator()
 
         init(references: LinkReferences) {
             self.references = references
@@ -299,15 +304,6 @@ public struct HTMLRenderer {
             out += "<blockquote>\n"
             state.quoteDepth += 1
         }
-    }
-
-    /// The end of a heading's text, excluding any closing `###`.
-    private func headingEnd(_ info: LineInfo, _ characters: [UInt16]) -> Int {
-        if let closing = info.markers.last, closing.kind == .conceal, closing.range.location > info.contentStart,
-           NSMaxRange(closing.range) == characters.count, info.markers.count > 1 {
-            return closing.range.location
-        }
-        return characters.count
     }
 
     private func row(_ characters: [UInt16], from start: Int, alignments: [ColumnAlignment], cell: String, _ context: Context) -> String {

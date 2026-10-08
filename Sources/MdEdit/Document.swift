@@ -55,7 +55,9 @@ struct FileFormat: Equatable {
 final class Document {
     /// Stable identity for autosave recovery files.
     let id: UUID
-    private(set) var url: URL?
+    private(set) var url: URL? {
+        didSet { storage.baseURL = url }
+    }
     let storage: MarkdownTextStorage
     var format = FileFormat()
 
@@ -74,6 +76,7 @@ final class Document {
         self.id = id
         self.url = url
         storage = MarkdownTextStorage(theme: theme)
+        storage.baseURL = url
         storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
         savedText = text
     }

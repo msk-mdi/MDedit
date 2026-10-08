@@ -48,10 +48,23 @@ final class MarkdownLayoutManager: NSLayoutManager {
 
         let characterRange = self.characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
 
-        enumerateLineFragments(forGlyphRange: glyphsToShow) { _, usedRect, _, lineGlyphRange, _ in
+        enumerateLineFragments(forGlyphRange: glyphsToShow) { fragmentRect, usedRect, _, lineGlyphRange, _ in
             let lineCharacters = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
             guard lineCharacters.location < storage.length else { return }
             let attributes = storage.attributes(at: lineCharacters.location, effectiveRange: nil)
+            // An image sits in the space its paragraph reserved above the
+            // first line, so only the paragraph's first fragment draws it.
+            if let inline = attributes[.mdImage] as? InlineImage,
+               self.isFirstFragmentOfParagraph(lineCharacters.location, in: storage) {
+                let indent = (attributes[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent ?? 0
+                let frame = NSRect(
+                    x: origin.x + container.lineFragmentPadding + indent,
+                    y: fragmentRect.minY + origin.y + Metrics.imageSpacing,
+                    width: inline.size.width,
+                    height: inline.size.height
+                )
+                inline.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
+            }
 
             var rect = usedRect.offsetBy(dx: origin.x, dy: origin.y)
             // Decoration spans the text column, not just the glyphs that were
@@ -108,6 +121,16 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3).fill()
             }
         }
+    }
+
+    /// A fragment's characters start after any concealed glyphs, so the
+    /// paragraph's first fragment is the one with only concealed text before it.
+    private func isFirstFragmentOfParagraph(_ location: Int, in storage: NSTextStorage) -> Bool {
+        let start = (storage.string as NSString).paragraphRange(for: NSRange(location: location, length: 0)).location
+        for index in start..<location where storage.attribute(.mdConcealed, at: index, effectiveRange: nil) == nil {
+            return false
+        }
+        return true
     }
 
     /// The glyph for a replacement character in a given font, cached.

@@ -6,7 +6,7 @@ import AppKit
 /// and painting block backgrounds, and both are direct overrides on
 /// `NSLayoutManager`.
 final class EditorViewController: NSViewController {
-    let textView: NSTextView
+    let textView: MarkdownTextView
     let scrollView = NSScrollView()
 
     let storage: MarkdownTextStorage
@@ -21,6 +21,11 @@ final class EditorViewController: NSViewController {
     var onSelectionChange: (() -> Void)?
     /// Called after every edit, so the window can refresh tab dirty state.
     var onTextChange: (() -> Void)?
+    /// Called on Command-click with a link's destination as written.
+    var onOpenLink: ((String) -> Void)? {
+        get { textView.onOpenLink }
+        set { textView.onOpenLink = newValue }
+    }
 
     /// Width of the centred text column.
     var lineWidth: CGFloat = Metrics.defaultLineWidth {
@@ -36,7 +41,7 @@ final class EditorViewController: NSViewController {
         textContainer.widthTracksTextView = true
         textContainer.heightTracksTextView = false
 
-        textView = NSTextView(frame: .zero, textContainer: textContainer)
+        textView = MarkdownTextView(frame: .zero, textContainer: textContainer)
         super.init(nibName: nil, bundle: nil)
         configureTextView()
         input = MarkdownInputHandler(storage: textStorage)
@@ -96,6 +101,7 @@ final class EditorViewController: NSViewController {
         if abs(textView.textContainerInset.width - inset) > 0.5 {
             textView.textContainerInset = CGSize(width: inset, height: textView.textContainerInset.height)
         }
+        storage.maxImageWidth = column - 2 * textContainer.lineFragmentPadding
     }
 
     /// `viewDidChangeEffectiveAppearance` is an `NSView` hook, not a controller
@@ -158,11 +164,6 @@ extension EditorViewController: NSTextViewDelegate {
     ) -> Bool {
         guard let replacementString, affectedCharRange.length > 0 else { return true }
         return !input.handleInsertion(of: replacementString, in: textView, range: affectedCharRange)
-    }
-
-    /// Command-click opens a link; a plain click just places the caret.
-    func textView(_ textView: NSTextView, menu: NSMenu, for event: NSEvent, at charIndex: Int) -> NSMenu? {
-        menu
     }
 
     func textViewDidChangeSelection(_ notification: Notification) {

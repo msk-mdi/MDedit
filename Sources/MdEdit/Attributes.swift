@@ -19,6 +19,8 @@ extension NSAttributedString.Key {
     static let mdThematicBreak = NSAttributedString.Key("mdThematicBreak")
     /// Set on table rows, for striping.
     static let mdTableRow = NSAttributedString.Key("mdTableRow")
+    /// An `InlineImage` drawn above a line that holds only an image.
+    static let mdImage = NSAttributedString.Key("mdImage")
 }
 
 /// Paragraph styles are shared: one per shape of line, built once.

@@ -32,4 +32,10 @@ enum Metrics {
 
     /// Width of the text column in the editor canvas.
     static let defaultLineWidth: CGFloat = 720
+
+    /// Space above and below an inline image preview.
+    static let imageSpacing: CGFloat = 6
+
+    /// Tall images are scaled down to this height.
+    static let maxImageHeight: CGFloat = 420
 }

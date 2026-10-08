@@ -117,6 +117,10 @@ final class MainWindowController: NSWindowController {
         let editor = EditorViewController(textStorage: document.storage)
         editor.applyTheme(theme)
         editor.onSelectionChange = { [weak self] in self?.refreshStatus() }
+        editor.onOpenLink = { [weak self, weak document] destination in
+            guard let self, let document else { return }
+            openLink(destination, from: document)
+        }
         editor.onTextChange = { [weak self] in
             self?.changesReviewed = false
             self?.refreshTabs()
@@ -340,6 +344,62 @@ final class MainWindowController: NSWindowController {
             self?.refreshTabs()
             self?.refreshStatus()
         }
+    }
+
+    // MARK: - Links
+
+    /// Follows a link: web addresses go to the browser, `#anchors` jump to a
+    /// heading, markdown files open in a tab, anything else in its own app.
+    func openLink(_ destination: String, from document: Document) {
+        if destination.hasPrefix("#") {
+            jumpToHeading(slug: String(destination.dropFirst()), in: document)
+            return
+        }
+        if let url = URL(string: destination), let scheme = url.scheme, scheme != "file" {
+            NSWorkspace.shared.open(url)
+            return
+        }
+        guard let target = fileURL(for: destination, relativeTo: document.url) else {
+            NSSound.beep()
+            return
+        }
+        guard FileManager.default.fileExists(atPath: target.path) else {
+            show(error: CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: target.path]))
+            return
+        }
+        if ["md", "markdown", "mdown", "mkd"].contains(target.pathExtension.lowercased()) {
+            open(url: target)
+        } else {
+            NSWorkspace.shared.open(target)
+        }
+    }
+
+    /// A local link's file, without any `#fragment`. Relative paths need the
+    /// document to have been saved somewhere.
+    private func fileURL(for destination: String, relativeTo base: URL?) -> URL? {
+        let path = destination.split(separator: "#", maxSplits: 1, omittingEmptySubsequences: false).first.map(String.init) ?? ""
+        guard !path.isEmpty else { return nil }
+        if let url = URL(string: path), url.scheme == "file" { return url }
+        let decoded = path.removingPercentEncoding ?? path
+        let expanded = (decoded as NSString).expandingTildeInPath
+        if expanded.hasPrefix("/") { return URL(fileURLWithPath: expanded) }
+        guard let base else { return nil }
+        return URL(fileURLWithPath: expanded, relativeTo: base.deletingLastPathComponent()).standardizedFileURL
+    }
+
+    private func jumpToHeading(slug: String, in document: Document) {
+        let text = document.storage.string as NSString
+        let wanted = (slug.removingPercentEncoding ?? slug).lowercased()
+        guard let heading = document.storage.structure.headings(in: text).first(where: { $0.slug == wanted }),
+              let editor = editors[ObjectIdentifier(document)]
+        else {
+            NSSound.beep()
+            return
+        }
+        let range = NSRange(location: document.storage.structure.index.range(ofLine: heading.line).location, length: 0)
+        editor.textView.setSelectedRange(range)
+        editor.textView.scrollRangeToVisible(range)
+        window?.makeFirstResponder(editor.textView)
     }
 
     // MARK: - Unsaved changes

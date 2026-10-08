@@ -29,7 +29,7 @@ struct FrontMatterTests {
 
     @Test("Front matter is left out of export")
     func export() {
-        #expect(html("---\ntitle: x\n---\n# Hi") == "<h1>Hi</h1>")
+        #expect(html("---\ntitle: x\n---\n# Hi") == "<h1 id=\"hi\">Hi</h1>")
     }
 }
 
@@ -190,5 +190,23 @@ struct InlineExtensionTests {
         #expect(html("one  ") == "<p>one</p>")
         // An escaped backslash is not a break.
         #expect(html("one\\\\\ntwo") == "<p>one\\\ntwo</p>")
+    }
+}
+
+@Suite("Headings")
+struct HeadingTests {
+    @Test("Headings flatten their markup and get unique GitHub-style slugs")
+    func headings() {
+        let text = "# Hello *World*!\n\nIntro\n\n## `code` & [link](x)\nSetext\n---\n# Hello World" as NSString
+        let headings = BlockStructure(text: text).headings(in: text)
+        #expect(headings.map(\.title) == ["Hello World!", "code & link", "Setext", "Hello World"])
+        #expect(headings.map(\.slug) == ["hello-world", "code--link", "setext", "hello-world-1"])
+        #expect(headings.map(\.level) == [1, 2, 2, 1])
+        #expect(headings.map(\.line) == [0, 4, 5, 7])
+    }
+
+    @Test("Export ids match the editor's slugs")
+    func exportIDs() {
+        #expect(html("# A b\n# A b") == "<h1 id=\"a-b\">A b</h1>\n<h1 id=\"a-b-1\">A b</h1>")
     }
 }
