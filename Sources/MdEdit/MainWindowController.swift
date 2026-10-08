@@ -10,11 +10,18 @@ final class MainWindowController: NSWindowController {
 
     private let tabBar = TabBarView()
     private let statusBar = StatusBarView()
-    private let outline = OutlineView()
-    /// Pins the current editor's leading edge to the window or the outline.
+    private let sidebar = SidebarView()
+    /// Pins the current editor's leading edge to the window or the sidebar.
     private var editorLeading: NSLayoutConstraint?
-    private var isOutlineVisible = UserDefaults.standard.bool(forKey: "showOutline")
+    private var isSidebarVisible = UserDefaults.standard.bool(forKey: "showSidebar")
     private var pendingOutlineRefresh: DispatchWorkItem?
+    private(set) var workspace: Workspace?
+    private var directoryWatcher: DirectoryWatcher?
+    private lazy var quickOpenPanel: QuickOpenController = {
+        let controller = QuickOpenController()
+        controller.onOpen = { [weak self] url in self?.open(url: url) }
+        return controller
+    }()
     private let canvas = NSView()
     /// Owns the editors as real child view controllers, so their lifecycle runs
     /// and the responder chain reaches this controller.
@@ -81,22 +88,31 @@ final class MainWindowController: NSWindowController {
         window.addTitlebarAccessoryViewController(accessory)
 
         canvas.addSubview(statusBar)
-        canvas.addSubview(outline)
-        outline.isHidden = !isOutlineVisible
-        outline.onSelectHeading = { [weak self] heading in
+        canvas.addSubview(sidebar)
+        sidebar.isHidden = !isSidebarVisible
+        sidebar.show(SidebarView.Pane(rawValue: UserDefaults.standard.integer(forKey: "sidebarPane")) ?? .outline)
+        sidebar.onPaneChange = { [weak self] pane in self?.sidebarPaneChanged(pane) }
+        sidebar.outline.onSelectHeading = { [weak self] heading in
             guard let self, let document = activeDocument else { return }
             moveCaret(toLine: heading.line, in: document)
         }
+        sidebar.files.onOpenFile = { [weak self] url in self?.open(url: url) }
+        sidebar.files.onChooseFolder = { [weak self] in self?.openFolder(nil) }
+        sidebar.search.searchScope = { [weak self] in
+            self?.searchScope() ?? (nil, [], [:])
+        }
+        sidebar.search.onOpenMatch = { [weak self] url, match in self?.openMatch(url, match) }
+        setWorkspace(Workspace.load())
         NSLayoutConstraint.activate([
             statusBar.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
 
-            outline.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            sidebar.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             // Below the titlebar and tab strip: under the glass, the list
             // would be refracted into the chrome.
-            outline.topAnchor.constraint(equalTo: (window.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? canvas.topAnchor),
-            outline.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
+            sidebar.topAnchor.constraint(equalTo: (window.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? canvas.topAnchor),
+            sidebar.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
 
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
@@ -116,7 +132,7 @@ final class MainWindowController: NSWindowController {
         window?.backgroundColor = theme.canvas
         tabBar.applyTheme(theme)
         statusBar.applyTheme(theme)
-        outline.applyTheme(theme)
+        sidebar.applyTheme(theme)
         for editor in editors.values { editor.applyTheme(theme) }
     }
 
@@ -179,7 +195,7 @@ final class MainWindowController: NSWindowController {
         window?.representedURL = document.url
         refreshTabs()
         refreshStatus()
-        refreshOutline()
+        refreshSidebar()
     }
 
     private func install(_ editor: EditorViewController) {
@@ -187,7 +203,7 @@ final class MainWindowController: NSWindowController {
         editor.view.translatesAutoresizingMaskIntoConstraints = false
         canvas.addSubview(editor.view, positioned: .below, relativeTo: statusBar)
         let leading = editor.view.leadingAnchor.constraint(
-            equalTo: isOutlineVisible ? outline.trailingAnchor : canvas.leadingAnchor
+            equalTo: isSidebarVisible ? sidebar.trailingAnchor : canvas.leadingAnchor
         )
         editorLeading = leading
         NSLayoutConstraint.activate([
@@ -434,25 +450,54 @@ final class MainWindowController: NSWindowController {
         window?.makeFirstResponder(editor.textView)
     }
 
-    // MARK: - Outline
+    // MARK: - Sidebar
 
-    @objc func toggleOutline(_ sender: Any?) {
-        isOutlineVisible.toggle()
-        UserDefaults.standard.set(isOutlineVisible, forKey: "showOutline")
-        outline.isHidden = !isOutlineVisible
+    @objc func toggleFiles(_ sender: Any?) { toggleSidebar(showing: .files) }
+    @objc func toggleOutline(_ sender: Any?) { toggleSidebar(showing: .outline) }
+
+    /// Shows the sidebar on a pane, or hides it if it is already showing that pane.
+    private func toggleSidebar(showing pane: SidebarView.Pane) {
+        if isSidebarVisible, sidebar.pane == pane {
+            setSidebarVisible(false)
+        } else {
+            sidebar.show(pane)
+            sidebarPaneChanged(pane)
+            setSidebarVisible(true)
+        }
+    }
+
+    private func setSidebarVisible(_ visible: Bool) {
+        isSidebarVisible = visible
+        UserDefaults.standard.set(visible, forKey: "showSidebar")
+        sidebar.isHidden = !visible
         if let editor = currentEditor {
             editorLeading?.isActive = false
             editorLeading = editor.view.leadingAnchor.constraint(
-                equalTo: isOutlineVisible ? outline.trailingAnchor : canvas.leadingAnchor
+                equalTo: visible ? sidebar.trailingAnchor : canvas.leadingAnchor
             )
             editorLeading?.isActive = true
         }
-        refreshOutline()
+        refreshSidebar()
+    }
+
+    private func sidebarPaneChanged(_ pane: SidebarView.Pane) {
+        UserDefaults.standard.set(pane.rawValue, forKey: "sidebarPane")
+        refreshSidebar()
+        if pane == .search { window?.makeFirstResponder(sidebar.search.field) }
+    }
+
+    private func refreshSidebar() {
+        guard isSidebarVisible else { return }
+        switch sidebar.pane {
+        case .outline: refreshOutline()
+        case .files: if let url = activeDocument?.url { sidebar.files.reveal(url) }
+        case .search: break
+        }
     }
 
     /// Headings are cheap to find but typing is frequent, so wait for a pause.
     private func scheduleOutlineRefresh() {
-        guard isOutlineVisible else { return }
+        guard isSidebarVisible, sidebar.pane == .outline else { return }
         pendingOutlineRefresh?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.refreshOutline() }
         pendingOutlineRefresh = work
@@ -460,15 +505,86 @@ final class MainWindowController: NSWindowController {
     }
 
     private func refreshOutline() {
-        guard isOutlineVisible, let document = activeDocument else { return }
+        guard isSidebarVisible, sidebar.pane == .outline, let document = activeDocument else { return }
         let storage = document.storage
-        outline.setHeadings(storage.structure.headings(in: storage.string as NSString))
+        sidebar.outline.setHeadings(storage.structure.headings(in: storage.string as NSString))
         followCaretInOutline()
     }
 
     private func followCaretInOutline() {
-        guard isOutlineVisible, let document = activeDocument, let editor = currentEditor else { return }
-        outline.highlightSection(containing: document.storage.line(at: editor.textView.selectedRange().location))
+        guard isSidebarVisible, sidebar.pane == .outline, let document = activeDocument, let editor = currentEditor else { return }
+        sidebar.outline.highlightSection(containing: document.storage.line(at: editor.textView.selectedRange().location))
+    }
+
+    // MARK: - Workspace
+
+    @objc func openFolder(_ sender: Any?) {
+        guard let window else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = true
+        panel.canChooseFiles = false
+        panel.canCreateDirectories = true
+        panel.prompt = "Open Folder"
+        panel.beginSheetModal(for: window) { [weak self] response in
+            guard response == .OK, let url = panel.url, let self else { return }
+            setWorkspace(Workspace(root: url))
+            sidebar.show(.files)
+            sidebarPaneChanged(.files)
+            if !isSidebarVisible { setSidebarVisible(true) }
+        }
+    }
+
+    private func setWorkspace(_ newWorkspace: Workspace?) {
+        workspace = newWorkspace
+        newWorkspace?.save()
+        sidebar.files.setRoot(newWorkspace?.root)
+        window?.subtitle = newWorkspace?.root.lastPathComponent ?? ""
+        directoryWatcher = newWorkspace.flatMap { workspace in
+            DirectoryWatcher(url: workspace.root) { [weak self] in self?.sidebar.files.reload() }
+        }
+    }
+
+    @objc func quickOpen(_ sender: Any?) {
+        quickOpenPanel.show(over: window, workspace: workspace, openDocuments: documents.compactMap(\.url))
+    }
+
+    @objc func findInFolder(_ sender: Any?) {
+        sidebar.show(.search)
+        sidebarPaneChanged(.search)
+        if !isSidebarVisible { setSidebarVisible(true) }
+        // Seed the query with the selection, as Find does.
+        if let editor = currentEditor, editor.textView.selectedRange().length > 0 {
+            let selected = (editor.storage.string as NSString).substring(with: editor.textView.selectedRange())
+            if !selected.contains("\n") {
+                sidebar.search.field.stringValue = selected
+                sidebar.search.search()
+            }
+        }
+        window?.makeFirstResponder(sidebar.search.field)
+    }
+
+    /// What Find in Folder reads: the workspace, open files, and unsaved text.
+    private func searchScope() -> (workspace: Workspace?, openFiles: [URL], overrides: [URL: String]) {
+        var overrides: [URL: String] = [:]
+        for document in documents where document.isDirty {
+            if let url = document.url { overrides[url] = document.text }
+        }
+        return (workspace, documents.compactMap(\.url), overrides)
+    }
+
+    /// Opens a search result's file and selects the match.
+    private func openMatch(_ url: URL, _ match: WorkspaceSearch.Match) {
+        open(url: url)
+        guard let document = activeDocument, document.url?.standardizedFileURL == url.standardizedFileURL,
+              let editor = currentEditor, match.line < document.storage.structure.lineCount
+        else { return }
+        let lineStart = document.storage.structure.index.range(ofLine: match.line).location
+        let range = NSRange(location: lineStart + match.range.location, length: match.range.length)
+        guard NSMaxRange(range) <= document.storage.length else { return }
+        editor.textView.setSelectedRange(range)
+        editor.textView.scrollRangeToVisible(range)
+        editor.textView.showFindIndicator(for: range)
+        window?.makeFirstResponder(editor.textView)
     }
 
     // MARK: - Unsaved changes
@@ -680,7 +796,9 @@ extension MainWindowController: NSMenuItemValidation {
         let editor = currentEditor
         switch item.action {
         case #selector(toggleOutline(_:)):
-            item.title = isOutlineVisible ? "Hide Outline" : "Show Outline"
+            item.title = isSidebarVisible && sidebar.pane == .outline ? "Hide Outline" : "Show Outline"
+        case #selector(toggleFiles(_:)):
+            item.title = isSidebarVisible && sidebar.pane == .files ? "Hide Files" : "Show Files"
         case #selector(toggleSourceMode(_:)):
             item.state = editor?.sourceMode == true ? .on : .off
         case #selector(toggleTypewriterMode(_:)):

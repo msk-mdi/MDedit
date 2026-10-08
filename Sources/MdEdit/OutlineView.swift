@@ -1,17 +1,14 @@
 import AppKit
 import MarkdownKit
 
-/// The document's headings as a sidebar: indented by level, the section the
-/// caret is in highlighted, and a click jumps there.
+/// The document's headings as a sidebar pane: indented by level, the section
+/// the caret is in highlighted, and a click jumps there.
 final class OutlineView: NSView {
     /// Asked to move the caret to a heading's line.
     var onSelectHeading: ((Heading) -> Void)?
 
     private let scrollView = NSScrollView()
     private let table = NSTableView()
-    /// A plain view, not a separator `NSBox`: a box decides it is horizontal
-    /// and hugs its height, which pinned top to bottom collapses the window.
-    private let separator = NSView()
     private let emptyLabel = NSTextField(labelWithString: "No headings")
     private var headings: [Heading] = []
     private var theme: Theme = .light
@@ -21,7 +18,6 @@ final class OutlineView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
-        wantsLayer = true
 
         let column = NSTableColumn(identifier: .init("heading"))
         table.addTableColumn(column)
@@ -43,30 +39,19 @@ final class OutlineView: NSView {
         scrollView.contentInsets = NSEdgeInsets(top: 8, left: 0, bottom: 8, right: 0)
         scrollView.translatesAutoresizingMaskIntoConstraints = false
 
-        separator.wantsLayer = true
-        separator.translatesAutoresizingMaskIntoConstraints = false
-
         emptyLabel.font = .systemFont(ofSize: 12)
         emptyLabel.translatesAutoresizingMaskIntoConstraints = false
 
         addSubview(scrollView)
-        addSubview(separator)
         addSubview(emptyLabel)
         NSLayoutConstraint.activate([
             scrollView.leadingAnchor.constraint(equalTo: leadingAnchor),
-            scrollView.trailingAnchor.constraint(equalTo: separator.leadingAnchor),
+            scrollView.trailingAnchor.constraint(equalTo: trailingAnchor),
             scrollView.topAnchor.constraint(equalTo: topAnchor),
             scrollView.bottomAnchor.constraint(equalTo: bottomAnchor),
 
-            separator.trailingAnchor.constraint(equalTo: trailingAnchor),
-            separator.topAnchor.constraint(equalTo: topAnchor),
-            separator.bottomAnchor.constraint(equalTo: bottomAnchor),
-            separator.widthAnchor.constraint(equalToConstant: 1),
-
             emptyLabel.centerXAnchor.constraint(equalTo: centerXAnchor),
             emptyLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-
-            widthAnchor.constraint(equalToConstant: Metrics.outlineWidth),
         ])
     }
 
@@ -75,8 +60,6 @@ final class OutlineView: NSView {
 
     func applyTheme(_ theme: Theme) {
         self.theme = theme
-        layer?.backgroundColor = theme.canvas.cgColor
-        separator.layer?.backgroundColor = NSColor.separatorColor.cgColor
         emptyLabel.textColor = theme.secondaryText
         table.reloadData()
     }

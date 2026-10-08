@@ -55,6 +55,8 @@ enum MainMenu {
         submenu("File") { menu in
             add(menu, "New Tab", #selector(AppDelegate.newDocument(_:)), "t")
             add(menu, "Open…", #selector(AppDelegate.openDocument(_:)), "o")
+            add(menu, "Open Folder…", #selector(MainWindowController.openFolder(_:)), "o", [.command, .shift])
+            add(menu, "Quick Open…", #selector(MainWindowController.quickOpen(_:)), "p")
 
             let recents = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
             let recentsMenu = NSMenu(title: "Open Recent")
@@ -92,6 +94,8 @@ enum MainMenu {
             add(findMenu, "Find Previous", #selector(NSTextView.performFindPanelAction(_:)), "g", [.command, .shift], tag: NSTextFinder.Action.previousMatch.rawValue)
             add(findMenu, "Find and Replace…", #selector(NSTextView.performFindPanelAction(_:)), "f", [.command, .option], tag: NSTextFinder.Action.showReplaceInterface.rawValue)
             add(findMenu, "Use Selection for Find", #selector(NSTextView.performFindPanelAction(_:)), "e", tag: NSTextFinder.Action.setSearchString.rawValue)
+            findMenu.addItem(.separator())
+            add(findMenu, "Find in Folder…", #selector(MainWindowController.findInFolder(_:)), "f", [.command, .shift])
             find.submenu = findMenu
             menu.addItem(find)
         }
@@ -123,6 +127,7 @@ enum MainMenu {
             add(menu, "Next Tab", #selector(MainWindowController.selectNextDocumentTab(_:)), "]", [.command, .shift])
             add(menu, "Previous Tab", #selector(MainWindowController.selectPreviousDocumentTab(_:)), "[", [.command, .shift])
             menu.addItem(.separator())
+            add(menu, "Show Files", #selector(MainWindowController.toggleFiles(_:)), "e", [.command, .shift])
             add(menu, "Show Outline", #selector(MainWindowController.toggleOutline(_:)), "l", [.command, .shift])
             menu.addItem(.separator())
             add(menu, "Source Mode", #selector(MainWindowController.toggleSourceMode(_:)), "/")

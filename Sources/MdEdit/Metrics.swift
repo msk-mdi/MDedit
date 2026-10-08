@@ -33,8 +33,8 @@ enum Metrics {
     /// Width of the text column in the editor canvas.
     static let defaultLineWidth: CGFloat = 720
 
-    /// Width of the outline sidebar.
-    static let outlineWidth: CGFloat = 220
+    /// Width of the sidebar holding files, outline and search.
+    static let sidebarWidth: CGFloat = 240
 
     /// Space above and below an inline image preview.
     static let imageSpacing: CGFloat = 6
