@@ -92,7 +92,6 @@ final class MainWindowController: NSWindowController {
         // An empty unified toolbar puts the document title at the leading edge,
         // beside the traffic lights, and gives the tab strip a row of its own.
         let toolbar = NSToolbar(identifier: "MdEditToolbar")
-        toolbar.showsBaselineSeparator = false
         toolbar.displayMode = .iconOnly
         window.toolbar = toolbar
         window.toolbarStyle = .unified
