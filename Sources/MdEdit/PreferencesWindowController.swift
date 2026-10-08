@@ -27,24 +27,25 @@ final class PreferencesWindowController: NSWindowController {
     private let spacingLabel = NSTextField(labelWithString: "")
     private let paddingSlider = NSSlider()
     private let paddingLabel = NSTextField(labelWithString: "")
-    private let autoPairBox = NSButton(checkboxWithTitle: "Close brackets and backticks automatically", target: nil, action: nil)
-    private let smartQuotesBox = NSButton(checkboxWithTitle: "Use smart quotes and dashes (never in code)", target: nil, action: nil)
-    private let spellCheckBox = NSButton(checkboxWithTitle: "Check spelling while typing", target: nil, action: nil)
-    private let typewriterBox = NSButton(checkboxWithTitle: "Typewriter Mode", target: nil, action: nil)
-    private let focusBox = NSButton(checkboxWithTitle: "Focus Mode", target: nil, action: nil)
+    private let autoPairBox = NSButton(checkboxWithTitle: String(localized: "Close brackets and backticks automatically"), target: nil, action: nil)
+    private let smartQuotesBox = NSButton(checkboxWithTitle: String(localized: "Use smart quotes and dashes (never in code)"), target: nil, action: nil)
+    private let spellCheckBox = NSButton(checkboxWithTitle: String(localized: "Check spelling while typing"), target: nil, action: nil)
+    private let updatesBox = NSButton(checkboxWithTitle: String(localized: "Check for updates once a day"), target: nil, action: nil)
+    private let typewriterBox = NSButton(checkboxWithTitle: String(localized: "Typewriter Mode"), target: nil, action: nil)
+    private let focusBox = NSButton(checkboxWithTitle: String(localized: "Focus Mode"), target: nil, action: nil)
 
     // Markdown
     private let extensionBoxes: [(SyntaxExtensions, NSButton)] = [
-        (.highlight, NSButton(checkboxWithTitle: "==Highlight==", target: nil, action: nil)),
-        (.scripts, NSButton(checkboxWithTitle: "^Superscript^ and ~subscript~", target: nil, action: nil)),
-        (.emoji, NSButton(checkboxWithTitle: ":emoji: shortcodes", target: nil, action: nil)),
-        (.math, NSButton(checkboxWithTitle: "$Math$ and $$display math$$", target: nil, action: nil)),
-        (.bareURLs, NSButton(checkboxWithTitle: "Links from bare https:// and www. addresses", target: nil, action: nil)),
-        (.definitionLists, NSButton(checkboxWithTitle: "Definition lists (Term, then : definition)", target: nil, action: nil)),
+        (.highlight, NSButton(checkboxWithTitle: String(localized: "==Highlight=="), target: nil, action: nil)),
+        (.scripts, NSButton(checkboxWithTitle: String(localized: "^Superscript^ and ~subscript~"), target: nil, action: nil)),
+        (.emoji, NSButton(checkboxWithTitle: String(localized: ":emoji: shortcodes"), target: nil, action: nil)),
+        (.math, NSButton(checkboxWithTitle: String(localized: "$Math$ and $$display math$$"), target: nil, action: nil)),
+        (.bareURLs, NSButton(checkboxWithTitle: String(localized: "Links from bare https:// and www. addresses"), target: nil, action: nil)),
+        (.definitionLists, NSButton(checkboxWithTitle: String(localized: "Definition lists (Term, then : definition)"), target: nil, action: nil)),
     ]
     private let bulletPopup = NSPopUpButton()
     private let numberingPopup = NSPopUpButton()
-    private let numberHeadingsBox = NSButton(checkboxWithTitle: "Number headings (1, 1.1, 1.2…) in the editor and export", target: nil, action: nil)
+    private let numberHeadingsBox = NSButton(checkboxWithTitle: String(localized: "Number headings (1, 1.1, 1.2…) in the editor and export"), target: nil, action: nil)
 
     private convenience init() {
         let window = NSWindow(
@@ -53,7 +54,7 @@ final class PreferencesWindowController: NSWindowController {
             backing: .buffered,
             defer: false
         )
-        window.title = "Settings"
+        window.title = String(localized: "Settings")
         window.isReleasedWhenClosed = false
         self.init(window: window)
         buildContent()
@@ -72,9 +73,9 @@ final class PreferencesWindowController: NSWindowController {
         guard let window else { return }
         let tabs = NSTabView()
         tabs.translatesAutoresizingMaskIntoConstraints = false
-        tabs.addTabViewItem(tab("Appearance", appearancePane()))
-        tabs.addTabViewItem(tab("Editor", editorPane()))
-        tabs.addTabViewItem(tab("Markdown", markdownPane()))
+        tabs.addTabViewItem(tab(String(localized: "Appearance"), appearancePane()))
+        tabs.addTabViewItem(tab(String(localized: "Editor"), editorPane()))
+        tabs.addTabViewItem(tab(String(localized: "Markdown"), markdownPane()))
 
         let content = NSView()
         content.addSubview(tabs)
@@ -132,22 +133,22 @@ final class PreferencesWindowController: NSWindowController {
     private func appearancePane() -> NSGridView {
         let grid = makeGrid()
         wire(themePopup)
-        let revealButton = NSButton(title: "Theme Folder…", target: self, action: #selector(revealThemes))
-        revealButton.toolTip = "Opens the folder for .mdtheme files, with a commented example to start from"
-        grid.addRow(with: [label("Theme:"), row(themePopup, revealButton)])
+        let revealButton = NSButton(title: String(localized: "Theme Folder…"), target: self, action: #selector(revealThemes))
+        revealButton.toolTip = String(localized: "Opens the folder for .mdtheme files, with a commented example to start from")
+        grid.addRow(with: [label(String(localized: "Theme:")), row(themePopup, revealButton)])
         themeWarnings.textColor = .systemRed
         themeWarnings.font = .systemFont(ofSize: 11)
         themeWarnings.preferredMaxLayoutWidth = 380
         grid.addRow(with: [NSGridCell.emptyContentView, themeWarnings])
 
         wire(codeThemePopup)
-        grid.addRow(with: [label("Code colours:"), codeThemePopup])
+        grid.addRow(with: [label(String(localized: "Code colours:")), codeThemePopup])
 
-        fontPopup.addItem(withTitle: "System")
+        fontPopup.addItem(withTitle: String(localized: "System"))
         fontPopup.menu?.addItem(.separator())
         fontPopup.addItems(withTitles: NSFontManager.shared.availableFontFamilies)
         wire(fontPopup)
-        grid.addRow(with: [label("Font:"), fontPopup])
+        grid.addRow(with: [label(String(localized: "Font:")), fontPopup])
 
         sizeField.formatter = NumberFormatter()
         sizeField.widthAnchor.constraint(equalToConstant: 48).isActive = true
@@ -157,13 +158,13 @@ final class PreferencesWindowController: NSWindowController {
         sizeStepper.increment = 1
         sizeStepper.valueWraps = false
         wire(sizeStepper)
-        grid.addRow(with: [label("Size:"), row(sizeField, sizeStepper, label("pt  ·  View ▸ Zoom scales it further"))])
+        grid.addRow(with: [label(String(localized: "Size:")), row(sizeField, sizeStepper, label(String(localized: "pt  ·  View ▸ Zoom scales it further")))])
 
         monoFontPopup.addItem(withTitle: "SF Mono")
         monoFontPopup.menu?.addItem(.separator())
         monoFontPopup.addItems(withTitles: Self.monospacedFamilies())
         wire(monoFontPopup)
-        grid.addRow(with: [label("Code font:"), monoFontPopup])
+        grid.addRow(with: [label(String(localized: "Code font:")), monoFontPopup])
         return grid
     }
 
@@ -179,16 +180,17 @@ final class PreferencesWindowController: NSWindowController {
 
     private func editorPane() -> NSGridView {
         let grid = makeGrid()
-        grid.addRow(with: [label("Line width:"), slider(widthSlider, 480...1400, widthLabel)])
-        grid.addRow(with: [label("Line height:"), slider(lineHeightSlider, 1...2.5, lineHeightLabel)])
-        grid.addRow(with: [label("Space after blocks:"), slider(spacingSlider, 0...2, spacingLabel)])
-        grid.addRow(with: [label("Top and bottom padding:"), slider(paddingSlider, 0...160, paddingLabel)])
-        for box in [autoPairBox, smartQuotesBox, spellCheckBox, typewriterBox, focusBox] { wire(box) }
-        grid.addRow(with: [label("Typing:"), autoPairBox])
+        grid.addRow(with: [label(String(localized: "Line width:")), slider(widthSlider, 480...1400, widthLabel)])
+        grid.addRow(with: [label(String(localized: "Line height:")), slider(lineHeightSlider, 1...2.5, lineHeightLabel)])
+        grid.addRow(with: [label(String(localized: "Space after blocks:")), slider(spacingSlider, 0...2, spacingLabel)])
+        grid.addRow(with: [label(String(localized: "Top and bottom padding:")), slider(paddingSlider, 0...160, paddingLabel)])
+        for box in [autoPairBox, smartQuotesBox, spellCheckBox, typewriterBox, focusBox, updatesBox] { wire(box) }
+        grid.addRow(with: [label(String(localized: "Typing:")), autoPairBox])
         grid.addRow(with: [NSGridCell.emptyContentView, smartQuotesBox])
         grid.addRow(with: [NSGridCell.emptyContentView, spellCheckBox])
-        grid.addRow(with: [label("New tabs start in:"), typewriterBox])
+        grid.addRow(with: [label(String(localized: "New tabs start in:")), typewriterBox])
         grid.addRow(with: [NSGridCell.emptyContentView, focusBox])
+        grid.addRow(with: [label(String(localized: "Updates:")), updatesBox])
         return grid
     }
 
@@ -196,16 +198,16 @@ final class PreferencesWindowController: NSWindowController {
         let grid = makeGrid()
         for (index, (_, box)) in extensionBoxes.enumerated() {
             wire(box)
-            grid.addRow(with: [index == 0 ? label("Extended syntax:") : NSGridCell.emptyContentView, box])
+            grid.addRow(with: [index == 0 ? label(String(localized: "Extended syntax:")) : NSGridCell.emptyContentView, box])
         }
-        bulletPopup.addItems(withTitles: ["- Hyphen", "* Asterisk", "+ Plus"])
+        bulletPopup.addItems(withTitles: [String(localized: "- Hyphen"), String(localized: "* Asterisk"), String(localized: "+ Plus")])
         wire(bulletPopup)
-        grid.addRow(with: [label("New bulleted lists:"), bulletPopup])
+        grid.addRow(with: [label(String(localized: "New bulleted lists:")), bulletPopup])
         numberingPopup.addItems(withTitles: ["1. 2. 3.", "1. 1. 1."])
         wire(numberingPopup)
-        grid.addRow(with: [label("New numbered lists:"), numberingPopup])
+        grid.addRow(with: [label(String(localized: "New numbered lists:")), numberingPopup])
         wire(numberHeadingsBox)
-        grid.addRow(with: [label("Headings:"), numberHeadingsBox])
+        grid.addRow(with: [label(String(localized: "Headings:")), numberHeadingsBox])
         return grid
     }
 
@@ -257,7 +259,7 @@ final class PreferencesWindowController: NSWindowController {
 
     private func loadValues() {
         reloadThemes()
-        fontPopup.selectItem(withTitle: settings.fontName ?? "System")
+        fontPopup.selectItem(withTitle: settings.fontName ?? String(localized: "System"))
         if fontPopup.selectedItem == nil { fontPopup.selectItem(at: 0) }
         monoFontPopup.selectItem(withTitle: settings.monoFontName ?? "SF Mono")
         if monoFontPopup.selectedItem == nil { monoFontPopup.selectItem(at: 0) }
@@ -273,6 +275,7 @@ final class PreferencesWindowController: NSWindowController {
         spellCheckBox.state = settings.spellCheck ? .on : .off
         typewriterBox.state = settings.typewriterDefault ? .on : .off
         focusBox.state = settings.focusDefault ? .on : .off
+        updatesBox.state = settings.checkForUpdates ? .on : .off
 
         let extensions = settings.extensions
         for (option, box) in extensionBoxes { box.state = extensions.contains(option) ? .on : .off }
@@ -283,10 +286,10 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     private func updateLabels() {
-        widthLabel.stringValue = "\(Int(widthSlider.doubleValue)) pt"
+        widthLabel.stringValue = String(localized: "\(Int(widthSlider.doubleValue)) pt")
         lineHeightLabel.stringValue = String(format: "%.2f×", lineHeightSlider.doubleValue)
-        spacingLabel.stringValue = spacingSlider.doubleValue < 0.05 ? "None" : String(format: "%.1f lines", spacingSlider.doubleValue)
-        paddingLabel.stringValue = "\(Int(paddingSlider.doubleValue)) pt"
+        spacingLabel.stringValue = spacingSlider.doubleValue < 0.05 ? String(localized: "None") : String(format: String(localized: "%.1f lines"), spacingSlider.doubleValue)
+        paddingLabel.stringValue = String(localized: "\(Int(paddingSlider.doubleValue)) pt")
     }
 
     @objc private func settingChanged(_ sender: Any?) {
@@ -300,8 +303,8 @@ final class PreferencesWindowController: NSWindowController {
         let theme = themePopup.titleOfSelectedItem ?? ThemeCatalog.defaultName
         settings.themeName = theme
         settings.codeThemeName = codeThemePopup.titleOfSelectedItem ?? ThemeCatalog.matchTheme
-        let family = fontPopup.titleOfSelectedItem ?? "System"
-        settings.fontName = family == "System" ? nil : family
+        let family = fontPopup.titleOfSelectedItem ?? String(localized: "System")
+        settings.fontName = family == String(localized: "System") ? nil : family
         let mono = monoFontPopup.titleOfSelectedItem ?? "SF Mono"
         settings.monoFontName = mono == "SF Mono" ? nil : mono
         if (9...48).contains(sizeField.doubleValue) { settings.fontSize = sizeField.doubleValue }
@@ -315,6 +318,7 @@ final class PreferencesWindowController: NSWindowController {
         settings.spellCheck = spellCheckBox.state == .on
         settings.typewriterDefault = typewriterBox.state == .on
         settings.focusDefault = focusBox.state == .on
+        settings.checkForUpdates = updatesBox.state == .on
 
         var extensions: SyntaxExtensions = []
         for (option, box) in extensionBoxes where box.state == .on { extensions.insert(option) }

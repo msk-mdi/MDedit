@@ -15,7 +15,10 @@ enum MainMenu {
         app.mainMenu = main
     }
 
-    private static func submenu(_ title: String, _ build: (NSMenu) -> Void) -> NSMenuItem {
+    // Titles are localization keys: the compiler extracts literals passed as
+    // `String.LocalizationValue`, so call sites stay plain string literals.
+    private static func submenu(_ key: String.LocalizationValue, _ build: (NSMenu) -> Void) -> NSMenuItem {
+        let title = String(localized: key)
         let item = NSMenuItem(title: title, action: nil, keyEquivalent: "")
         let menu = NSMenu(title: title)
         build(menu)
@@ -25,13 +28,13 @@ enum MainMenu {
 
     private static func add(
         _ menu: NSMenu,
-        _ title: String,
+        _ title: String.LocalizationValue,
         _ action: Selector?,
         _ key: String = "",
         _ modifiers: NSEvent.ModifierFlags = .command,
         tag: Int = 0
     ) {
-        let item = NSMenuItem(title: title, action: action, keyEquivalent: key)
+        let item = NSMenuItem(title: String(localized: title), action: action, keyEquivalent: key)
         item.keyEquivalentModifierMask = modifiers
         item.tag = tag
         menu.addItem(item)
@@ -40,6 +43,7 @@ enum MainMenu {
     private static func appMenu() -> NSMenuItem {
         submenu("MdEdit") { menu in
             add(menu, "About MdEdit", #selector(NSApplication.orderFrontStandardAboutPanel(_:)))
+            add(menu, "Check for Updates…", #selector(AppDelegate.checkForUpdates(_:)))
             menu.addItem(.separator())
             add(menu, "Settings…", #selector(AppDelegate.showPreferences(_:)), ",")
             menu.addItem(.separator())
@@ -59,8 +63,8 @@ enum MainMenu {
             add(menu, "Open Folder…", #selector(MainWindowController.openFolder(_:)), "o", [.command, .shift])
             add(menu, "Quick Open…", #selector(MainWindowController.quickOpen(_:)), "p")
 
-            let recents = NSMenuItem(title: "Open Recent", action: nil, keyEquivalent: "")
-            let recentsMenu = NSMenu(title: "Open Recent")
+            let recents = NSMenuItem(title: String(localized: "Open Recent"), action: nil, keyEquivalent: "")
+            let recentsMenu = NSMenu(title: recents.title)
             recentsMenu.perform(Selector(("_setMenuName:")), with: "NSRecentDocumentsMenu")
             recents.submenu = recentsMenu
             menu.addItem(recents)
@@ -109,8 +113,8 @@ enum MainMenu {
             })
             menu.addItem(.separator())
 
-            let find = NSMenuItem(title: "Find", action: nil, keyEquivalent: "")
-            let findMenu = NSMenu(title: "Find")
+            let find = NSMenuItem(title: String(localized: "Find"), action: nil, keyEquivalent: "")
+            let findMenu = NSMenu(title: find.title)
             add(findMenu, "Find…", #selector(NSTextView.performFindPanelAction(_:)), "f", tag: NSTextFinder.Action.showFindInterface.rawValue)
             add(findMenu, "Find Next", #selector(NSTextView.performFindPanelAction(_:)), "g", tag: NSTextFinder.Action.nextMatch.rawValue)
             add(findMenu, "Find Previous", #selector(NSTextView.performFindPanelAction(_:)), "g", [.command, .shift], tag: NSTextFinder.Action.previousMatch.rawValue)
@@ -185,7 +189,7 @@ enum MainMenu {
             add(menu, "Actual Size", #selector(MainWindowController.resetZoom(_:)), "0")
             add(menu, "Zoom In", #selector(MainWindowController.zoomIn(_:)), "+")
             // ⌘= reaches Zoom In without Shift, as in every Mac app.
-            let unshifted = NSMenuItem(title: "Zoom In", action: #selector(MainWindowController.zoomIn(_:)), keyEquivalent: "=")
+            let unshifted = NSMenuItem(title: String(localized: "Zoom In"), action: #selector(MainWindowController.zoomIn(_:)), keyEquivalent: "=")
             unshifted.isHidden = true
             unshifted.allowsKeyEquivalentWhenHidden = true
             menu.addItem(unshifted)
@@ -210,7 +214,10 @@ enum MainMenu {
 
     private static func helpMenu() -> NSMenuItem {
         let item = submenu("Help") { menu in
-            add(menu, "MdEdit Help", #selector(AppDelegate.showHelp(_:)), "?")
+            add(menu, "Welcome to MdEdit", #selector(AppDelegate.showWelcome(_:)))
+            add(menu, "Markdown Cheat Sheet", #selector(AppDelegate.showCheatSheet(_:)), "?")
+            menu.addItem(.separator())
+            add(menu, "MdEdit on GitHub", #selector(AppDelegate.showHelp(_:)))
         }
         return item
     }

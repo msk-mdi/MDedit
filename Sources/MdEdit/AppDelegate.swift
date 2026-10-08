@@ -26,7 +26,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let firstLaunch = Session.load() == nil && !UserDefaults.standard.bool(forKey: Self.welcomedKey)
         restoreSession()
+        if firstLaunch {
+            UserDefaults.standard.set(true, forKey: Self.welcomedKey)
+            showWelcome(nil)
+        }
+        UpdateChecker.checkInBackgroundIfDue()
         try? FileManager.default.createDirectory(at: ThemeCatalog.customDirectory, withIntermediateDirectories: true)
         themeWatcher = DirectoryWatcher(url: ThemeCatalog.customDirectory) { Settings.notifyChanged() }
     }
@@ -121,13 +127,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Reopens the last session's windows, then puts recovered unsaved text
     /// into whichever window holds its file — or the first, for the rest.
     private func restoreSession() {
-        let saved = Session.load()?.windows ?? []
+        // Through bookmarks: a sandboxed app needs them to reach the files
+        // again, and they follow files renamed since the last run.
+        let saved = (Session.load()?.windows ?? []).map { window in
+            var window = window
+            window.tabs = window.tabs.map { tab in
+                var tab = tab
+                tab.url = FileAccess.resolve(tab.url)
+                return tab
+            }
+            window.workspace = window.workspace.map { FileAccess.resolve($0) }
+            return window
+        }
         let snapshots = RecoveryStore.standard.snapshots()
 
         if saved.isEmpty {
             let controller = controllers.first ?? makeWindow()
             // Before sessions remembered folders, the last folder was kept here.
-            if let workspace = Workspace.load() { controller.setWorkspace(workspace) }
+            if let workspace = Workspace.load() { controller.setWorkspace(Workspace(root: FileAccess.resolve(workspace.root))) }
         }
         for (index, window) in saved.enumerated() {
             // A window may already exist for files opened at launch; reuse it first.
@@ -194,6 +211,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc func showHelp(_ sender: Any?) {
         NSWorkspace.shared.open(URL(string: "https://github.com/msk-mdi/MDedit#readme")!)
+    }
+
+    @objc func checkForUpdates(_ sender: Any?) {
+        UpdateChecker.check()
+    }
+
+    private static let welcomedKey = "hasShownWelcome"
+
+    @objc func showWelcome(_ sender: Any?) {
+        openHelpDocument("Welcome", named: String(localized: "Welcome"))
+    }
+
+    @objc func showCheatSheet(_ sender: Any?) {
+        openHelpDocument("CheatSheet", named: String(localized: "Cheat Sheet"))
+    }
+
+    /// A help page bundled as markdown, opened as an editable copy.
+    private func openHelpDocument(_ resource: String, named name: String) {
+        guard let url = Bundle.main.url(forResource: resource, withExtension: "md"),
+              let text = try? String(contentsOf: url, encoding: .utf8)
+        else { return showHelp(nil) }
+        frontController().openCopy(of: text, named: name)
     }
 
     @objc func saveDocumentAs(_ sender: Any?) {

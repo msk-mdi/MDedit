@@ -129,12 +129,17 @@ final class Document {
         isMissingOnDisk || storage.length != savedLength || storage.string != savedText
     }
 
+    /// The tab title of a document with no file yet, when it should not be
+    /// "Untitled": the welcome page, the cheat sheet.
+    var untitledName: String?
+
     var displayName: String {
-        url?.lastPathComponent ?? "Untitled"
+        url?.lastPathComponent ?? untitledName ?? String(localized: "Untitled")
     }
 
     static func open(contentsOf url: URL, theme: Theme) throws -> Document {
         let (text, format) = try FileFormat.decode(Data(contentsOf: url))
+        FileAccess.remember(url)
         let document = Document(url: url, text: text, theme: theme)
         document.format = format
         document.beginWatching()
@@ -157,6 +162,7 @@ final class Document {
         }
         try data.write(to: destination, options: .atomic)
         let needsWatcher = url != destination || isMissingOnDisk
+        if url != destination { FileAccess.remember(destination) }
         url = destination
         if let goal = untitledGoal {
             WordGoals.set(goal, for: destination)

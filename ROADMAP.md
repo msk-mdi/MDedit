@@ -8,7 +8,7 @@ list continuation, typewriter/focus mode, file watching, HTML/PDF export, a 3-op
 and 47 tests. The README's own "Not implemented" list plus a code survey gave the gaps below.
 Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkText/Typora, P2 = power features, P3 = polish & distribution.
 
-**Status (2026-10-08):** P0, P1 and P2 are done — 16 commits, 154 tests, CommonMark 650/652. P3 is not started.
+**Status (2026-10-08):** P0–P3 are done — 208 tests, CommonMark 650/652. What v1.0 still needs is outside the code: a Developer ID to sign and notarize a release, and a tap for the cask.
 
 ---
 
@@ -76,20 +76,21 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 - [x] Format ▸ Table of Contents (linked list); `[TOC]` and numbered headings in export.
 - [x] Version history on open/save + macOS `NSFileVersion`s; File ▸ Revert To ▸ Last Saved / Browse Versions….
 
-## P3 — Quality, accessibility, performance
-- [ ] VoiceOver: make concealed markers and custom glyph substitutions (`•`, `☑`, emoji) read sensibly; tab bar accessibility labels.
-- [ ] Large-file performance benchmarks (e.g. 5 MB / 100k lines) and profiling of `processEditing` + `drawBackground`.
-- [ ] More tests — partly done: persistence, rich editing, tables, code blocks, workspace, HTML paste and fuzzing were added along the way. Still missing: `MarkdownCommands`, window-level flows (quit review, tab tear-off), UI tests that drive real input.
-- [ ] CI (GitHub Actions on macOS 26 runner): `swift build`, `swift test`, lint (SwiftLint/swift-format).
-- [ ] Localization scaffolding (strings are hard-coded English).
-- [ ] Undo grouping review for formatting commands and auto-continuation.
+## P3 — Quality, accessibility, performance ✅
+- [x] **VoiceOver** (`91b05e7`): the text view answers VoiceOver's string-for-range questions with what is drawn — concealed markers skipped, `•` for bullets, "checked"/"unchecked" for task boxes, emoji for shortcodes, TeX or diagram source for typeset images, "Image" before an image line — in storage offsets, so the caret VoiceOver tracks still matches. Tabs are radio-button tabs in a tab group, "edited" in the name, Close Tab as an action.
+- [x] **Large-file benchmarks** (`3d26542`): `PerformanceTests`, a 10k-line run always and 100k lines / ~5 MB with `MDEDIT_BENCHMARKS=1`. Profiling found AppKit's attribute fixing walking the whole document twice per keystroke (glyph-info search, `length` via `string`); fonts are cached. Release, 100k lines / 2 MB: keystroke 6.8 → 2.0 ms, load 4.0 → 3.2 s. What is left is Foundation's flat run array (a memmove per attribute change, ~4 ms per keystroke at 4.5 MB) and contiguous layout (5.6 s to lay out to the middle of 4.5 MB on first scroll there); both need a different storage or non-contiguous layout.
+- [x] **More tests** (`4152fca`, `f6d72cc`): every Format command and its undo, window flows (close with Cancel / Don't Save / Save, quit across windows, tear-off keeping text and undo) behind an injectable save prompt, and `KeyboardInputTests`, which send real key events through a window. They found the three bugs below. XCUITest-style tests of the running app still need an Xcode project.
+- [x] **CI** (`71cd4c9`): GitHub Actions on `macos-26` — build, test, `Scripts/lint.sh` (swift-format; layout findings left out, as the pretty-printer would reflow hand-laid tables), release app assembly. Not yet run on GitHub.
+- [x] **Localization scaffolding** (`69e7f7e`): ~250 strings through `String(localized:)` (menu titles as `String.LocalizationValue`), extracted by the compiler with `Scripts/update-strings.sh` into `Resources/Localizable.xcstrings`, compiled into the bundle by `make-app.sh`. No translations yet.
+- [x] **Undo grouping** (`4152fca`): per-document undo managers (tabs shared the window's — undo could hit another tab); input-handler edits were registered twice and threw on undo; commands are named steps that don't coalesce with typing.
+- Also fixed: `- ` after a list item parsed as a setext underline (`f6d72cc`).
 
-## P3 — Distribution
-- [ ] Developer ID signing + notarization in `Scripts/make-app.sh`; App Sandbox with security-scoped bookmarks (needed for recents, session restore and workspaces once sandboxed).
-- [ ] Auto-update (Sparkle) or Mac App Store build.
-- [ ] Register as a handler for `.md` with a proper UTI/icon; Quick Look preview extension for `.md` files (reuse `MarkdownKit` HTML renderer).
-- [ ] Homebrew cask, release workflow producing a DMG, CHANGELOG, bump `CFBundleShortVersionString` from 0.1.
-- [ ] Real Help: in-app markdown cheat sheet / welcome document on first launch.
+## P3 — Distribution ✅ (scripted; needs an Apple Developer ID to run for real)
+- [x] Developer ID signing (hardened runtime) and notarization in `Scripts/make-app.sh` from `MDEDIT_SIGN_IDENTITY` / `MDEDIT_NOTARY_PROFILE`; `--sandbox` signs with App Sandbox entitlements. `FileAccess` keeps bookmarks (security-scoped when sandboxed) for opened files and workspace folders and resolves the session through them — which also follows files renamed between launches. Recents use `NSDocumentController`'s own. The sandboxed build has not been launched.
+- [~] Auto-update: Check for Updates… and an opt-out daily check against GitHub Releases, opening the release page. No Sparkle (it would be the first dependency) and no Mac App Store build (needs an account).
+- [x] Markdown UTI declared, MdEdit the default handler, document icon (`make-icon.swift` draws both). Quick Look preview extension (`Sources/MdEditQuickLook`, a SwiftPM executable entered at `NSExtensionMain`, wrapped as an `.appex` by `make-app.sh`) renders with `MarkdownKit` and its own light/dark stylesheet — checked with `qlmanage -p`.
+- [x] `Scripts/make-dmg.sh`, `.github/workflows/release.yml` (tag `v*` → test, vendor, sign, notarize, DMG, GitHub release with the CHANGELOG section), `Packaging/Homebrew/mdedit.rb`, `CHANGELOG.md`, version 0.9.0 with the commit count as build number.
+- [x] Help: Welcome page on first launch and a Markdown Cheat Sheet, opened as editable untitled copies; MdEdit on GitHub.
 
 ---
 
@@ -99,12 +100,13 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 3. ✅ **v0.4 "Rich editing"** — image previews, clickable tasks/links, image paste, outline sidebar, source mode.
 4. ✅ **v0.5 "Tables & math"** — table editor, math, mermaid in export.
 5. ✅ **v0.6 "Workspace"** — file tree, quick open, multi-window, settings, export and writing tools (P2).
-6. ☐ **v1.0** — accessibility pass, tests/CI, signing, notarization, auto-update, Quick Look.
+6. ✅ **v0.9** — accessibility, tests and CI, undo, localization scaffolding, Quick Look, signing and release scripts.
+7. ☐ **v1.0** — the first signed, notarized release; translations.
 
 ## Known gaps carried forward
-- Not exercised with real input (macOS blocked synthetic keystrokes and drags from the dev session): the new Settings window, export panels and Print, fold chips, ⌥-click carets, the version browser, Quick Open, Find in Folder typing, tab dragging and tear-off, image/HTML paste from other apps, code-block menu and Copy, the quit prompt across several windows.
+- Not exercised with real input (macOS blocked synthetic keystrokes and drags from the dev session): the new Settings window, export panels and Print, fold chips, ⌥-click carets, the version browser, Quick Open, Find in Folder typing, tab dragging, image/HTML paste from other apps, code-block menu and Copy. Typing, list and table keys, the quit review and tear-off are now covered by tests.
 - The editor and export can disagree on non-line-local CommonMark (e.g. a paragraph inside a list item after a blank line): the editor's `BlockParser` is line-based by design.
-- A renamed file is not followed; the tab is marked unsaved and saving recreates the old path.
+- A file renamed while open is not followed (the tab is marked unsaved and saving recreates the old path); one renamed between launches is, through its bookmark.
 
 ## Verification (per item when implemented)
 - `swift test` (extend the incremental-reparse equivalence fuzz test for every new block construct; keep `CommonMarkSpecTests` at or above its baseline).

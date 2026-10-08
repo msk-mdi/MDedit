@@ -81,6 +81,11 @@ markdown comes back. There is no split pane and no preview mode to switch to.
 - **Command line.** `MdEdit --render [file | -] [-o out.html] [--standalone]
   [--theme Nord] [--toc] [--number-headings] [--embed-images]` converts without
   opening a window, reading standard input when no file is given.
+- **At home in macOS.** MdEdit is the default editor for markdown files, with
+  its own document icon; the space bar previews them in Finder through its Quick
+  Look extension. VoiceOver reads the text as it is drawn — no stray `**` or
+  `#` — and the tabs as tabs. Help ▸ Markdown Cheat Sheet lists every piece of
+  syntax, and Check for Updates… looks for a newer release.
 - **No dependencies.** The parser, the highlighter and the renderer are all in this
   repository. Only math and diagrams borrow from the web: KaTeX and Mermaid run in
   one hidden web view, and the editor draws the images it takes.
@@ -101,9 +106,34 @@ Scripts/make-app.sh    # assembles build/MdEdit.app
 open build/MdEdit.app
 ```
 
-`Scripts/make-app.sh release` builds an optimised bundle. The app is ad-hoc signed,
-which is enough to run it locally but not to distribute it.
-`Scripts/make-icon.swift` regenerates the app icon.
+`Scripts/make-app.sh release` builds an optimised bundle, with the Quick Look
+extension inside. By default it is ad-hoc signed, which is enough to run it
+locally but not to distribute it.
+
+### Releasing
+
+```sh
+export MDEDIT_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"
+export MDEDIT_NOTARY_PROFILE=mdedit-notary   # xcrun notarytool store-credentials mdedit-notary …
+Scripts/make-app.sh release    # signed with the hardened runtime, notarized, stapled
+Scripts/make-dmg.sh            # build/MdEdit-<version>.dmg, also notarized; prints its sha256
+```
+
+`Scripts/make-app.sh release --sandbox` signs with the App Sandbox entitlements
+the Mac App Store requires. Pushing a `v<version>` tag runs the same steps in
+GitHub Actions (`.github/workflows/release.yml`, given the signing secrets it
+lists) and publishes the DMG with that version's CHANGELOG section as notes.
+`Packaging/Homebrew/mdedit.rb` is the cask for a tap; set its `sha256` per release.
+
+### Other scripts
+
+- `Scripts/lint.sh` — swift-format with `.swift-format`; CI runs it with the tests.
+- `Scripts/update-strings.sh` — collects every localizable string into
+  `Resources/Localizable.xcstrings`, which `make-app.sh` compiles into the bundle.
+  Add a language by translating there (in Xcode, or any `.xcstrings` editor).
+- `Scripts/make-icon.swift` — redraws the app and document icons.
+- `MDEDIT_BENCHMARKS=1 swift test -c release --filter Performance` — timings for a
+  5 MB, 100k-line document.
 
 ## Keyboard shortcuts
 
@@ -220,10 +250,11 @@ Transparency. Reduce Motion is honoured for the thumb and for typewriter scrolli
 ```
 Sources/MarkdownKit/   Parsing, syntax highlighting, HTML rendering. No AppKit.
 Sources/MdEdit/        The app: text storage, layout manager, window, chrome.
+Sources/MdEditQuickLook/ The Quick Look preview extension.
 Tests/MarkdownKitTests/  Parser, highlighter and renderer tests.
-Tests/MdEditTests/       Text storage tests.
-Scripts/make-app.sh    Assembles the .app bundle around the SwiftPM binary.
-Scripts/make-icon.swift Draws the app icon.
+Tests/MdEditTests/       Editor, commands, undo, windows, keyboard and performance tests.
+Resources/             Info.plist, icons, help pages, string catalog, entitlements.
+Scripts/               App, DMG, icon, lint and string-catalog scripts.
 ```
 
 `MarkdownKit` has no AppKit import and can be used on its own as a markdown parser
@@ -235,15 +266,21 @@ and HTML renderer.
 swift test
 ```
 
-Tests covering block and inline parsing, extended syntax, document persistence, incremental-reparse equivalence under
-random edits, the highlighter for each language family, HTML rendering, and the text
-storage's line-range handling.
+Tests covering block and inline parsing, extended syntax, document persistence,
+incremental-reparse equivalence under random edits, the highlighter for each
+language family, HTML rendering, the CommonMark spec, the text storage, every
+Format command and its undo step, window flows (closing and quitting with unsaved
+tabs, tab tear-off), typing through real key events, VoiceOver's reading of the
+text, and large-file timings.
 
 ## Not implemented
 
-Math and Mermaid diagrams are typeset only in HTML export (loaded from a CDN, or
-inlined when `Scripts/fetch-vendor.sh` has run before `make-app.sh`), not in the
-editor. Extra carets do not blink. There are no image upload services. The app is unsandboxed and ad-hoc signed.
+Without `Scripts/fetch-vendor.sh` before `make-app.sh`, math and diagrams load
+KaTeX and Mermaid from a CDN. Extra carets do not blink. There are no image upload
+services. Updates are found, not installed: Check for Updates… opens the release
+page. The sandboxed build has not been run in anger: expect pasted images to
+need the document's folder open as the workspace (to write `assets/`), and
+Pandoc export not to run. No translations ship yet, only the catalog to add them to.
 
 ## License
 

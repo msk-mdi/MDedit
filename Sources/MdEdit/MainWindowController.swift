@@ -434,6 +434,14 @@ final class MainWindowController: NSWindowController {
         addDocument(Document(theme: theme))
     }
 
+    /// Opens bundled text as an untitled tab of its own: a copy to play
+    /// with, not the bundle's file, and not unsaved until changed.
+    func openCopy(of text: String, named name: String) {
+        let document = Document(text: text, theme: theme)
+        document.untitledName = name
+        addReplacingPlaceholder(document)
+    }
+
     func open(url: URL) {
         if focusDocument(at: url) { return }
         if focusElsewhere?(url) == true { return }
@@ -476,7 +484,7 @@ final class MainWindowController: NSWindowController {
         panel.allowedContentTypes = ["md", "markdown", "mdown", "mkd", "txt"]
             .compactMap { .init(filenameExtension: $0) }
         panel.allowsOtherFileTypes = true
-        panel.nameFieldStringValue = document.url?.lastPathComponent ?? "Untitled.md"
+        panel.nameFieldStringValue = document.url?.lastPathComponent ?? document.displayName + ".md"
         panel.canCreateDirectories = true
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url else { return completion?(false) ?? () }
@@ -522,10 +530,10 @@ final class MainWindowController: NSWindowController {
         }
 
         let alert = NSAlert()
-        alert.messageText = "“\(document.displayName)” changed on disk."
-        alert.informativeText = "You have unsaved changes here. Reloading discards them."
-        alert.addButton(withTitle: "Keep My Changes")
-        alert.addButton(withTitle: "Reload")
+        alert.messageText = String(localized: "“\(document.displayName)” changed on disk.")
+        alert.informativeText = String(localized: "You have unsaved changes here. Reloading discards them.")
+        alert.addButton(withTitle: String(localized: "Keep My Changes"))
+        alert.addButton(withTitle: String(localized: "Reload"))
         alert.beginSheetModal(for: window) { [weak self] response in
             guard response == .alertSecondButtonReturn else { return }
             try? document.revert()
@@ -668,7 +676,7 @@ final class MainWindowController: NSWindowController {
         panel.canChooseDirectories = true
         panel.canChooseFiles = false
         panel.canCreateDirectories = true
-        panel.prompt = "Open Folder"
+        panel.prompt = String(localized: "Open Folder")
         panel.beginSheetModal(for: window) { [weak self] response in
             guard response == .OK, let url = panel.url, let self else { return }
             setWorkspace(Workspace(root: url))
@@ -681,6 +689,7 @@ final class MainWindowController: NSWindowController {
     func setWorkspace(_ newWorkspace: Workspace?) {
         workspace = newWorkspace
         newWorkspace?.save()
+        if let root = newWorkspace?.root { FileAccess.remember(root) }
         sidebar.files.setRoot(newWorkspace?.root)
         window?.subtitle = newWorkspace?.root.lastPathComponent ?? ""
         directoryWatcher = newWorkspace.flatMap { workspace in
@@ -1024,7 +1033,7 @@ final class MainWindowController: NSWindowController {
         browser.onFinish = { [weak self, weak document] text in
             self?.versionBrowser = nil
             guard let self, let document, let text else { return }
-            replaceText(of: document, with: text, actionName: "Restore Version")
+            replaceText(of: document, with: text, actionName: String(localized: "Restore Version"))
         }
         versionBrowser = browser
         if let sheet = browser.window { window.beginSheet(sheet) }
@@ -1035,7 +1044,7 @@ final class MainWindowController: NSWindowController {
         guard let document = activeDocument, let url = document.url else { return NSSound.beep() }
         do {
             let text = try FileFormat.decode(Data(contentsOf: url)).text
-            replaceText(of: document, with: text, actionName: "Revert to Saved")
+            replaceText(of: document, with: text, actionName: String(localized: "Revert to Saved"))
         } catch {
             show(error: error)
         }
@@ -1105,12 +1114,12 @@ extension MainWindowController: NSMenuItemValidation {
             return documents.count > 1
         case #selector(exportWithPandoc(_:)):
             let installed = Pandoc.executable != nil
-            item.title = installed ? "With Pandoc…" : "With Pandoc (not installed)"
+            item.title = installed ? String(localized: "With Pandoc…") : String(localized: "With Pandoc (not installed)")
             return installed
         case #selector(toggleOutline(_:)):
-            item.title = isSidebarVisible && sidebar.pane == .outline ? "Hide Outline" : "Show Outline"
+            item.title = isSidebarVisible && sidebar.pane == .outline ? String(localized: "Hide Outline") : String(localized: "Show Outline")
         case #selector(toggleFiles(_:)):
-            item.title = isSidebarVisible && sidebar.pane == .files ? "Hide Files" : "Show Files"
+            item.title = isSidebarVisible && sidebar.pane == .files ? String(localized: "Hide Files") : String(localized: "Show Files")
         case #selector(tableRowAbove(_:)), #selector(tableRowBelow(_:)), #selector(tableDeleteRow(_:)),
              #selector(tableColumnBefore(_:)), #selector(tableColumnAfter(_:)), #selector(tableDeleteColumn(_:)),
              #selector(tableAlign(_:)), #selector(tableFormat(_:)):

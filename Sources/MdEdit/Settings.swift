@@ -38,6 +38,7 @@ struct Settings {
         static let bulletMarker = "bulletMarker"
         static let orderedNumbering = "orderedListNumbering"
         static let numberHeadings = "numberHeadings"
+        static let checkForUpdates = "checkForUpdates"
     }
 
     private func double(_ key: String, default value: Double, in range: ClosedRange<Double>) -> Double {
@@ -132,6 +133,12 @@ struct Settings {
     var spellCheck: Bool {
         get { bool(Key.spellCheck, default: true) }
         nonmutating set { defaults.set(newValue, forKey: Key.spellCheck) }
+    }
+
+    /// Asks GitHub once a day whether a newer release is out.
+    var checkForUpdates: Bool {
+        get { bool(Key.checkForUpdates, default: true) }
+        nonmutating set { defaults.set(newValue, forKey: Key.checkForUpdates) }
     }
 
     /// The mode new tabs start in.

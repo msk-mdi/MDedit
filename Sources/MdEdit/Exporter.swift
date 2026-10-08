@@ -24,8 +24,8 @@ struct ExportOptions: Codable, Equatable {
 
         var title: String {
             switch self {
-            case .letter: "US Letter"
-            case .legal: "US Legal"
+            case .letter: String(localized: "US Letter")
+            case .legal: String(localized: "US Legal")
             case .a4: "A4"
             case .a5: "A5"
             }
@@ -45,7 +45,13 @@ struct ExportOptions: Codable, Equatable {
     enum Margins: String, Codable, CaseIterable {
         case narrow, normal, wide
 
-        var title: String { rawValue.capitalized }
+        var title: String {
+            switch self {
+            case .narrow: String(localized: "Narrow")
+            case .normal: String(localized: "Normal")
+            case .wide: String(localized: "Wide")
+            }
+        }
 
         var points: CGFloat {
             switch self {
@@ -73,9 +79,9 @@ enum RichFormat: CaseIterable {
 
     var title: String {
         switch self {
-        case .word: "Word Document"
-        case .richText: "Rich Text"
-        case .plainText: "Plain Text"
+        case .word: String(localized: "Word Document")
+        case .richText: String(localized: "Rich Text")
+        case .plainText: String(localized: "Plain Text")
         }
     }
 
@@ -337,7 +343,7 @@ enum Exporter {
     // MARK: - Panels
 
     private static func defaultName(for document: Document, extension fileExtension: String) -> String {
-        (document.url?.deletingPathExtension().lastPathComponent ?? "Untitled") + "." + fileExtension
+        (document.url?.deletingPathExtension().lastPathComponent ?? document.displayName) + "." + fileExtension
     }
 
     /// Runs a save panel as a sheet, with the options view under it.
@@ -495,13 +501,13 @@ final class ExportAccessory: NSView {
     weak var panel: NSSavePanel?
 
     private let themePopup = NSPopUpButton()
-    private let stylesheetBox = NSButton(checkboxWithTitle: "Include stylesheet", target: nil, action: nil)
-    private let embedBox = NSButton(checkboxWithTitle: "Embed images in the file", target: nil, action: nil)
-    private let offlineBox = NSButton(checkboxWithTitle: "Embed KaTeX and Mermaid (works offline)", target: nil, action: nil)
-    private let tocBox = NSButton(checkboxWithTitle: "Add a table of contents", target: nil, action: nil)
+    private let stylesheetBox = NSButton(checkboxWithTitle: String(localized: "Include stylesheet"), target: nil, action: nil)
+    private let embedBox = NSButton(checkboxWithTitle: String(localized: "Embed images in the file"), target: nil, action: nil)
+    private let offlineBox = NSButton(checkboxWithTitle: String(localized: "Embed KaTeX and Mermaid (works offline)"), target: nil, action: nil)
+    private let tocBox = NSButton(checkboxWithTitle: String(localized: "Add a table of contents"), target: nil, action: nil)
     private let paperPopup = NSPopUpButton()
     private let marginsPopup = NSPopUpButton()
-    private let headerBox = NSButton(checkboxWithTitle: "Title and page numbers on each page", target: nil, action: nil)
+    private let headerBox = NSButton(checkboxWithTitle: String(localized: "Title and page numbers on each page"), target: nil, action: nil)
     private let formatPopup = NSPopUpButton()
     private(set) var pandocFormatIndex = 0
 
@@ -527,24 +533,24 @@ final class ExportAccessory: NSView {
             formatPopup.selectItem(at: pandocFormatIndex)
             formatPopup.target = self
             formatPopup.action = #selector(formatChanged)
-            grid.addRow(with: [NSTextField(labelWithString: "Format:"), formatPopup])
+            grid.addRow(with: [NSTextField(labelWithString: String(localized: "Format:")), formatPopup])
         }
         if kind != .pandoc {
-            themePopup.addItem(withTitle: "Editor Theme")
+            themePopup.addItem(withTitle: String(localized: "Editor Theme"))
             themePopup.menu?.addItem(.separator())
             themePopup.addItems(withTitles: ThemeCatalog.allNames())
             if let name = options.themeName, themePopup.item(withTitle: name) != nil {
                 themePopup.selectItem(withTitle: name)
             }
-            grid.addRow(with: [NSTextField(labelWithString: "Theme:"), themePopup])
+            grid.addRow(with: [NSTextField(labelWithString: String(localized: "Theme:")), themePopup])
         }
         if kind == .pdf {
             paperPopup.addItems(withTitles: ExportOptions.Paper.allCases.map(\.title))
             paperPopup.selectItem(at: ExportOptions.Paper.allCases.firstIndex(of: options.paper) ?? 0)
             marginsPopup.addItems(withTitles: ExportOptions.Margins.allCases.map(\.title))
             marginsPopup.selectItem(at: ExportOptions.Margins.allCases.firstIndex(of: options.margins) ?? 1)
-            grid.addRow(with: [NSTextField(labelWithString: "Paper:"), paperPopup])
-            grid.addRow(with: [NSTextField(labelWithString: "Margins:"), marginsPopup])
+            grid.addRow(with: [NSTextField(labelWithString: String(localized: "Paper:")), paperPopup])
+            grid.addRow(with: [NSTextField(labelWithString: String(localized: "Margins:")), marginsPopup])
             grid.addRow(with: [NSGridCell.emptyContentView, headerBox])
         }
         if kind == .html {
@@ -746,8 +752,8 @@ enum Pandoc {
 
         var errorDescription: String? {
             switch self {
-            case .notInstalled: "Pandoc is not installed."
-            case let .failed(message): "Pandoc could not export the document.\n\n\(message)"
+            case .notInstalled: String(localized: "Pandoc is not installed.")
+            case let .failed(message): String(localized: "Pandoc could not export the document.\n\n\(message)")
             }
         }
     }
