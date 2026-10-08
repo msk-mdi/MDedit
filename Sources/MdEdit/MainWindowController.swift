@@ -130,6 +130,7 @@ final class MainWindowController: NSWindowController {
                 self?.applyTheme(.current(for: app.effectiveAppearance))
             }
         }
+        NotificationCenter.default.addObserver(self, selector: #selector(settingsDidChange), name: Settings.didChange, object: nil)
         applyTheme(theme)
 
         if documents.isEmpty {
@@ -144,6 +145,12 @@ final class MainWindowController: NSWindowController {
         statusBar.applyTheme(theme)
         sidebar.applyTheme(theme)
         for editor in editors.values { editor.applyTheme(theme) }
+    }
+
+    @objc private func settingsDidChange() {
+        applyTheme(.current(for: NSApp.effectiveAppearance))
+        let settings = Settings()
+        for editor in editors.values { editor.applySettings(settings) }
     }
 
     // MARK: - Documents
@@ -700,8 +707,14 @@ final class MainWindowController: NSWindowController {
         for (index, document) in documents.enumerated() {
             guard let url = document.url else { continue }
             if index == selection { selectedIndex = tabs.count }
-            let location = editors[ObjectIdentifier(document)]?.textView.selectedRange().location ?? 0
-            tabs.append(.init(url: url, selectedLocation: location))
+            let editor = editors[ObjectIdentifier(document)]
+            tabs.append(.init(
+                url: url,
+                selectedLocation: editor?.textView.selectedRange().location ?? 0,
+                sourceMode: editor?.sourceMode,
+                typewriterMode: editor?.activeLine.typewriterMode,
+                focusMode: editor?.activeLine.focusMode
+            ))
         }
         return Session.Window(
             tabs: tabs,
@@ -728,6 +741,11 @@ final class MainWindowController: NSWindowController {
             guard let document else { continue }
             if index == saved.selectedIndex { selected = document }
             restoreCaret(of: document, to: tab.selectedLocation)
+            if let editor = editors[ObjectIdentifier(document)] {
+                if let source = tab.sourceMode { editor.sourceMode = source }
+                if let typewriter = tab.typewriterMode { editor.activeLine.typewriterMode = typewriter }
+                if let focus = tab.focusMode { editor.activeLine.focusMode = focus }
+            }
         }
         if let selected, let index = documents.firstIndex(where: { $0 === selected }) {
             select(index: index)
@@ -828,18 +846,44 @@ final class MainWindowController: NSWindowController {
     @objc func toggleSourceMode(_ sender: Any?) {
         guard let editor = currentEditor else { return }
         editor.sourceMode.toggle()
+        onSessionChange?()
     }
 
     @objc func toggleTypewriterMode(_ sender: Any?) {
         guard let editor = currentEditor else { return }
         editor.activeLine.typewriterMode.toggle()
         (sender as? NSMenuItem)?.state = editor.activeLine.typewriterMode ? .on : .off
+        onSessionChange?()
     }
 
     @objc func toggleFocusMode(_ sender: Any?) {
         guard let editor = currentEditor else { return }
         editor.activeLine.focusMode.toggle()
         (sender as? NSMenuItem)?.state = editor.activeLine.focusMode ? .on : .off
+        onSessionChange?()
+    }
+
+    // MARK: - Zoom
+
+    /// Zoom is app-wide, like the font size it multiplies.
+    @objc func zoomIn(_ sender: Any?) { stepZoom(by: 1) }
+    @objc func zoomOut(_ sender: Any?) { stepZoom(by: -1) }
+
+    @objc func resetZoom(_ sender: Any?) {
+        Settings().zoom = 1
+        Settings.notifyChanged()
+    }
+
+    private func stepZoom(by direction: Int) {
+        let settings = Settings()
+        let steps = Settings.zoomSteps
+        let current = settings.zoom
+        let next = direction > 0
+            ? steps.first { $0 > current + 0.001 }
+            : steps.last { $0 < current - 0.001 }
+        guard let next else { return NSSound.beep() }
+        settings.zoom = next
+        Settings.notifyChanged()
     }
 
     @objc func exportHTML(_ sender: Any?) {
@@ -890,6 +934,12 @@ extension MainWindowController: NSMenuItemValidation {
             item.state = editor?.activeLine.typewriterMode == true ? .on : .off
         case #selector(toggleFocusMode(_:)):
             item.state = editor?.activeLine.focusMode == true ? .on : .off
+        case #selector(zoomIn(_:)):
+            return Settings().zoom < Settings.zoomRange.upperBound - 0.001
+        case #selector(zoomOut(_:)):
+            return Settings().zoom > Settings.zoomRange.lowerBound + 0.001
+        case #selector(resetZoom(_:)):
+            return abs(Settings().zoom - 1) > 0.001
         default:
             break
         }

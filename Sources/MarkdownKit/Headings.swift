@@ -112,3 +112,27 @@ extension BlockStructure {
         return result
     }
 }
+
+/// Outline numbers — `1`, `1.1`, `1.2`, `2` — counted from the shallowest
+/// level the document uses, so a document of `##` headings starts at `1`.
+public struct HeadingNumberer {
+    private let topLevel: Int
+    private var counters = [Int](repeating: 0, count: 6)
+
+    public init(topLevel: Int) {
+        self.topLevel = min(max(topLevel, 1), 6)
+    }
+
+    public mutating func number(forLevel level: Int) -> String {
+        let depth = min(max(level, topLevel), 6) - topLevel
+        counters[depth] += 1
+        for deeper in (depth + 1)..<counters.count { counters[deeper] = 0 }
+        return counters[0...depth].map(String.init).joined(separator: ".")
+    }
+
+    /// Each heading's number, in order.
+    public static func numbers(for headings: [Heading]) -> [String] {
+        var numberer = HeadingNumberer(topLevel: headings.map(\.level).min() ?? 1)
+        return headings.map { numberer.number(forLevel: $0.level) }
+    }
+}

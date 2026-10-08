@@ -7,6 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controllers: [MainWindowController] = []
     /// Set once launch restoration is done, so early saves don't clobber the session.
     private var hasRestored = false
+    /// Restyles open windows when a theme file is edited or added.
+    private var themeWatcher: DirectoryWatcher?
 
     static func main() {
         // A headless render path, so export can be checked without a GUI.
@@ -26,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         restoreSession()
+        try? FileManager.default.createDirectory(at: ThemeCatalog.customDirectory, withIntermediateDirectories: true)
+        themeWatcher = DirectoryWatcher(url: ThemeCatalog.customDirectory) { Settings.notifyChanged() }
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

@@ -66,6 +66,12 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 inline.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
 
+            if let markdown = storage as? MarkdownTextStorage, markdown.numberHeadings,
+               self.isFirstFragmentOfParagraph(lineCharacters.location, in: storage),
+               let number = markdown.headingNumber(forLine: markdown.line(at: lineCharacters.location)) {
+                self.drawHeadingNumber(number, glyphRange: lineGlyphRange, fragment: fragmentRect, attributes: attributes, origin: origin)
+            }
+
             var rect = usedRect.offsetBy(dx: origin.x, dy: origin.y)
             // Decoration spans the text column, not just the glyphs that were
             // used. `origin` already accounts for the container inset.
@@ -121,6 +127,28 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 NSBezierPath(roundedRect: chip, xRadius: 3, yRadius: 3).fill()
             }
         }
+    }
+
+    /// Draws a heading's outline number in the margin, right-aligned against
+    /// the text column and on the heading's baseline.
+    private func drawHeadingNumber(
+        _ number: String,
+        glyphRange: NSRange,
+        fragment: NSRect,
+        attributes: [NSAttributedString.Key: Any],
+        origin: NSPoint
+    ) {
+        guard let font = attributes[.font] as? NSFont, let container = textContainers.first else { return }
+        let numberFont = NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
+        let label = NSAttributedString(string: number, attributes: [
+            .font: numberFont,
+            .foregroundColor: theme.marker,
+        ])
+        let baseline = location(forGlyphAt: glyphRange.location).y
+        let size = label.size()
+        let indent = (attributes[.paragraphStyle] as? NSParagraphStyle)?.firstLineHeadIndent ?? 0
+        let right = origin.x + container.lineFragmentPadding + indent - 10
+        label.draw(at: NSPoint(x: right - size.width, y: origin.y + fragment.minY + baseline - numberFont.ascender))
     }
 
     /// A fragment's characters start after any concealed glyphs, so the

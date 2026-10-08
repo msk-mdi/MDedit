@@ -161,10 +161,10 @@ struct MarkdownInputHandler {
     /// Brackets that close themselves as you type the opening one.
     private static let autoPairs: [String: String] = ["(": ")", "[": "]", "{": "}", "`": "`"]
 
-    static let autoPairDefaultsKey = "autoPairBrackets"
+    static let autoPairDefaultsKey = Settings.Key.autoPair
 
     private var autoPairEnabled: Bool {
-        UserDefaults.standard.object(forKey: Self.autoPairDefaultsKey) as? Bool ?? true
+        Settings().autoPair
     }
 
     /// Wraps a selection in a delimiter. With no selection, types over a
@@ -234,11 +234,12 @@ struct MarkdownInputHandler {
         return (string(characters, from: 0, to: start), string(characters, from: start, to: end))
     }
 
-    /// `3. ` after `2. `.
+    /// `3. ` after `2. `; `1. ` after `1. ` when lists are numbered all-ones.
     private func incrementOrderedMarker(_ prefix: String) -> String {
         guard let range = prefix.range(of: #"\d+"#, options: .regularExpression),
               let value = Int(prefix[range])
         else { return prefix }
+        if value == 1, Settings().orderedNumbering == .allOnes { return prefix }
         return prefix.replacingCharacters(in: range, with: String(value + 1))
     }
 

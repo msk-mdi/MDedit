@@ -49,6 +49,13 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   thumb, a unified titlebar, and a full-width status bar.
 - **Tabs**, find and replace, word and character counts with reading time,
   typewriter and focus modes, and light/dark themes that follow the system.
+- **Themes and settings.** Built-in Default, Paper, Solarized and Nord themes in
+  light and dark, separate code colours (Xcode, GitHub, Solarized, Nord, Monokai),
+  and your own `.mdtheme` files — CSS-like blocks of colours, reloaded as you save
+  them. Body and code fonts, line height, space after blocks, padding, smart
+  quotes, spell checking, list marker style, numbered headings, and each extended
+  syntax can be switched off. `⌘+` / `⌘-` / `⌘0` zoom; each tab remembers its
+  source, typewriter and focus modes across launches.
 - **External change detection** — edit a file in another app and MdEdit offers to
   reload it.
 - **Export** to HTML or PDF, or copy the document as HTML. `MdEdit --render file.md`
@@ -93,6 +100,7 @@ which is enough to run it locally but not to distribute it.
 | `⌘P` / `⇧⌘O` | Quick Open / open a folder |
 | `⇧⌘E` / `⇧⌘L` / `⇧⌘F` | Files / outline / Find in Folder |
 | `⌘/` | Source mode |
+| `⌘+` / `⌘-` / `⌘0` | Zoom in / out / actual size |
 
 Return continues lists and blockquotes (and renumbers ordered items); on an empty
 item it ends the list instead. Tab and `⇧Tab` indent and outdent list items. Typing

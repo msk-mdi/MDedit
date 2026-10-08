@@ -119,7 +119,8 @@ final class Block {
 /// `BlockParser`. Export does, so what you export is exactly CommonMark.
 final class DocumentParser {
     let document: Block
-    private(set) var references = LinkReferences(requireDefinitions: true)
+    private(set) var references: LinkReferences
+    private let extensions: SyntaxExtensions
 
     private var tip: Block
     private var oldTip: Block
@@ -139,7 +140,9 @@ final class DocumentParser {
 
     private static let codeIndent = 4
 
-    init() {
+    init(extensions: SyntaxExtensions = .all) {
+        self.extensions = extensions
+        references = LinkReferences(requireDefinitions: true, extensions: extensions)
         document = Block(.document, line: 0)
         tip = document
         oldTip = document
@@ -479,7 +482,7 @@ final class DocumentParser {
     }
 
     private func startMathBlock(_ container: Block) -> StartResult {
-        guard !indented, nextNonspace + 1 < line.count,
+        guard extensions.contains(.math), !indented, nextNonspace + 1 < line.count,
               line[nextNonspace] == UInt16(ascii: "$"), line[nextNonspace + 1] == UInt16(ascii: "$")
         else { return .none }
         if isMathFence(line, from: nextNonspace) {

@@ -64,7 +64,10 @@ extension EditorViewController {
                 let wantsTask = task && !existing.contains("[")
                 if !wantsTask { return body }
             }
-            let marker = ordered ? "\(number). " : "- "
+            let settings = Settings()
+            let marker = ordered
+                ? "\(settings.orderedNumbering == .allOnes ? 1 : number). "
+                : settings.bulletMarker + " "
             return marker + (task ? "[ ] " : "") + body
         }
     }

@@ -76,6 +76,7 @@ final class Document {
         self.id = id
         self.url = url
         storage = MarkdownTextStorage(theme: theme)
+        storage.extensions = Settings().extensions
         storage.baseURL = url
         storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
         savedText = text

@@ -9,12 +9,15 @@ import Foundation
 public final class BlockStructure {
     public private(set) var index: LineIndex
     public private(set) var lines: [LineInfo]
+    /// The extended syntax this structure was parsed with.
+    public let extensions: SyntaxExtensions
 
-    public init(text: NSString) {
+    public init(text: NSString, extensions: SyntaxExtensions = .all) {
+        self.extensions = extensions
         index = LineIndex(text: text)
         lines = []
         lines.reserveCapacity(index.count)
-        var carry = CarryState.start
+        var carry = CarryState.start(extensions: extensions)
         for line in 0..<index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)
             lines.append(info)
@@ -47,10 +50,10 @@ public final class BlockStructure {
         var result = Array(lines[0..<min(first, lines.count)])
         // A shrinking document can leave `first` past the end of the old array.
         while result.count < first {
-            result.append(lines.last ?? BlockParser.parse(line: [], carry: .start))
+            result.append(lines.last ?? BlockParser.parse(line: [], carry: .start(extensions: extensions)))
         }
 
-        var carry = first > 0 ? result[first - 1].state : CarryState.start
+        var carry = first > 0 ? result[first - 1].state : CarryState.start(extensions: extensions)
         var line = first
         // The last line whose styling actually has to change. Lines parsed
         // beyond the edit only to confirm the state matched are not restyled.
@@ -89,7 +92,7 @@ public final class BlockStructure {
         index = LineIndex(text: text)
         lines = []
         lines.reserveCapacity(index.count)
-        var carry = CarryState.start
+        var carry = CarryState.start(extensions: extensions)
         for line in 0..<index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)
             lines.append(info)

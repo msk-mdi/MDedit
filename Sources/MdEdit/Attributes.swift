@@ -36,6 +36,7 @@ struct ParagraphStyleCache {
         var isHeading: Bool
         var isListItem: Bool
         var hangingIndent: CGFloat
+        var endsBlock: Bool
     }
 
     mutating func style(
@@ -45,6 +46,7 @@ struct ParagraphStyleCache {
         isHeading: Bool,
         isListItem: Bool = false,
         hangingIndent: CGFloat,
+        endsBlock: Bool = false,
         theme: Theme
     ) -> NSParagraphStyle {
         let key = Key(
@@ -53,7 +55,8 @@ struct ParagraphStyleCache {
             isCode: isCode,
             isHeading: isHeading,
             isListItem: isListItem,
-            hangingIndent: hangingIndent
+            hangingIndent: hangingIndent,
+            endsBlock: endsBlock
         )
         if let cached = styles[key] { return cached }
 
@@ -63,10 +66,11 @@ struct ParagraphStyleCache {
         style.firstLineHeadIndent = indent
         // Wrapped lines line up with the text, not the bullet.
         style.headIndent = indent + hangingIndent
-        style.lineHeightMultiple = isCode ? 1.2 : 1.35
-        // Blank lines already separate blocks, so only headings add space of
-        // their own; anything more and the page turns airy.
-        style.paragraphSpacing = 0
+        // Code keeps the default's proportion to prose: a little tighter.
+        style.lineHeightMultiple = isCode ? theme.lineHeight * (1.2 / 1.35) : theme.lineHeight
+        // Blank lines already separate blocks, so by default only headings add
+        // space of their own; Settings can add more after each block.
+        style.paragraphSpacing = endsBlock ? theme.paragraphSpacing : 0
         style.paragraphSpacingBefore = isHeading ? theme.bodyFontSize * 0.5 : 0
         style.tighteningFactorForTruncation = 0
 

@@ -154,6 +154,15 @@ enum MainMenu {
             add(menu, "Typewriter Mode", #selector(MainWindowController.toggleTypewriterMode(_:)))
             add(menu, "Focus Mode", #selector(MainWindowController.toggleFocusMode(_:)))
             menu.addItem(.separator())
+            add(menu, "Actual Size", #selector(MainWindowController.resetZoom(_:)), "0")
+            add(menu, "Zoom In", #selector(MainWindowController.zoomIn(_:)), "+")
+            // ⌘= reaches Zoom In without Shift, as in every Mac app.
+            let unshifted = NSMenuItem(title: "Zoom In", action: #selector(MainWindowController.zoomIn(_:)), keyEquivalent: "=")
+            unshifted.isHidden = true
+            unshifted.allowsKeyEquivalentWhenHidden = true
+            menu.addItem(unshifted)
+            add(menu, "Zoom Out", #selector(MainWindowController.zoomOut(_:)), "-")
+            menu.addItem(.separator())
             add(menu, "Enter Full Screen", #selector(NSWindow.toggleFullScreen(_:)), "f", [.command, .control])
         }
     }

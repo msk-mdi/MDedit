@@ -101,18 +101,31 @@ public struct LinkReferences: Equatable, Sendable {
     /// a link either way, because adding a definition does not restyle every
     /// line that uses it.
     public var requireDefinitions: Bool
+    /// Which extended syntax to recognise. Carried here because these
+    /// references reach every inline parse, nested ones included.
+    public var extensions: SyntaxExtensions
 
-    public init(links: [String: LinkDefinition] = [:], footnotes: Set<String> = [], requireDefinitions: Bool = false) {
+    public init(
+        links: [String: LinkDefinition] = [:],
+        footnotes: Set<String> = [],
+        requireDefinitions: Bool = false,
+        extensions: SyntaxExtensions = .all
+    ) {
         self.links = links
         self.footnotes = footnotes
         self.requireDefinitions = requireDefinitions
+        self.extensions = extensions
     }
 
     public static let lenient = LinkReferences()
 
     /// Gathers every definition in a document; the first of a label wins.
-    public static func collect(from structure: BlockStructure, requireDefinitions: Bool) -> LinkReferences {
-        var references = LinkReferences(requireDefinitions: requireDefinitions)
+    public static func collect(
+        from structure: BlockStructure,
+        requireDefinitions: Bool,
+        extensions: SyntaxExtensions = .all
+    ) -> LinkReferences {
+        var references = LinkReferences(requireDefinitions: requireDefinitions, extensions: extensions)
         for line in structure.lines {
             switch line.kind {
             case let .linkReferenceDefinition(label, definition):
@@ -181,6 +194,8 @@ private struct Parser {
         /// Cleared once a link closes after it: links do not nest.
         var active = true
     }
+
+    private var extensions: SyntaxExtensions { references.extensions }
 
     private var pieces: [Piece] = []
     private var brackets: [Bracket] = []
@@ -266,7 +281,11 @@ private struct Parser {
                 return
             }
 
-        case UInt16(ascii: "*"), UInt16(ascii: "_"), UInt16(ascii: "~"), UInt16(ascii: "="):
+        case UInt16(ascii: "*"), UInt16(ascii: "_"), UInt16(ascii: "~"):
+            delimiterRun(character)
+            return
+
+        case UInt16(ascii: "=") where extensions.contains(.highlight):
             delimiterRun(character)
             return
 
@@ -296,26 +315,26 @@ private struct Parser {
             closeBracket()
             return
 
-        case UInt16(ascii: "$"):
+        case UInt16(ascii: "$") where extensions.contains(.math):
             if let math = parseMath(characters, at: cursor, limit: high) {
                 emit(math.node, end: math.end)
                 return
             }
 
-        case UInt16(ascii: "^"):
+        case UInt16(ascii: "^") where extensions.contains(.scripts):
             if let superscript = parseSuperscript(characters, at: cursor, limit: high, references: references) {
                 emit(superscript.node, end: superscript.end)
                 return
             }
 
-        case UInt16(ascii: ":"):
+        case UInt16(ascii: ":") where extensions.contains(.emoji):
             if cursor == low || !isWordCharacter(characters[cursor - 1]),
                let emoji = parseEmoji(characters, at: cursor, limit: high) {
                 emit(emoji.node, end: emoji.end)
                 return
             }
 
-        case UInt16(ascii: "h"), UInt16(ascii: "w"):
+        case UInt16(ascii: "h") where extensions.contains(.bareURLs), UInt16(ascii: "w") where extensions.contains(.bareURLs):
             if cursor == low || isURLBoundary(characters[cursor - 1]),
                let url = parseBareURL(characters, at: cursor, limit: high) {
                 emit(url.node, end: url.end)
@@ -573,7 +592,7 @@ private struct Parser {
         case UInt16(ascii: "~"):
             // A single `~` around one word is a subscript; around words it strikes.
             let inner = characters[(range.location + count)..<(NSMaxRange(range) - count)]
-            if count == 1, !inner.isEmpty, !inner.contains(where: isUnicodeWhitespace) {
+            if count == 1, extensions.contains(.scripts), !inner.isEmpty, !inner.contains(where: isUnicodeWhitespace) {
                 return .subscript(range: range, markers: markers, children: children)
             }
             return .strikethrough(range: range, markers: markers, children: children)

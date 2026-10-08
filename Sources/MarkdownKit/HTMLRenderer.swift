@@ -9,9 +9,18 @@ import Foundation
 public struct HTMLRenderer {
     /// Resolves relative image and link paths, when the document has a location.
     public var baseURL: URL?
+    /// Which extended syntax to recognise.
+    public var extensions: SyntaxExtensions = .all
+    /// Prefixes headings with outline numbers: `1`, `1.1`, `1.2`.
+    public var numberHeadings = false
+    /// Turns a paragraph of just `[TOC]` into a table of contents.
+    public var tableOfContents = true
+    /// Reads local images into `data:` URIs, so the page stands alone.
+    public var embedImages = false
 
-    public init(baseURL: URL? = nil) {
+    public init(baseURL: URL? = nil, extensions: SyntaxExtensions = .all) {
         self.baseURL = baseURL
+        self.extensions = extensions
     }
 
     public func render(markdown: String) -> String {
@@ -42,9 +51,13 @@ public struct HTMLRenderer {
 
     /// The body, and what the page around it must load to show it.
     private func renderBody(_ markdown: String) -> (html: String, context: Context) {
-        let parser = DocumentParser()
+        let parser = DocumentParser(extensions: extensions)
         let document = parser.parse(stripFrontMatter(markdown))
         let context = Context(references: parser.references)
+        if numberHeadings || tableOfContents {
+            context.headingLevels = headingLevels(in: document)
+            context.numberer = HeadingNumberer(topLevel: context.headingLevels.map(\.level).min() ?? 1)
+        }
         var writer = Writer()
         render(document, into: &writer, context)
         writer.out += footnoteSection(context)
@@ -95,6 +108,9 @@ public struct HTMLRenderer {
         /// Whether the page needs KaTeX or Mermaid.
         var usesMath = false
         var usesMermaid = false
+        /// Every heading, for numbering and `[TOC]`: level, text, id.
+        var headingLevels: [(level: Int, title: String, id: String)] = []
+        var numberer = HeadingNumberer(topLevel: 1)
 
         init(references: LinkReferences) {
             self.references = references
@@ -135,6 +151,12 @@ public struct HTMLRenderer {
         case .paragraph:
             let tight = block.parent.map(isInTightList) ?? false
             var content = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            if tableOfContents, content.uppercased() == "[TOC]" {
+                writer.cr()
+                writer.write(tableOfContentsHTML(context))
+                writer.cr()
+                break
+            }
             var checkbox = ""
             // GFM task items: `[ ]` or `[x]` opening the item's first paragraph.
             if let parent = block.parent, case .item = parent.kind, parent.children.first === block,
@@ -156,8 +178,11 @@ public struct HTMLRenderer {
             let content = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
             let characters = Array(content.utf16)
             let id = context.slugs.slug(for: plainText(characters, from: 0, to: characters.count))
+            let number = numberHeadings
+                ? "<span class=\"heading-number\">\(context.numberer.number(forLevel: level))</span> "
+                : ""
             writer.cr()
-            writer.write("<h\(level) id=\"\(escape(id))\">\(inlineHTML(content, context))</h\(level)>")
+            writer.write("<h\(level) id=\"\(escape(id))\">\(number)\(inlineHTML(content, context))</h\(level)>")
             writer.cr()
 
         case .thematicBreak:
@@ -325,6 +350,58 @@ public struct HTMLRenderer {
         return out
     }
 
+    // MARK: - Table of contents
+
+    /// Headings in document order, with the ids rendering will give them.
+    private func headingLevels(in document: Block) -> [(level: Int, title: String, id: String)] {
+        var slugs = SlugGenerator()
+        var result: [(Int, String, String)] = []
+        func walk(_ block: Block) {
+            if case let .heading(level) = block.kind {
+                let characters = Array(block.content.trimmingCharacters(in: .whitespacesAndNewlines).utf16)
+                let title = plainText(characters, from: 0, to: characters.count)
+                result.append((level, title, slugs.slug(for: title)))
+            }
+            block.children.forEach(walk)
+        }
+        walk(document)
+        return result
+    }
+
+    /// A nested list of links to every heading.
+    private func tableOfContentsHTML(_ context: Context) -> String {
+        guard !context.headingLevels.isEmpty else { return "" }
+        var numberer = HeadingNumberer(topLevel: context.headingLevels.map(\.level).min() ?? 1)
+        let top = context.headingLevels.map(\.level).min() ?? 1
+        var out = "<nav class=\"toc\">\n<ul>\n"
+        var depth = 0
+        var first = true
+        for heading in context.headingLevels {
+            let target = heading.level - top
+            if first {
+                // A first heading deeper than the top still opens at depth 0.
+                first = false
+            } else if target > depth {
+                for _ in depth..<target { out += "\n<ul>\n" }
+                depth = target
+            } else {
+                out += "</li>\n"
+                while depth > max(target, 0) {
+                    out += "</ul>\n</li>\n"
+                    depth -= 1
+                }
+            }
+            let number = numberHeadings ? "<span class=\"heading-number\">\(numberer.number(forLevel: heading.level))</span> " : ""
+            out += "<li><a href=\"#\(escape(heading.id))\">\(number)\(escape(heading.title))</a>"
+        }
+        out += "</li>\n"
+        while depth > 0 {
+            out += "</ul>\n</li>\n"
+            depth -= 1
+        }
+        return out + "</ul>\n</nav>"
+    }
+
     // MARK: - Code
 
     /// Wraps each token in a span so exported code carries the same colours
@@ -415,7 +492,8 @@ public struct HTMLRenderer {
                 out += "<a href=\"\(escape(normalizeURL(resolve(destination))))\"\(titleAttribute)>\(nodesHTML(children, characters, context))</a>"
             case let .image(_, _, source, alt, title):
                 let titleAttribute = title.map { " title=\"\(escape($0))\"" } ?? ""
-                out += "<img src=\"\(escape(normalizeURL(resolve(source))))\" alt=\"\(escape(alt))\"\(titleAttribute) />"
+                let src = (embedImages ? dataURI(forImage: source) : nil) ?? normalizeURL(resolve(source))
+                out += "<img src=\"\(escape(src))\" alt=\"\(escape(alt))\"\(titleAttribute) />"
             case let .autolink(range, markers, url):
                 // Shown as written: `www.x.dev`, or the address without `mailto:`.
                 let shown = markers.count == 2
@@ -448,6 +526,32 @@ public struct HTMLRenderer {
               !destination.hasPrefix("/")
         else { return destination }
         return URL(fileURLWithPath: destination, relativeTo: baseURL.deletingLastPathComponent()).absoluteString
+    }
+
+    /// A local image's bytes as a `data:` URI; nil for web images and
+    /// files that cannot be read, which keep their address.
+    private func dataURI(forImage source: String) -> String? {
+        let file: URL
+        if let url = URL(string: source), let scheme = url.scheme {
+            guard scheme == "file" else { return nil }
+            file = url
+        } else {
+            let path = ((source.removingPercentEncoding ?? source) as NSString).expandingTildeInPath
+            if path.hasPrefix("/") {
+                file = URL(fileURLWithPath: path)
+            } else if let baseURL {
+                file = URL(fileURLWithPath: path, relativeTo: baseURL.deletingLastPathComponent())
+            } else {
+                return nil
+            }
+        }
+        let types = [
+            "png": "image/png", "jpg": "image/jpeg", "jpeg": "image/jpeg", "gif": "image/gif",
+            "svg": "image/svg+xml", "webp": "image/webp", "heic": "image/heic", "bmp": "image/bmp",
+            "tif": "image/tiff", "tiff": "image/tiff", "avif": "image/avif",
+        ]
+        guard let type = types[file.pathExtension.lowercased()], let data = try? Data(contentsOf: file) else { return nil }
+        return "data:\(type);base64,\(data.base64EncodedString())"
     }
 
     /// Percent-encodes what a URL may not contain, leaving existing `%XX`

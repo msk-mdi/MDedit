@@ -116,6 +116,8 @@ public struct CarryState: Equatable, Sendable {
     /// Syntax-highlighting state, so a block comment opened on one line keeps
     /// colouring the lines below it — and stops restyling once it closes.
     public var code: CodeState
+    /// The extended syntax in force; constant across a document.
+    public var extensions: SyntaxExtensions = .all
 
     public static let start = CarryState(
         fence: nil,
@@ -129,6 +131,12 @@ public struct CarryState: Equatable, Sendable {
         inMathBlock: false,
         code: .start
     )
+
+    public static func start(extensions: SyntaxExtensions) -> CarryState {
+        var state = CarryState.start
+        state.extensions = extensions
+        return state
+    }
 }
 
 public struct LineInfo: Equatable, Sendable {
@@ -344,7 +352,7 @@ public enum BlockParser {
         }
 
         // 5a. Display math: `$$` alone opens a block; `$$ … $$` is one line of it.
-        if indent < codeIndentBase + 4, bodyStart + 1 < line.count,
+        if state.extensions.contains(.math), indent < codeIndentBase + 4, bodyStart + 1 < line.count,
            line[bodyStart] == UInt16(ascii: "$"), line[bodyStart + 1] == UInt16(ascii: "$") {
             if isMathFence(line, from: bodyStart) {
                 markers.append(Marker(range: NSRange(location: cursor, length: line.count - cursor), kind: .fence))

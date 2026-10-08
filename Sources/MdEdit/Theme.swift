@@ -2,7 +2,7 @@ import AppKit
 import MarkdownKit
 
 /// Colours for code tokens, one set per appearance.
-struct SyntaxPalette {
+struct SyntaxPalette: Equatable {
     var keyword: NSColor
     var type: NSColor
     var constant: NSColor
@@ -30,6 +30,29 @@ struct SyntaxPalette {
         case .tag: tag
         case .inserted: inserted
         case .deleted: deleted
+        }
+    }
+
+    /// Every token kind with its colour, for theme files and export CSS.
+    static let kinds: [TokenKind] = [
+        .keyword, .type, .constant, .string, .number, .comment,
+        .function, .variable, .attribute, .tag, .inserted, .deleted,
+    ]
+
+    mutating func set(_ color: NSColor, for kind: TokenKind) {
+        switch kind {
+        case .keyword: keyword = color
+        case .type: type = color
+        case .constant: constant = color
+        case .string: string = color
+        case .number: number = color
+        case .comment: comment = color
+        case .function: function = color
+        case .variable: variable = color
+        case .attribute: attribute = color
+        case .tag: tag = color
+        case .inserted: inserted = color
+        case .deleted: deleted = color
         }
     }
 
@@ -86,22 +109,34 @@ struct Theme {
     var accent: NSColor
     /// Recessed fill behind the segmented tab track.
     var trackFill: NSColor
+    /// Behind `==marked==` text; translucent so it works on either canvas.
+    var highlight: NSColor = NSColor.systemYellow.withAlphaComponent(0.32)
     /// Colours for highlighted code.
     var syntax: SyntaxPalette
 
     var bodyFontSize: CGFloat = 15
     var bodyFontName: String?
     var monoFontSize: CGFloat = 13
+    var monoFontName: String?
+    /// Multiple of the natural line height for prose; code is a little tighter.
+    var lineHeight: CGFloat = 1.35
+    /// Space after a block, in points.
+    var paragraphSpacing: CGFloat = 0
 
     var body: NSFont {
-        if let bodyFontName, let font = NSFont(name: bodyFontName, size: bodyFontSize) {
+        if let bodyFontName, let font = NSFont(name: bodyFontName, size: bodyFontSize)
+            ?? NSFontManager.shared.font(withFamily: bodyFontName, traits: [], weight: 5, size: bodyFontSize) {
             return font
         }
         return .systemFont(ofSize: bodyFontSize)
     }
 
     var mono: NSFont {
-        .monospacedSystemFont(ofSize: monoFontSize, weight: .regular)
+        if let monoFontName, let font = NSFont(name: monoFontName, size: monoFontSize)
+            ?? NSFontManager.shared.font(withFamily: monoFontName, traits: [], weight: 5, size: monoFontSize) {
+            return font
+        }
+        return .monospacedSystemFont(ofSize: monoFontSize, weight: .regular)
     }
 
     /// Heading sizes follow a modest scale; 1.6x down to body size at h6.
@@ -110,6 +145,10 @@ struct Theme {
         let index = min(max(level, 1), 6) - 1
         let size = (bodyFontSize * scale[index]).rounded()
         let weight: NSFont.Weight = level <= 2 ? .bold : .semibold
+        // A chosen body family carries into headings, in its bold face.
+        if bodyFontName != nil {
+            return NSFontManager.shared.convert(NSFontManager.shared.convert(body, toSize: size), toHaveTrait: .boldFontMask)
+        }
         return .systemFont(ofSize: size, weight: weight)
     }
 
@@ -147,24 +186,37 @@ struct Theme {
         syntax: .dark
     )
 
-    /// The theme matching an appearance, with user font preferences applied.
-    static func current(for appearance: NSAppearance) -> Theme {
+    /// The chosen theme in the variant matching an appearance, with the
+    /// code palette, fonts, spacing and zoom from Settings applied.
+    @MainActor
+    static func current(for appearance: NSAppearance, settings: Settings = Settings()) -> Theme {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
-        var theme = isDark ? Theme.dark : Theme.light
-        let defaults = UserDefaults.standard
-        if let name = defaults.string(forKey: "editorFontName"), !name.isEmpty {
-            theme.bodyFontName = name
+        let family = ThemeCatalog.family(named: settings.themeName)
+        var theme = isDark ? family.dark : family.light
+        if let palette = ThemeCatalog.codePalette(named: settings.codeThemeName) {
+            theme.syntax = isDark ? palette.dark : palette.light
         }
-        let size = defaults.double(forKey: "editorFontSize")
-        if size >= 9, size <= 48 {
-            theme.bodyFontSize = size
-            theme.monoFontSize = size - 2
-        }
+        theme.bodyFontName = settings.fontName
+        theme.monoFontName = settings.monoFontName
+        let size = settings.fontSize * settings.zoom
+        theme.bodyFontSize = size
+        theme.monoFontSize = max(6, (settings.fontSize - 2) * settings.zoom)
+        theme.lineHeight = settings.lineHeight
+        theme.paragraphSpacing = settings.paragraphSpacing * size
         return theme
     }
 }
 
-extension Theme {
-    /// Behind `==marked==` text; translucent so it works on either canvas.
-    var highlight: NSColor { NSColor.systemYellow.withAlphaComponent(0.32) }
+/// A theme's light and dark variants; the system appearance picks one.
+struct ThemeFamily {
+    var name: String
+    var light: Theme
+    var dark: Theme
+}
+
+/// A code palette's light and dark variants.
+struct CodePalette {
+    var name: String
+    var light: SyntaxPalette
+    var dark: SyntaxPalette
 }

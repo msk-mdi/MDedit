@@ -61,6 +61,9 @@ final class EditorViewController: NSViewController {
         input = MarkdownInputHandler(storage: textStorage)
         activeLine = ActiveLineController(storage: textStorage, textView: textView)
         textView.delegate = self
+        applySettings(Settings())
+        activeLine.typewriterMode = Settings().typewriterDefault
+        activeLine.focusMode = Settings().focusDefault
         activeLine.selectionChanged()
 
         codeAccessory.isHidden = true
@@ -104,7 +107,6 @@ final class EditorViewController: NSViewController {
         textView.isAutomaticDashSubstitutionEnabled = false
         textView.isAutomaticTextReplacementEnabled = false
         textView.isAutomaticSpellingCorrectionEnabled = false
-        textView.isContinuousSpellCheckingEnabled = true
         textView.smartInsertDeleteEnabled = false
 
         textView.insertionPointColor = theme.accent
@@ -122,6 +124,38 @@ final class EditorViewController: NSViewController {
         }
         storage.maxImageWidth = column - 2 * textContainer.lineFragmentPadding
         updateCodeAccessory()
+    }
+
+    /// Everything but colours and fonts, which come with the theme.
+    func applySettings(_ settings: Settings) {
+        lineWidth = settings.lineWidth
+        let padding = settings.padding
+        if abs(textView.textContainerInset.height - padding) > 0.5 {
+            textView.textContainerInset = CGSize(width: textView.textContainerInset.width, height: padding)
+        }
+        // Markdown is plain text, so substitutions are opt-in; dashes go
+        // with quotes because both rewrite what was typed.
+        smartQuotes = settings.smartQuotes
+        updateSubstitutions()
+        textView.isContinuousSpellCheckingEnabled = settings.spellCheck
+        storage.extensions = settings.extensions
+        storage.numberHeadings = settings.numberHeadings
+    }
+
+    private var smartQuotes = false
+
+    /// Smart quotes stay out of code, where `"` must stay `"`.
+    private func updateSubstitutions() {
+        var enabled = smartQuotes
+        if enabled {
+            let location = textView.selectedRange().location
+            let inBlock = storage.structure.info(forLine: storage.line(at: location))?.kind.isCode ?? false
+            let inSpan = location > 0 && location <= storage.length
+                && storage.attribute(.mdInlineCode, at: location - 1, effectiveRange: nil) != nil
+            enabled = !inBlock && !inSpan
+        }
+        textView.isAutomaticQuoteSubstitutionEnabled = enabled
+        textView.isAutomaticDashSubstitutionEnabled = enabled
     }
 
     /// `viewDidChangeEffectiveAppearance` is an `NSView` hook, not a controller
@@ -243,6 +277,7 @@ extension EditorViewController: NSTextViewDelegate {
 
     func textViewDidChangeSelection(_ notification: Notification) {
         activeLine.selectionChanged()
+        updateSubstitutions()
         onSelectionChange?()
         updateCodeAccessory()
     }

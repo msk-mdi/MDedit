@@ -44,6 +44,41 @@ final class MarkdownTextStorage: NSTextStorage {
         didSet { if abs(maxImageWidth - oldValue) > 1, !requestedImages.isEmpty { restyleAll() } }
     }
 
+    /// Which extended syntax to recognise; changing it reparses everything.
+    var extensions: SyntaxExtensions = .all {
+        didSet {
+            guard extensions != oldValue else { return }
+            structure = BlockStructure(text: backing.string as NSString, extensions: extensions)
+            references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
+            headingNumberCache = nil
+            restyleAll()
+        }
+    }
+
+    /// Outline numbers drawn beside headings.
+    var numberHeadings = false {
+        didSet {
+            guard numberHeadings != oldValue else { return }
+            for manager in layoutManagers {
+                manager.invalidateDisplay(forCharacterRange: NSRange(location: 0, length: length))
+            }
+        }
+    }
+
+    private var headingNumberCache: [Int: String]?
+
+    /// The outline number of the heading on a line, if it is one.
+    func headingNumber(forLine line: Int) -> String? {
+        if headingNumberCache == nil {
+            let headings = structure.headings(in: backing.string as NSString)
+            headingNumberCache = Dictionary(
+                zip(headings.map(\.line), HeadingNumberer.numbers(for: headings)),
+                uniquingKeysWith: { first, _ in first }
+            )
+        }
+        return headingNumberCache?[line]
+    }
+
     /// Images this document has asked the cache for, so it knows which
     /// arrivals are its own.
     private var requestedImages: Set<URL> = []
@@ -129,12 +164,15 @@ final class MarkdownTextStorage: NSTextStorage {
         isProcessingEdit = true
         if editedMask.contains(.editedCharacters) {
             let text = backing.string as NSString
-            let lineRange = structure.update(
+            let updated = structure.update(
                 text: text,
                 editedRange: editedRange,
                 changeInLength: changeInLength
             )
-            references = .collect(from: structure, requireDefinitions: false)
+            references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
+            headingNumberCache = nil
+            // The line above takes its spacing from whether this one is blank.
+            let lineRange = max(0, updated.lowerBound - 1)...updated.upperBound
             applyStyles(lineRange: lineRange)
             pendingInvalidation = characterRange(forLines: lineRange)
         }
@@ -270,6 +308,8 @@ final class MarkdownTextStorage: NSTextStorage {
         default: 0
         }
         let isListItem = if case .listItem = info.kind { true } else { false }
+        // Space after a block goes on its last line: the one before a blank.
+        let endsBlock = !isCode && info.kind != .blank && structure.info(forLine: line + 1)?.kind == .blank
 
         var attributes: [NSAttributedString.Key: Any] = [
             .font: baseFont,
@@ -281,6 +321,7 @@ final class MarkdownTextStorage: NSTextStorage {
                 isHeading: headingLevel != nil,
                 isListItem: isListItem,
                 hangingIndent: hangingIndent,
+                endsBlock: endsBlock,
                 theme: theme
             ),
         ]

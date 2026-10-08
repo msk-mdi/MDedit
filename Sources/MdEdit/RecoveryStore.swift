@@ -58,6 +58,10 @@ struct Session: Codable, Equatable {
     struct Tab: Codable, Equatable {
         var url: URL
         var selectedLocation: Int
+        /// View modes; absent in sessions saved before they were remembered.
+        var sourceMode: Bool?
+        var typewriterMode: Bool?
+        var focusMode: Bool?
     }
 
     struct Window: Codable, Equatable {
