@@ -174,6 +174,16 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
                 continue
             }
 
+            if let emoji = storage.attribute(.mdEmoji, at: characterIndex, effectiveRange: nil) as? String,
+               let substitute = glyph(for: emoji, in: font) {
+                newGlyphs[offset] = substitute
+                // The colon has no glyph in the emoji font, so it arrives
+                // flagged null; the substitute must be drawn.
+                newProperties[offset] = []
+                changed = true
+                continue
+            }
+
             guard let raw = storage.attribute(.mdMarker, at: characterIndex, effectiveRange: nil) as? Int,
                   let kind = MarkerKind(rawValue: raw)
             else { continue }

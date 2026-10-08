@@ -124,7 +124,7 @@ struct BlockStructureTests {
         var generator = SystemRandomNumberGenerator()
         let fragments = [
             "`", "```", "\n", "# ", "- ", "> ", "x", "**", "\n\n", "", "|", "---",
-            "<div>", "<!--", "-->", "[a]: /u", "[^n]: ", "==", "...",
+            "<div>", "<!--", "-->", "[a]: /u", "[^n]: ", "==", "...", "$$", "$",
         ]
 
         for iteration in 0..<300 {

@@ -340,8 +340,14 @@ func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int, references
             high += take
             let range = NSRange(location: low, length: high - low)
             let markers = [marker(low, take), marker(high - take, take)]
+            // A single `~` around one word is a subscript; around words it
+            // strikes through, as GFM has it.
+            let isSubscript = isTilde && !isEquals && take == 1
+                && !characters[(low + 1)..<(high - 1)].contains(where: isUnicodeWhitespace)
             let node: InlineNode = if isEquals {
                 .highlight(range: range, markers: markers, children: children)
+            } else if isSubscript {
+                .subscript(range: range, markers: markers, children: children)
             } else if isTilde {
                 .strikethrough(range: range, markers: markers, children: children)
             } else if take == 2 {
@@ -360,7 +366,7 @@ func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int, references
 }
 
 /// Letters and digits, for the intraword `_` rule.
-private func isWordCharacter(_ character: UInt16) -> Bool {
+func isWordCharacter(_ character: UInt16) -> Bool {
     isASCIILetter(character) || isASCIIDigit(character)
 }
 
@@ -444,4 +450,94 @@ private func unlinked(_ nodes: [InlineNode]) -> [InlineNode] {
         default: node
         }
     }
+}
+
+/// `$…$` inline or `$$…$$` display math. An inline span must hug its
+/// content — `$ 5` or `5 $` does not open or close one — and a closing `$`
+/// followed by a digit is a price, not the end of a formula.
+func parseMath(_ characters: [UInt16], at index: Int, limit: Int) -> InlineMatch? {
+    let display = index + 1 < limit && characters[index + 1] == UInt16(ascii: "$")
+    let delimiter = display ? 2 : 1
+    let start = index + delimiter
+    guard start < limit else { return nil }
+    if !display, isUnicodeWhitespace(characters[start]) { return nil }
+
+    var cursor = start
+    while cursor < limit {
+        let character = characters[cursor]
+        if character == UInt16(ascii: "\\") {
+            cursor += 2
+            continue
+        }
+        if character == UInt16(ascii: "$") {
+            if display {
+                if cursor + 1 < limit, characters[cursor + 1] == UInt16(ascii: "$"), cursor > start {
+                    return mathMatch(index: index, start: start, close: cursor, delimiter: 2, display: true)
+                }
+            } else if cursor > start, !isUnicodeWhitespace(characters[cursor - 1]),
+                      !(cursor + 1 < limit && isASCIIDigit(characters[cursor + 1])) {
+                return mathMatch(index: index, start: start, close: cursor, delimiter: 1, display: false)
+            }
+        }
+        cursor += 1
+    }
+    return nil
+}
+
+private func mathMatch(index: Int, start: Int, close: Int, delimiter: Int, display: Bool) -> InlineMatch {
+    let end = close + delimiter
+    return InlineMatch(
+        node: .math(
+            range: NSRange(location: index, length: end - index),
+            markers: [marker(index, delimiter), marker(close, delimiter)],
+            content: NSRange(location: start, length: close - start),
+            display: display
+        ),
+        end: end
+    )
+}
+
+/// `^text^`, with no spaces inside, as in Pandoc.
+func parseSuperscript(_ characters: [UInt16], at index: Int, limit: Int, references: LinkReferences) -> InlineMatch? {
+    var cursor = index + 1
+    while cursor < limit, characters[cursor] != UInt16(ascii: "^") {
+        if isUnicodeWhitespace(characters[cursor]) { return nil }
+        if characters[cursor] == UInt16(ascii: "\\") { cursor += 1 }
+        cursor += 1
+    }
+    guard cursor < limit, cursor > index + 1 else { return nil }
+    return InlineMatch(
+        node: .superscript(
+            range: NSRange(location: index, length: cursor + 1 - index),
+            markers: [marker(index, 1), marker(cursor, 1)],
+            children: InlineParser.parse(characters, from: index + 1, to: cursor, references: references)
+        ),
+        end: cursor + 1
+    )
+}
+
+/// `:name:` for a known shortcode. Everything but the closing colon is
+/// hidden; the editor draws the emoji in that colon's place.
+func parseEmoji(_ characters: [UInt16], at index: Int, limit: Int) -> InlineMatch? {
+    var cursor = index + 1
+    while cursor < limit, cursor - index <= 40 {
+        let character = characters[cursor]
+        if character == UInt16(ascii: ":") { break }
+        guard isASCIILetter(character) || isASCIIDigit(character)
+            || character == UInt16(ascii: "_") || character == UInt16(ascii: "+") || character == UInt16(ascii: "-")
+        else { return nil }
+        cursor += 1
+    }
+    guard cursor < limit, characters[cursor] == UInt16(ascii: ":"), cursor > index + 1 else { return nil }
+    let name = string(characters, from: index + 1, to: cursor).lowercased()
+    guard let emoji = Emoji.shortcodes[name] else { return nil }
+    return InlineMatch(
+        node: .emoji(
+            range: NSRange(location: index, length: cursor + 1 - index),
+            markers: [marker(index, cursor - index)],
+            shortcode: name,
+            emoji: emoji
+        ),
+        end: cursor + 1
+    )
 }

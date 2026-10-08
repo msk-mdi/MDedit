@@ -112,6 +112,19 @@ final class MarkdownTextStorage: NSTextStorage {
         endEditing()
     }
 
+    /// Font fixing swaps Apple Color Emoji off a shortcode's closing colon,
+    /// since that font has no colon glyph; the emoji drawn there needs it back.
+    override func fixAttributes(in range: NSRange) {
+        super.fixAttributes(in: range)
+        backing.enumerateAttribute(.mdEmoji, in: range) { value, emojiRange, _ in
+            guard value != nil,
+                  let size = (backing.attribute(.font, at: emojiRange.location, effectiveRange: nil) as? NSFont)?.pointSize,
+                  let emojiFont = NSFont(name: "AppleColorEmoji", size: size)
+            else { return }
+            backing.addAttribute(.font, value: emojiFont, range: emojiRange)
+        }
+    }
+
     override func processEditing() {
         isProcessingEdit = true
         if editedMask.contains(.editedCharacters) {
@@ -481,6 +494,29 @@ final class MarkdownTextStorage: NSTextStorage {
 
             case .highlight:
                 backing.addAttribute(.backgroundColor, value: theme.highlight, range: absolute)
+
+            case let .math(_, _, content, _):
+                // TeX stays as written, set apart in the code face.
+                backing.addAttributes([
+                    .font: theme.mono,
+                    .foregroundColor: theme.syntax.function,
+                ], range: NSRange(location: lineStart + content.location, length: content.length))
+
+            case .superscript, .subscript:
+                let isSuper = if case .superscript = node { true } else { false }
+                backing.addAttributes([
+                    .font: NSFontManager.shared.convert(childStyle.font(base: baseFont), toSize: baseFont.pointSize * 0.75),
+                    .baselineOffset: baseFont.pointSize * (isSuper ? 0.35 : -0.15),
+                ], range: absolute)
+
+            case let .emoji(_, _, _, emoji):
+                // The closing colon is drawn as the emoji; the rest is concealed.
+                if !revealed, let emojiFont = NSFont(name: "AppleColorEmoji", size: baseFont.pointSize) {
+                    backing.addAttributes([
+                        .font: emojiFont,
+                        .mdEmoji: emoji,
+                    ], range: NSRange(location: NSMaxRange(absolute) - 1, length: 1))
+                }
 
             case .footnoteReference:
                 // A small raised label, like the superscript it exports as.

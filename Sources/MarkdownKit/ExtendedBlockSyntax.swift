@@ -17,6 +17,12 @@ func isFrontMatterClosing(_ line: [UInt16]) -> Bool {
     return isBlank(line, from: 3)
 }
 
+/// `$$` alone on a line (spaces aside) opens or closes display math.
+func isMathFence(_ line: [UInt16], from index: Int) -> Bool {
+    guard index + 1 < line.count, line[index] == UInt16(ascii: "$"), line[index + 1] == UInt16(ascii: "$") else { return false }
+    return isBlank(line, from: index + 2)
+}
+
 /// What ends an HTML block, per the CommonMark start conditions.
 public enum HTMLBlockEnd: Equatable, Sendable {
     case blankLine

@@ -22,6 +22,10 @@ private func shape(_ nodes: [InlineNode]) -> String {
         case .rawHTML: "html"
         case let .highlight(_, _, children): "mark[\(shape(children))]"
         case let .footnoteReference(_, _, label): "fn(\(label))"
+        case let .math(_, _, _, display): display ? "dmath" : "math"
+        case let .superscript(_, _, children): "sup[\(shape(children))]"
+        case let .subscript(_, _, children): "sub[\(shape(children))]"
+        case let .emoji(_, _, _, emoji): "emoji(\(emoji))"
         }
     }.joined(separator: "+")
 }

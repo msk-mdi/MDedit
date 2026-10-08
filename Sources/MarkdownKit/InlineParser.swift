@@ -20,6 +20,13 @@ public indirect enum InlineNode: Equatable, Sendable {
     case rawHTML(NSRange)
     /// `[^label]`, a reference to a footnote.
     case footnoteReference(range: NSRange, markers: [Marker], label: String)
+    /// `$x^2$` (inline) or `$$x^2$$` (display) TeX, not parsed further.
+    case math(range: NSRange, markers: [Marker], content: NSRange, display: Bool)
+    /// `^up^` and `~down~`.
+    case superscript(range: NSRange, markers: [Marker], children: [InlineNode])
+    case `subscript`(range: NSRange, markers: [Marker], children: [InlineNode])
+    /// `:smile:`, with the emoji it names.
+    case emoji(range: NSRange, markers: [Marker], shortcode: String, emoji: String)
 
     public var range: NSRange {
         switch self {
@@ -30,6 +37,10 @@ public indirect enum InlineNode: Equatable, Sendable {
         case let .strikethrough(range, _, _): range
         case let .highlight(range, _, _): range
         case let .footnoteReference(range, _, _): range
+        case let .math(range, _, _, _): range
+        case let .superscript(range, _, _): range
+        case let .subscript(range, _, _): range
+        case let .emoji(range, _, _, _): range
         case let .link(range, _, _, _, _): range
         case let .image(range, _, _, _): range
         case let .autolink(range, _, _): range
@@ -47,6 +58,10 @@ public indirect enum InlineNode: Equatable, Sendable {
         case let .strikethrough(_, markers, _): markers
         case let .highlight(_, markers, _): markers
         case let .footnoteReference(_, markers, _): markers
+        case let .math(_, markers, _, _): markers
+        case let .superscript(_, markers, _): markers
+        case let .subscript(_, markers, _): markers
+        case let .emoji(_, markers, _, _): markers
         case let .link(_, markers, _, _, _): markers
         case let .image(_, markers, _, _): markers
         case let .autolink(_, markers, _): markers
@@ -60,6 +75,8 @@ public indirect enum InlineNode: Equatable, Sendable {
         case let .strong(_, _, children): children
         case let .strikethrough(_, _, children): children
         case let .highlight(_, _, children): children
+        case let .superscript(_, _, children): children
+        case let .subscript(_, _, children): children
         case let .link(_, _, _, _, children): children
         default: []
         }
@@ -162,6 +179,25 @@ public enum InlineParser {
                 } else if let link = parseLinkOrImage(characters, at: cursor, limit: high, references: references) {
                     node = link.node
                     nextCursor = link.end
+                }
+
+            case UInt16(ascii: "$"):
+                if let math = parseMath(characters, at: cursor, limit: high) {
+                    node = math.node
+                    nextCursor = math.end
+                }
+
+            case UInt16(ascii: "^"):
+                if let superscript = parseSuperscript(characters, at: cursor, limit: high, references: references) {
+                    node = superscript.node
+                    nextCursor = superscript.end
+                }
+
+            case UInt16(ascii: ":"):
+                if cursor == low || !isWordCharacter(characters[cursor - 1]),
+                   let emoji = parseEmoji(characters, at: cursor, limit: high) {
+                    node = emoji.node
+                    nextCursor = emoji.end
                 }
 
             case UInt16(ascii: "h"), UInt16(ascii: "w"):

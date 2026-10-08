@@ -60,11 +60,16 @@ public enum BlockKind: Equatable, Sendable {
     case linkReferenceDefinition(label: String, definition: LinkDefinition)
     /// `[^label]: text` — the text of a footnote.
     case footnoteDefinition(label: String)
+    /// A `$$` line opening or closing a display math block.
+    case mathDelimiter
+    /// A line of display math: inside a `$$` block, or `$$ … $$` on one line.
+    case mathLine
 
     /// True for lines whose body is code, not prose.
     public var isCode: Bool {
         switch self {
-        case .codeLine, .indentedCode, .fenceStart, .fenceEnd, .frontMatter, .frontMatterDelimiter: true
+        case .codeLine, .indentedCode, .fenceStart, .fenceEnd, .frontMatter, .frontMatterDelimiter,
+             .mathDelimiter, .mathLine: true
         default: false
         }
     }
@@ -106,6 +111,8 @@ public struct CarryState: Equatable, Sendable {
     public var inFrontMatter: Bool
     /// The open HTML block and what will close it.
     public var htmlBlock: HTMLBlockEnd?
+    /// Inside a `$$` display math block.
+    public var inMathBlock: Bool
     /// Syntax-highlighting state, so a block comment opened on one line keeps
     /// colouring the lines below it — and stops restyling once it closes.
     public var code: CodeState
@@ -119,6 +126,7 @@ public struct CarryState: Equatable, Sendable {
         atDocumentStart: true,
         inFrontMatter: false,
         htmlBlock: nil,
+        inMathBlock: false,
         code: .start
     )
 }
@@ -247,6 +255,27 @@ public enum BlockParser {
             }
         }
 
+        // 2c. Inside a math block, lines are TeX until a `$$` line closes it.
+        if state.inMathBlock {
+            let start = skipSpaces(line, from: cursor, limit: 3)
+            let closes = isMathFence(line, from: start)
+            if closes {
+                markers.append(Marker(range: NSRange(location: cursor, length: line.count - cursor), kind: .fence))
+                state.inMathBlock = false
+            }
+            state.previousWasParagraph = false
+            state.previousWasBlank = false
+            return LineInfo(
+                kind: closes ? .mathDelimiter : .mathLine,
+                quoteDepth: quoteDepth,
+                listDepth: state.lists.count,
+                markers: markers,
+                contentStart: closes ? line.count : cursor,
+                tokens: [],
+                state: state
+            )
+        }
+
         // 3. Blank lines close paragraphs and tables but not lists or fences.
         if isBlank(line, from: cursor) {
             state.previousWasParagraph = false
@@ -308,6 +337,45 @@ public enum BlockParser {
                     listDepth: state.lists.count,
                     markers: markers,
                     contentStart: line.count,
+                    tokens: [],
+                    state: state
+                )
+            }
+        }
+
+        // 5a. Display math: `$$` alone opens a block; `$$ … $$` is one line of it.
+        if indent < codeIndentBase + 4, bodyStart + 1 < line.count,
+           line[bodyStart] == UInt16(ascii: "$"), line[bodyStart + 1] == UInt16(ascii: "$") {
+            if isMathFence(line, from: bodyStart) {
+                markers.append(Marker(range: NSRange(location: cursor, length: line.count - cursor), kind: .fence))
+                state.inMathBlock = true
+                state.previousWasParagraph = false
+                state.previousWasBlank = false
+                state.inTable = false
+                return LineInfo(
+                    kind: .mathDelimiter,
+                    quoteDepth: quoteDepth,
+                    listDepth: state.lists.count,
+                    markers: markers,
+                    contentStart: line.count,
+                    tokens: [],
+                    state: state
+                )
+            }
+            var end = line.count
+            while end > bodyStart, isSpaceOrTab(line[end - 1]) { end -= 1 }
+            if end - bodyStart > 4, line[end - 1] == UInt16(ascii: "$"), line[end - 2] == UInt16(ascii: "$") {
+                markers.append(Marker(range: NSRange(location: bodyStart, length: 2), kind: .fence))
+                markers.append(Marker(range: NSRange(location: end - 2, length: line.count - end + 2), kind: .fence))
+                state.previousWasParagraph = false
+                state.previousWasBlank = false
+                state.inTable = false
+                return LineInfo(
+                    kind: .mathLine,
+                    quoteDepth: quoteDepth,
+                    listDepth: state.lists.count,
+                    markers: markers,
+                    contentStart: bodyStart,
                     tokens: [],
                     state: state
                 )

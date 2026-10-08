@@ -21,7 +21,13 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   but the one you are editing.
 - **Extended syntax.** Reference-style links and images, footnotes, YAML front
   matter, raw HTML blocks, `==highlights==`, bare `https://` and `www.` links,
-  and hard line breaks — in the editor and in export.
+  hard line breaks, `^super^` and `~sub~` scripts, and `:emoji:` shortcodes — in
+  the editor and in export.
+- **Math and diagrams.** `$…$` and `$$…$$` TeX is set apart in the editor and
+  typeset by KaTeX in HTML export; ` ```mermaid ` blocks export as diagrams.
+- **Code blocks.** A language menu and Copy button sit on the block you are in;
+  Return closes a fresh fence and keeps indentation inside code.
+- **Rich paste.** Formatted text from browsers and documents pastes as markdown.
 - **Rich editing.** Click a task box to tick it, ⌘-click a link to follow it
   (web, local files, `#heading` anchors), see images inline with their alt text
   as a caption, paste or drop images (pasted screenshots go to `assets/`), paste a
@@ -187,7 +193,8 @@ storage's line-range handling.
 
 ## Not implemented
 
-There is no math rendering, no mermaid diagrams and no image upload services. The app is unsandboxed and ad-hoc signed.
+Math and Mermaid diagrams are typeset only in HTML export (loaded from a CDN), not
+in the editor. There are no image upload services. The app is unsandboxed and ad-hoc signed.
 
 ## License
 

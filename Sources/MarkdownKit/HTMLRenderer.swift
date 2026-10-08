@@ -13,6 +13,11 @@ public struct HTMLRenderer {
     }
 
     public func render(markdown: String) -> String {
+        renderBody(markdown).html
+    }
+
+    /// The body, and what the page around it must load to show it.
+    private func renderBody(_ markdown: String) -> (html: String, context: Context) {
         let text = markdown as NSString
         let structure = BlockStructure(text: text)
         var out = ""
@@ -56,6 +61,14 @@ public struct HTMLRenderer {
                 closeParagraph(&state, &out)
                 out += "<hr />\n"
 
+            case let .fenceStart(language) where language.split(separator: " ").first?.lowercased() == "mermaid":
+                // Left as source for Mermaid to draw in the browser.
+                closeParagraph(&state, &out)
+                out += "<pre class=\"mermaid\">\n"
+                state.inCodeBlock = true
+                state.inMermaid = true
+                context.usesMermaid = true
+
             case let .fenceStart(language):
                 closeParagraph(&state, &out)
                 let attribute = language.isEmpty ? "" : " class=\"language-\(escape(language.components(separatedBy: " ")[0]))\""
@@ -64,8 +77,9 @@ public struct HTMLRenderer {
                 state.codeLanguage = info.state.fence?.language
 
             case .fenceEnd:
-                out += "</code></pre>\n"
+                out += state.inMermaid ? "</pre>\n" : "</code></pre>\n"
                 state.inCodeBlock = false
+                state.inMermaid = false
                 state.codeLanguage = nil
 
             case .codeLine:
@@ -144,6 +158,29 @@ public struct HTMLRenderer {
                 closeLists(to: 0, state: &state, out: &out)
                 out += string(characters, from: info.contentStart, to: characters.count) + "\n"
 
+            case .mathDelimiter:
+                // KaTeX finds `\[ … \]` and typesets what is between.
+                closeParagraph(&state, &out)
+                if state.inMath {
+                    out += "\\]</div>\n"
+                } else {
+                    out += "<div class=\"math display\">\\[\n"
+                    context.usesMath = true
+                }
+                state.inMath.toggle()
+
+            case .mathLine:
+                if state.inMath {
+                    out += escape(string(characters, from: info.contentStart, to: characters.count)) + "\n"
+                } else {
+                    // `$$ … $$` on one line: the markers bracket the formula.
+                    closeParagraph(&state, &out)
+                    let start = info.markers.first.map { NSMaxRange($0.range) } ?? info.contentStart
+                    let end = info.markers.last.map(\.range.location) ?? characters.count
+                    out += "<div class=\"math display\">\\[\(escape(string(characters, from: start, to: end)))\\]</div>\n"
+                    context.usesMath = true
+                }
+
             case let .footnoteDefinition(label):
                 closeParagraph(&state, &out)
                 let key = normalizeLabel(label)
@@ -160,8 +197,38 @@ public struct HTMLRenderer {
         closeTable(&state, &out)
         closeLists(to: 0, state: &state, out: &out)
         adjustQuotes(to: 0, state: &state, out: &out)
-        if state.inCodeBlock || state.inIndentedCode { out += "</code></pre>\n" }
+        if state.inMermaid {
+            out += "</pre>\n"
+        } else if state.inCodeBlock || state.inIndentedCode {
+            out += "</code></pre>\n"
+        }
+        if state.inMath { out += "\\]</div>\n" }
         out += footnoteSection(context)
+        return (out, context)
+    }
+
+    /// Math and diagrams are drawn in the browser, by KaTeX and Mermaid
+    /// loaded from a CDN, and only when the document has any.
+    private func headExtras(_ context: Context) -> String {
+        var out = ""
+        if context.usesMath {
+            out += """
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+              onload="renderMathInElement(document.body, {delimiters: [{left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}], ignoredClasses: ['mermaid']})"></script>
+
+            """
+        }
+        if context.usesMermaid {
+            out += """
+            <script type="module">
+            import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+            mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
+            </script>
+
+            """
+        }
         return out
     }
 
@@ -195,7 +262,8 @@ public struct HTMLRenderer {
 
     /// A full standalone page, for Export as HTML.
     public func renderDocument(markdown: String, title: String, css: String) -> String {
-        """
+        let (body, context) = renderBody(markdown)
+        return """
         <!DOCTYPE html>
         <html lang="en">
         <head>
@@ -205,9 +273,9 @@ public struct HTMLRenderer {
         <style>
         \(css)
         </style>
-        </head>
+        \(headExtras(context))</head>
         <body>
-        \(render(markdown: markdown))
+        \(body)
         </body>
         </html>
 
@@ -225,6 +293,9 @@ public struct HTMLRenderer {
         var footnoteBodies: [String: String] = [:]
         /// Heading ids, matching `BlockStructure.headings` so `#anchors` agree.
         var slugs = SlugGenerator()
+        /// Whether the page needs KaTeX or Mermaid.
+        var usesMath = false
+        var usesMermaid = false
 
         init(references: LinkReferences) {
             self.references = references
@@ -243,6 +314,8 @@ public struct HTMLRenderer {
 
     private struct RenderState {
         var pendingHardBreak = false
+        var inMath = false
+        var inMermaid = false
         var currentFootnote: String?
         var inParagraph = false
         var inCodeBlock = false
@@ -421,6 +494,16 @@ public struct HTMLRenderer {
                 out += "<img src=\"\(escape(resolve(source)))\" alt=\"\(escape(alt))\" />"
             case let .highlight(_, _, children):
                 out += "<mark>\(nodesHTML(children, characters, context))</mark>"
+            case let .math(_, _, content, display):
+                let tex = escape(text(characters, content))
+                out += display ? "<span class=\"math display\">\\[\(tex)\\]</span>" : "<span class=\"math inline\">\\(\(tex)\\)</span>"
+                context.usesMath = true
+            case let .superscript(_, _, children):
+                out += "<sup>\(nodesHTML(children, characters, context))</sup>"
+            case let .subscript(_, _, children):
+                out += "<sub>\(nodesHTML(children, characters, context))</sub>"
+            case let .emoji(_, _, shortcode, emoji):
+                out += "<span class=\"emoji\" title=\":\(escape(shortcode)):\">\(emoji)</span>"
             case let .footnoteReference(_, _, label):
                 let reference = context.reference(to: label)
                 out += "<sup class=\"footnote-ref\"><a href=\"#fn-\(reference.number)\" id=\"\(reference.id)\">\(reference.number)</a></sup>"

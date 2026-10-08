@@ -61,9 +61,13 @@ private func flatten(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
         case let .autolink(range, markers, _):
             let shown = markers.count == 2 ? NSRange(location: range.location + 1, length: range.length - 2) : range
             out += string(characters, from: shown.location, to: NSMaxRange(shown))
+        case let .math(_, _, content, _):
+            out += string(characters, from: content.location, to: NSMaxRange(content))
+        case let .emoji(_, _, _, emoji):
+            out += emoji
         case .rawHTML, .footnoteReference:
             break
-        case .emphasis, .strong, .strikethrough, .highlight, .link:
+        case .emphasis, .strong, .strikethrough, .highlight, .link, .superscript, .subscript:
             out += flatten(node.children, characters)
         }
     }
