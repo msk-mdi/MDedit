@@ -78,9 +78,13 @@ final class InlineImage: NSObject {
     let below: Bool
     /// For an image in a line of text, how far it hangs below the baseline.
     let descent: CGFloat
+    /// What VoiceOver reads in place of the picture: a formula's TeX, a
+    /// diagram's source. Empty for a plain image, whose alt text is its caption.
+    let label: String
 
-    init(image: NSImage, size: CGSize, centered: Bool = false, below: Bool = false, descent: CGFloat = 0) {
+    init(image: NSImage, size: CGSize, centered: Bool = false, below: Bool = false, descent: CGFloat = 0, label: String = "") {
         self.image = image
+        self.label = label
         self.size = size
         self.centered = centered
         self.below = below

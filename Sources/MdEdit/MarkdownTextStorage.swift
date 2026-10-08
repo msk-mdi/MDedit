@@ -545,14 +545,14 @@ final class MarkdownTextStorage: NSTextStorage {
                 revealed = true
                 if line == block.lines.upperBound {
                     if let rendering {
-                        preview = fittedImage(rendering, centered: true, below: true)
+                        preview = fittedImage(rendering, centered: true, below: true, label: request.spokenLabel)
                         lastPreviews[block.lines.lowerBound] = preview
                     } else if typesetError == nil {
                         preview = lastPreviews[block.lines.lowerBound]
                     }
                 }
             } else if let rendering {
-                styleTypesetBlock(line: line, block: block, info: info, range: range, image: fittedImage(rendering, centered: true))
+                styleTypesetBlock(line: line, block: block, info: info, range: range, image: fittedImage(rendering, centered: true, label: request.spokenLabel))
                 return
             }
         }
@@ -1002,7 +1002,7 @@ final class MarkdownTextStorage: NSTextStorage {
     }
 
     /// A typeset image, scaled down to fit the column.
-    private func fittedImage(_ rendering: Typesetter.Rendering, centered: Bool, below: Bool = false) -> InlineImage {
+    private func fittedImage(_ rendering: Typesetter.Rendering, centered: Bool, below: Bool = false, label: String) -> InlineImage {
         var size = rendering.size
         let maxWidth = max(80, maxImageWidth)
         if size.width > maxWidth {
@@ -1011,7 +1011,7 @@ final class MarkdownTextStorage: NSTextStorage {
         if size.height > Metrics.maxDiagramHeight {
             size = CGSize(width: size.width * Metrics.maxDiagramHeight / size.height, height: Metrics.maxDiagramHeight)
         }
-        return InlineImage(image: rendering.image, size: size, centered: centered, below: below)
+        return InlineImage(image: rendering.image, size: size, centered: centered, below: below, label: label)
     }
 
     /// A block shown as its image: the first line makes room and draws it,
@@ -1063,6 +1063,7 @@ final class MarkdownTextStorage: NSTextStorage {
     /// kerned to the formula's width; the layout manager draws the image
     /// there. The rest of its source is concealed.
     private func applyInlineMath(lineRange: NSRange) {
+        let text = backing.string as NSString
         var ascent: CGFloat = 0, descent: CGFloat = 0
         for (range, rendering) in pendingInlineMath {
             guard range.length > 1, NSMaxRange(range) <= backing.length else { continue }
@@ -1074,7 +1075,10 @@ final class MarkdownTextStorage: NSTextStorage {
             backing.addAttributes([
                 .foregroundColor: NSColor.clear,
                 .kern: rendering.size.width - advance,
-                .mdMath: InlineImage(image: rendering.image, size: rendering.size, descent: rendering.descent),
+                .mdMath: InlineImage(
+                    image: rendering.image, size: rendering.size, descent: rendering.descent,
+                    label: text.substring(with: range).trimmingCharacters(in: CharacterSet(charactersIn: "$"))
+                ),
             ], range: anchor)
             ascent = max(ascent, rendering.size.height - rendering.descent)
             descent = max(descent, rendering.descent)

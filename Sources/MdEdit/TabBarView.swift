@@ -48,7 +48,7 @@ final class TabBarView: NSView {
             cornerRadius: (Metrics.trackHeight - 2 * Metrics.thumbInset) / 2,
             interactive: true
         )
-        plusButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "New tab")
+        plusButton.image = NSImage(systemSymbolName: "plus", accessibilityDescription: String(localized: "New tab"))
         plusButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 12, weight: .medium)
         plusButton.isBordered = false
         plusButton.bezelStyle = .accessoryBarAction
@@ -81,7 +81,12 @@ final class TabBarView: NSView {
 
         plusButton.target = self
         plusButton.action = #selector(newTab)
-        plusButton.toolTip = "New Tab (⌘T)"
+        plusButton.toolTip = String(localized: "New Tab (⌘T)")
+
+        // To VoiceOver the strip is a tab group of radio-button tabs.
+        setAccessibilityElement(true)
+        setAccessibilityRole(.tabGroup)
+        setAccessibilityLabel(String(localized: "Tabs"))
 
         let thumbLeading = thumb.leadingAnchor.constraint(equalTo: track.leadingAnchor, constant: Metrics.thumbInset)
         let thumbWidth = thumb.widthAnchor.constraint(equalToConstant: 0)
@@ -232,6 +237,7 @@ final class TabSegment: NSView {
     private let closeButton = NSButton()
     private let dirtyDot = NSView()
     private var isDirty = false
+    private var isSelected = false
     private var isHovering = false
 
     init(index: Int) {
@@ -244,7 +250,7 @@ final class TabSegment: NSView {
         label.lineBreakMode = .byTruncatingMiddle
         label.translatesAutoresizingMaskIntoConstraints = false
 
-        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: "Close tab")
+        closeButton.image = NSImage(systemSymbolName: "xmark", accessibilityDescription: String(localized: "Close tab"))
         closeButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 9, weight: .semibold)
         closeButton.isBordered = false
         closeButton.bezelStyle = .accessoryBarAction
@@ -288,8 +294,36 @@ final class TabSegment: NSView {
         closeButton.contentTintColor = theme.secondaryText
         dirtyDot.layer?.backgroundColor = theme.secondaryText.cgColor
         isDirty = tab.isDirty
+        self.isSelected = isSelected
         toolTip = tab.title
         updateHoverItems()
+        // The close button only shows on hover, so VoiceOver gets an action instead.
+        label.setAccessibilityElement(false)
+        closeButton.setAccessibilityLabel(String(localized: "Close \(tab.title)"))
+        setAccessibilityCustomActions([
+            NSAccessibilityCustomAction(name: String(localized: "Close Tab")) { [weak self] in
+                guard let self else { return false }
+                onClose?(index)
+                return true
+            },
+        ])
+    }
+
+    // MARK: - Accessibility
+
+    override func isAccessibilityElement() -> Bool { true }
+    override func accessibilityRole() -> NSAccessibility.Role? { .radioButton }
+    override func accessibilityRoleDescription() -> String? { String(localized: "tab") }
+    override func accessibilityLabel() -> String? {
+        isDirty ? String(localized: "\(label.stringValue), edited") : label.stringValue
+    }
+    override func accessibilityValue() -> Any? { isSelected ? 1 : 0 }
+    override func isAccessibilitySelected() -> Bool { isSelected }
+
+    override func accessibilityPerformPress() -> Bool {
+        onSelect?(index)
+        onRelease?()
+        return true
     }
 
     private func updateHoverItems() {

@@ -26,6 +26,14 @@ final class Typesetter: NSObject {
         var dark: Bool
         /// Diagrams are laid out to fit the text column.
         var width: CGFloat
+
+        /// What VoiceOver reads in place of the image.
+        var spokenLabel: String {
+            switch kind {
+            case .inlineMath, .displayMath: String(localized: "formula \(source)")
+            case .diagram: String(localized: "diagram \(source)")
+            }
+        }
     }
 
     /// A typeset formula or diagram: its image, and how far it hangs below

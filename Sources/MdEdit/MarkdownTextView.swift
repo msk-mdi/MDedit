@@ -28,6 +28,20 @@ final class MarkdownTextView: NSTextView {
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
     }
 
+    // MARK: - Accessibility
+
+    /// VoiceOver reads what is drawn: no hidden `**` or `#`, bullets as
+    /// bullets, ticked boxes as "checked".
+    override func accessibilityString(for range: NSRange) -> String? {
+        guard let textStorage else { return super.accessibilityString(for: range) }
+        return SpokenText.string(of: textStorage, in: range)
+    }
+
+    override func accessibilityAttributedString(for range: NSRange) -> NSAttributedString? {
+        guard let textStorage else { return super.accessibilityAttributedString(for: range) }
+        return SpokenText.attributedString(of: textStorage, in: range)
+    }
+
     // MARK: - Paste and drop
 
     /// Images paste as markdown; a URL pasted over a selection makes a link.
