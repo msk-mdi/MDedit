@@ -60,6 +60,9 @@ final class Document {
         didSet { storage.baseURL = url }
     }
     let storage: MarkdownTextStorage
+    /// This document's own undo history: tabs share a window, not a history,
+    /// and the history goes with the tab to another window.
+    let undoManager = UndoManager()
     var format = FileFormat()
 
     /// Contents as last read from or written to disk, used to detect dirtiness.

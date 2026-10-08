@@ -5,7 +5,7 @@ import MarkdownKit
 /// opaque canvas below it, and a floating status pill.
 @MainActor
 final class MainWindowController: NSWindowController {
-    private var documents: [Document] = []
+    private(set) var documents: [Document] = []
     private var editors: [ObjectIdentifier: EditorViewController] = [:]
     private var selection = 0
 
@@ -37,7 +37,8 @@ final class MainWindowController: NSWindowController {
     private var theme: Theme = .current(for: NSApp.effectiveAppearance)
     private var appearanceObservation: NSKeyValueObservation?
 
-    private let recovery = RecoveryStore.standard
+    /// Where unsaved text is snapshotted; a scratch store in tests.
+    var recovery = RecoveryStore.standard
 
     // Hooks to the app, which owns every window.
     /// Something worth recording in the session changed.
@@ -48,6 +49,17 @@ final class MainWindowController: NSWindowController {
     var focusElsewhere: ((URL) -> Bool)?
     /// Asked to give a document a window of its own.
     var onMoveToNewWindow: ((Document) -> Void)?
+
+    /// What to do with a document's unsaved changes before it goes.
+    enum UnsavedAnswer {
+        case save, discard, cancel
+    }
+
+    /// Asks about a document's unsaved changes; a sheet on the window unless
+    /// something else (a test) answers instead.
+    lazy var askAboutUnsaved: (Document, @escaping (UnsavedAnswer) -> Void) -> Void = { [weak self] document, answer in
+        self?.presentUnsavedAlert(for: document, answer: answer)
+    }
     private var pendingSnapshot: DispatchWorkItem?
     /// Set once the user has answered for every unsaved document, so closing
     /// the window and the quit that follows do not ask twice.
@@ -171,7 +183,7 @@ final class MainWindowController: NSWindowController {
             handleExternalChange(of: document)
         }
         documents.append(document)
-        let editor = EditorViewController(textStorage: document.storage)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
         editor.applyTheme(theme)
         editor.onSelectionChange = { [weak self] in
             self?.refreshStatus()
@@ -304,21 +316,32 @@ final class MainWindowController: NSWindowController {
     }
 
     private func confirmDiscard(_ document: Document, completion: @escaping (Bool) -> Void) {
-        guard let window else { return completion(true) }
-        let alert = NSAlert()
-        alert.messageText = "Save changes to “\(document.displayName)” before closing?"
-        alert.informativeText = "Your changes will be lost if you don’t save them."
-        alert.addButton(withTitle: "Save")
-        alert.addButton(withTitle: "Cancel")
-        alert.addButton(withTitle: "Don’t Save")
-        alert.beginSheetModal(for: window) { [weak self] response in
-            switch response {
-            case .alertFirstButtonReturn:
-                self?.save(document: document) { saved in completion(saved) }
-            case .alertThirdButtonReturn:
+        askAboutUnsaved(document) { [weak self] answer in
+            switch answer {
+            case .save:
+                guard let self else { return completion(false) }
+                save(document: document) { saved in completion(saved) }
+            case .discard:
                 completion(true)
-            default:
+            case .cancel:
                 completion(false)
+            }
+        }
+    }
+
+    private func presentUnsavedAlert(for document: Document, answer: @escaping (UnsavedAnswer) -> Void) {
+        guard let window else { return answer(.discard) }
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Save changes to “\(document.displayName)” before closing?")
+        alert.informativeText = String(localized: "Your changes will be lost if you don’t save them.")
+        alert.addButton(withTitle: String(localized: "Save"))
+        alert.addButton(withTitle: String(localized: "Cancel"))
+        alert.addButton(withTitle: String(localized: "Don’t Save"))
+        alert.beginSheetModal(for: window) { response in
+            switch response {
+            case .alertFirstButtonReturn: answer(.save)
+            case .alertThirdButtonReturn: answer(.discard)
+            default: answer(.cancel)
             }
         }
     }
@@ -716,6 +739,20 @@ final class MainWindowController: NSWindowController {
         !changesReviewed && documents.contains(where: \.isDirty)
     }
 
+    /// Reviews several windows in turn, bringing each forward; Cancel in any
+    /// of them stops the review. This is what quitting does.
+    static func reviewUnsavedChanges(in controllers: [MainWindowController], completion: @escaping (Bool) -> Void) {
+        var remaining = controllers.filter(\.hasUnreviewedChanges).makeIterator()
+        func next() {
+            guard let controller = remaining.next() else { return completion(true) }
+            controller.window?.makeKeyAndOrderFront(nil)
+            controller.reviewUnsavedChanges { proceed in
+                proceed ? next() : completion(false)
+            }
+        }
+        next()
+    }
+
     /// Asks about each unsaved document in turn. Completes with false as soon
     /// as the user cancels, true once every document has an answer.
     func reviewUnsavedChanges(completion: @escaping (Bool) -> Void) {
@@ -1009,11 +1046,9 @@ final class MainWindowController: NSWindowController {
         let textView = editor.textView
         let all = NSRange(location: 0, length: document.storage.length)
         document.storage.unfoldAll()
-        guard textView.shouldChangeText(in: all, replacementString: text) else { return }
-        textView.insertText(text, replacementRange: all)
+        guard textView.replaceAsUndoStep(all, with: text, actionName: actionName) else { return }
         textView.setSelectedRange(NSRange(location: 0, length: 0))
         textView.scrollRangeToVisible(NSRange(location: 0, length: 0))
-        textView.undoManager?.setActionName(actionName)
     }
 
     @objc func exportWord(_ sender: Any?) { exportRich(.word) }

@@ -10,6 +10,8 @@ final class EditorViewController: NSViewController {
     let scrollView = NSScrollView()
 
     let storage: MarkdownTextStorage
+    /// The document's undo history, which the text view records into.
+    let documentUndoManager: UndoManager
     private let layoutManager = MarkdownLayoutManager()
     private let textContainer: NSTextContainer
     private(set) var activeLine: ActiveLineController!
@@ -46,8 +48,9 @@ final class EditorViewController: NSViewController {
         didSet { view.needsLayout = true }
     }
 
-    init(textStorage: MarkdownTextStorage) {
+    init(textStorage: MarkdownTextStorage, undoManager: UndoManager = UndoManager()) {
         storage = textStorage
+        documentUndoManager = undoManager
         textContainer = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
 
         storage.addLayoutManager(layoutManager)
@@ -237,8 +240,7 @@ final class EditorViewController: NSViewController {
     private func setCodeLanguage(_ name: String) {
         guard let block = currentCodeBlock else { return }
         let selection = textView.selectedRange()
-        guard textView.shouldChangeText(in: block.infoRange, replacementString: name) else { return }
-        textView.insertText(name, replacementRange: block.infoRange)
+        guard textView.replaceAsUndoStep(block.infoRange, with: name, actionName: String(localized: "Set Language")) else { return }
         // Keep the caret where it was, shifted by however much the fence line changed.
         let delta = (name as NSString).length - block.infoRange.length
         let location = selection.location >= NSMaxRange(block.infoRange) ? selection.location + delta : selection.location
@@ -256,6 +258,10 @@ final class EditorViewController: NSViewController {
 
 
 extension EditorViewController: NSTextViewDelegate {
+    func undoManager(for view: NSTextView) -> UndoManager? {
+        documentUndoManager
+    }
+
     func textView(_ textView: NSTextView, doCommandBy commandSelector: Selector) -> Bool {
         // Several carets type plainly: no list continuation or pairing.
         if self.textView.hasMultipleTargets { return false }
@@ -268,7 +274,9 @@ extension EditorViewController: NSTextViewDelegate {
         shouldChangeTextIn affectedCharRange: NSRange,
         replacementString: String?
     ) -> Bool {
-        guard let replacementString, !self.textView.isEditingAtCarets, !self.textView.hasMultipleTargets else { return true }
+        guard let replacementString, !self.textView.isEditingAtCarets, !self.textView.isReplacingAsCommand,
+              !self.textView.hasMultipleTargets
+        else { return true }
         return !input.handleInsertion(of: replacementString, in: textView, range: affectedCharRange)
     }
 

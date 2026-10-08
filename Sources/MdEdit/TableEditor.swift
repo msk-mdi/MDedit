@@ -151,8 +151,7 @@ struct TableEditor {
         // Swallow the newline that ended the table, if any, so lines don't pile up.
         var range = position.range
         if NSMaxRange(range) < text.length { range.length += 1 }
-        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
-        textView.insertText(replacement, replacementRange: range)
+        guard textView.replaceAsUndoStep(range, with: replacement, actionName: nil) else { return }
         textView.setSelectedRange(NSRange(location: range.location + (replacement as NSString).length, length: 0))
     }
 
@@ -199,7 +198,15 @@ struct TableEditor {
         case .format:
             break
         }
-        apply(position.table, replacing: position, caretLine: line == 1 ? 0 : line, column: column, selectCell: false)
+        let actionName = switch command {
+        case .rowAbove, .rowBelow: String(localized: "Add Row")
+        case .deleteRow: String(localized: "Delete Row")
+        case .columnBefore, .columnAfter: String(localized: "Add Column")
+        case .deleteColumn: String(localized: "Delete Column")
+        case .align: String(localized: "Align Column")
+        case .format: String(localized: "Format Table")
+        }
+        apply(position.table, replacing: position, caretLine: line == 1 ? 0 : line, column: column, selectCell: false, actionName: actionName)
     }
 
     /// Inserts a three-column table on its own lines, header cell selected.
@@ -227,8 +234,7 @@ struct TableEditor {
         let followsText = NSMaxRange(replaceRange) < text.length
             && storage.structure.info(forLine: caretLine + 1).map { $0.kind != .blank } ?? false
         let replacement = prefix + formatted.text + (followsText ? "\n" : "")
-        guard textView.shouldChangeText(in: replaceRange, replacementString: replacement) else { return }
-        textView.insertText(replacement, replacementRange: replaceRange)
+        guard textView.replaceAsUndoStep(replaceRange, with: replacement, actionName: String(localized: "Insert Table")) else { return }
 
         let cell = formatted.cells[0][0]
         textView.setSelectedRange(NSRange(location: insertAt + (prefix as NSString).length + cell.location, length: cell.length))
@@ -236,13 +242,19 @@ struct TableEditor {
 
     /// Rewrites the table aligned, then places the caret in a cell — selecting
     /// its text when moving by Tab, so typing replaces it.
-    private func apply(_ table: MarkdownTable, replacing position: Position, caretLine: Int, column: Int, selectCell: Bool) {
+    private func apply(
+        _ table: MarkdownTable,
+        replacing position: Position,
+        caretLine: Int,
+        column: Int,
+        selectCell: Bool,
+        actionName: String? = nil
+    ) {
         let formatted = table.formatted()
         let replacement = formatted.text
         let current = (storage.string as NSString).substring(with: position.range)
         if replacement != current {
-            guard textView.shouldChangeText(in: position.range, replacementString: replacement) else { return }
-            textView.insertText(replacement, replacementRange: position.range)
+            guard textView.replaceAsUndoStep(position.range, with: replacement, actionName: actionName) else { return }
         }
 
         let line = min(caretLine, formatted.lines.count - 1)

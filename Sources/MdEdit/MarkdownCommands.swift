@@ -3,11 +3,18 @@ import MarkdownKit
 
 /// The Format menu, implemented against the selection.
 ///
-/// Every command goes through `insertText(_:replacementRange:)` so undo,
-/// reparsing and restyling all follow for free.
+/// Every command is one undo step named for its menu item, made through
+/// `replaceAsUndoStep`; reparsing and restyling follow from the storage.
 extension EditorViewController {
     /// Wraps or unwraps the selection in a delimiter, e.g. `**` for bold.
     func toggleInline(_ delimiter: String) {
+        let actionName = switch delimiter {
+        case "**": String(localized: "Bold")
+        case "*", "_": String(localized: "Italic")
+        case "~~": String(localized: "Strikethrough")
+        case "`": String(localized: "Inline Code")
+        default: String(localized: "Format")
+        }
         let text = storage.string as NSString
         var range = textView.selectedRange()
         if range.length == 0 {
@@ -20,7 +27,7 @@ extension EditorViewController {
         // Already wrapped, inside the selection?
         if selected.hasPrefix(delimiter), selected.hasSuffix(delimiter), selected.utf16.count >= 2 * length {
             let stripped = String(selected.dropFirst(delimiter.count).dropLast(delimiter.count))
-            replace(range, with: stripped, select: NSRange(location: range.location, length: stripped.utf16.count))
+            replace(range, with: stripped, select: NSRange(location: range.location, length: stripped.utf16.count), actionName: actionName)
             return
         }
 
@@ -32,17 +39,18 @@ extension EditorViewController {
            text.substring(with: before) == delimiter,
            text.substring(with: after) == delimiter {
             let outer = NSRange(location: before.location, length: range.length + 2 * length)
-            replace(outer, with: selected, select: NSRange(location: before.location, length: range.length))
+            replace(outer, with: selected, select: NSRange(location: before.location, length: range.length), actionName: actionName)
             return
         }
 
         let wrapped = delimiter + selected + delimiter
-        replace(range, with: wrapped, select: NSRange(location: range.location + length, length: range.length))
+        replace(range, with: wrapped, select: NSRange(location: range.location + length, length: range.length), actionName: actionName)
     }
 
     /// Sets or clears the heading level of every line the selection touches.
     func setHeading(level: Int) {
-        forEachSelectedLine { characters, info in
+        let actionName = level > 0 ? String(localized: "Heading \(level)") : String(localized: "Paragraph")
+        forEachSelectedLine(actionName: actionName) { characters, info in
             // `contentStart` already skips whatever marker the line had, so
             // setting a level and clearing one are the same operation.
             let body = String(decoding: characters[min(info.contentStart, characters.count)...], as: UTF16.self)
@@ -54,7 +62,9 @@ extension EditorViewController {
     /// Adds or removes a list marker on every selected line.
     func toggleList(ordered: Bool, task: Bool = false) {
         var number = 0
-        forEachSelectedLine { characters, info in
+        let actionName = task ? String(localized: "Task List")
+            : ordered ? String(localized: "Numbered List") : String(localized: "Bulleted List")
+        forEachSelectedLine(actionName: actionName) { characters, info in
             number += 1
             let body = String(decoding: characters[min(info.contentStart, characters.count)...], as: UTF16.self)
             let existing = String(decoding: characters[0..<min(info.contentStart, characters.count)], as: UTF16.self)
@@ -74,7 +84,7 @@ extension EditorViewController {
 
     /// Adds or removes a `>` prefix on every selected line.
     func toggleQuote() {
-        forEachSelectedLine { characters, info in
+        forEachSelectedLine(actionName: String(localized: "Blockquote")) { characters, info in
             let full = String(decoding: characters, as: UTF16.self)
             if info.quoteDepth > 0 {
                 let markerLength = info.markers.first(where: { $0.kind == .quote })
@@ -92,7 +102,7 @@ extension EditorViewController {
         let body = text.substring(with: range)
         let trimmed = body.hasSuffix("\n") ? String(body.dropLast()) : body
         let replacement = "```\n" + trimmed + "\n```\n"
-        replace(range, with: replacement, select: NSRange(location: range.location + 3, length: 0))
+        replace(range, with: replacement, select: NSRange(location: range.location + 3, length: 0), actionName: String(localized: "Code Block"))
     }
 
     /// Wraps the selection as a link, using a URL from the clipboard if there
@@ -112,7 +122,8 @@ extension EditorViewController {
         replace(
             range,
             with: replacement,
-            select: NSRange(location: caret, length: destination.utf16.count)
+            select: NSRange(location: caret, length: destination.utf16.count),
+            actionName: String(localized: "Link")
         )
     }
 
@@ -123,9 +134,8 @@ extension EditorViewController {
         return url.scheme != nil
     }
 
-    func replace(_ range: NSRange, with replacement: String, select selection: NSRange) {
-        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return }
-        textView.insertText(replacement, replacementRange: range)
+    func replace(_ range: NSRange, with replacement: String, select selection: NSRange, actionName: String) {
+        guard textView.replaceAsUndoStep(range, with: replacement, actionName: actionName) else { return }
         textView.setSelectedRange(selection)
     }
 
@@ -158,7 +168,7 @@ extension EditorViewController {
     }
 
     /// Rewrites every line the selection touches, in one undoable edit.
-    private func forEachSelectedLine(_ transform: ([UInt16], LineInfo) -> String) {
+    private func forEachSelectedLine(actionName: String, _ transform: ([UInt16], LineInfo) -> String) {
         let selection = textView.selectedRange()
         let first = storage.line(at: selection.location)
         let last = storage.line(at: NSMaxRange(selection))
@@ -181,7 +191,8 @@ extension EditorViewController {
             select: NSRange(
                 location: selection.location,
                 length: max(0, selection.length + (selection.length > 0 ? lengthDelta : 0))
-            )
+            ),
+            actionName: actionName
         )
     }
 }
@@ -273,7 +284,6 @@ extension EditorViewController {
         let trailing = after.hasPrefix("\n\n") ? "" : after.hasPrefix("\n") ? "\n" : "\n\n"
         let insertion = leading + list + trailing
         let end = range.location + (insertion as NSString).length
-        replace(range, with: insertion, select: NSRange(location: end, length: 0))
-        textView.undoManager?.setActionName("Insert Table of Contents")
+        replace(range, with: insertion, select: NSRange(location: end, length: 0), actionName: String(localized: "Insert Table of Contents"))
     }
 }

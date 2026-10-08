@@ -59,7 +59,6 @@ struct MarkdownInputHandler {
             while indentEnd < characters.count, characters[indentEnd] == 0x20 || characters[indentEnd] == 0x09 { indentEnd += 1 }
             let caretOffset = selection.location - lineRange.location
             let insertion = "\n" + string(characters, from: 0, to: min(indentEnd, caretOffset))
-            guard textView.shouldChangeText(in: selection, replacementString: insertion) else { return true }
             textView.insertText(insertion, replacementRange: selection)
             return true
         }
@@ -73,7 +72,6 @@ struct MarkdownInputHandler {
            let block = CodeBlock.containing(line: line, in: storage), block.closeLine == nil {
             let fence = fenceRun(characters)
             let insertion = "\n\n" + fence.prefix + fence.run
-            guard textView.shouldChangeText(in: selection, replacementString: insertion) else { return true }
             textView.insertText(insertion, replacementRange: selection)
             textView.setSelectedRange(NSRange(location: selection.location + 1 + (fence.prefix as NSString).length, length: 0))
             return true
@@ -92,7 +90,6 @@ struct MarkdownInputHandler {
         // An empty item ends the list rather than making another one.
         if info.contentStart >= characters.count {
             let replaceRange = NSRange(location: lineRange.location, length: characters.count)
-            guard textView.shouldChangeText(in: replaceRange, replacementString: "") else { return true }
             textView.insertText("", replacementRange: replaceRange)
             return true
         }
@@ -107,7 +104,6 @@ struct MarkdownInputHandler {
             .replacingOccurrences(of: "[X]", with: "[ ]")
 
         let insertion = "\n" + prefix
-        guard textView.shouldChangeText(in: selection, replacementString: insertion) else { return true }
         textView.insertText(insertion, replacementRange: selection)
         return true
     }
@@ -147,7 +143,6 @@ struct MarkdownInputHandler {
         var replacement = lines.joined(separator: "\n")
         if hadTrailingNewline { replacement += "\n" }
         guard replacement != text.substring(with: range) else { return true }
-        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return true }
         textView.insertText(replacement, replacementRange: range)
 
         let shift = direction > 0 ? 2 : -2
@@ -178,7 +173,6 @@ struct MarkdownInputHandler {
         let text = storage.string as NSString
         let selected = text.substring(with: range)
         let replacement = input + selected + closing
-        guard textView.shouldChangeText(in: range, replacementString: replacement) else { return true }
         textView.insertText(replacement, replacementRange: range)
         textView.setSelectedRange(NSRange(location: range.location + input.utf16.count, length: range.length))
         return true
@@ -204,7 +198,6 @@ struct MarkdownInputHandler {
         }
         let pair = input + closing
         let range = NSRange(location: location, length: 0)
-        guard textView.shouldChangeText(in: range, replacementString: pair) else { return true }
         textView.insertText(pair, replacementRange: range)
         textView.setSelectedRange(NSRange(location: location + input.utf16.count, length: 0))
         return true
@@ -219,7 +212,6 @@ struct MarkdownInputHandler {
         let pairRange = NSRange(location: selection.location - 1, length: 2)
         let pair = text.substring(with: pairRange)
         guard let opening = pair.first.map(String.init), Self.autoPairs[opening] == String(pair.dropFirst()) else { return false }
-        guard textView.shouldChangeText(in: pairRange, replacementString: "") else { return true }
         textView.insertText("", replacementRange: pairRange)
         return true
     }

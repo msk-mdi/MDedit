@@ -23,6 +23,10 @@ final class MarkdownTextView: NSTextView {
         isEditingAtCarets = editing
     }
 
+    /// Set while a command replaces text, so the delegate does not take a
+    /// one-character replacement for a typed delimiter.
+    fileprivate(set) var isReplacingAsCommand = false
+
     override func setSelectedRanges(_ ranges: [NSValue], affinity: NSSelectionAffinity, stillSelecting: Bool) {
         if !isEditingAtCarets, !additionalCarets.isEmpty { additionalCarets = [] }
         super.setSelectedRanges(ranges, affinity: affinity, stillSelecting: stillSelecting)
@@ -60,8 +64,9 @@ final class MarkdownTextView: NSTextView {
               let markdown = HTMLToMarkdown.convert(html)
         else { return false }
         let range = selectedRange()
-        guard shouldChangeText(in: range, replacementString: markdown) else { return true }
-        insertText(markdown, replacementRange: range)
+        if replaceAsUndoStep(range, with: markdown, actionName: String(localized: "Paste")) {
+            setSelectedRange(NSRange(location: range.location + (markdown as NSString).length, length: 0))
+        }
         return true
     }
 
@@ -108,8 +113,9 @@ final class MarkdownTextView: NSTextView {
         guard !markdown.isEmpty else { return false }
 
         let insertion = markdown.joined(separator: "\n")
-        guard shouldChangeText(in: range, replacementString: insertion) else { return true }
-        insertText(insertion, replacementRange: range)
+        if replaceAsUndoStep(range, with: insertion, actionName: String(localized: "Insert Image")) {
+            setSelectedRange(NSRange(location: range.location + (insertion as NSString).length, length: 0))
+        }
         return true
     }
 
@@ -125,8 +131,9 @@ final class MarkdownTextView: NSTextView {
         let selected = (storage.string as NSString).substring(with: selection)
         guard !selected.contains("\n") else { return false }
         let link = "[\(selected)](\(pasted))"
-        guard shouldChangeText(in: selection, replacementString: link) else { return true }
-        insertText(link, replacementRange: selection)
+        if replaceAsUndoStep(selection, with: link, actionName: String(localized: "Paste Link")) {
+            setSelectedRange(NSRange(location: selection.location + (link as NSString).length, length: 0))
+        }
         return true
     }
 
@@ -210,12 +217,30 @@ final class MarkdownTextView: NSTextView {
 
         let range = NSRange(location: index, length: 1)
         let replacement = kind == .taskChecked ? " " : "x"
-        guard shouldChangeText(in: range, replacementString: replacement) else { return true }
         let selection = selectedRanges
-        storage.replaceCharacters(in: range, with: replacement)
-        didChangeText()
-        undoManager?.setActionName(kind == .taskChecked ? "Uncheck Task" : "Check Task")
+        let name = kind == .taskChecked ? String(localized: "Uncheck Task") : String(localized: "Check Task")
+        guard replaceAsUndoStep(range, with: replacement, actionName: name) else { return true }
         selectedRanges = selection
+        return true
+    }
+}
+
+extension NSTextView {
+    /// Replaces text as an undo step of its own, under a name for the Edit
+    /// menu: not folded into the typing before it, and not extended by the
+    /// typing after. (`insertText` counts as typing, and coalesces.)
+    @discardableResult
+    func replaceAsUndoStep(_ range: NSRange, with replacement: String, actionName: String?) -> Bool {
+        guard let textStorage else { return false }
+        let markdownView = self as? MarkdownTextView
+        markdownView?.isReplacingAsCommand = true
+        defer { markdownView?.isReplacingAsCommand = false }
+        breakUndoCoalescing()
+        guard shouldChangeText(in: range, replacementString: replacement) else { return false }
+        textStorage.replaceCharacters(in: range, with: replacement)
+        didChangeText()
+        breakUndoCoalescing()
+        if let actionName { undoManager?.setActionName(actionName) }
         return true
     }
 }

@@ -37,19 +37,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     /// Asks about unsaved documents window by window; Cancel anywhere stops the quit.
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
-        let pending = controllers.filter(\.hasUnreviewedChanges)
-        guard !pending.isEmpty else { return .terminateNow }
-        var remaining = pending.makeIterator()
-        func next() {
-            guard let controller = remaining.next() else {
-                return sender.reply(toApplicationShouldTerminate: true)
-            }
-            controller.window?.makeKeyAndOrderFront(nil)
-            controller.reviewUnsavedChanges { proceed in
-                proceed ? next() : sender.reply(toApplicationShouldTerminate: false)
-            }
+        guard controllers.contains(where: \.hasUnreviewedChanges) else { return .terminateNow }
+        MainWindowController.reviewUnsavedChanges(in: controllers) { proceed in
+            sender.reply(toApplicationShouldTerminate: proceed)
         }
-        next()
         return .terminateLater
     }
 
