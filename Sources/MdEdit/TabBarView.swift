@@ -10,6 +10,7 @@ protocol TabBarViewDelegate: AnyObject {
     func tabBar(_ bar: TabBarView, didSelect index: Int)
     func tabBar(_ bar: TabBarView, didRequestClose index: Int)
     func tabBarDidRequestNewTab(_ bar: TabBarView)
+    func tabBar(_ bar: TabBarView, moveTabAt source: Int, to destination: Int)
 }
 
 /// The tab strip, shaped like a segmented control: one recessed track spanning
@@ -28,6 +29,9 @@ final class TabBarView: NSView {
     private let newTabButton: GlassPanel
     private let plusButton = NSButton()
     private var segments: [TabSegment] = []
+
+    /// The position of the tab being dragged, which moves as it is reordered.
+    private var draggedIndex: Int?
 
     private var thumbLeading: NSLayoutConstraint?
     private var thumbWidth: NSLayoutConstraint?
@@ -143,8 +147,11 @@ final class TabBarView: NSView {
             let segment = TabSegment(index: index)
             segment.onSelect = { [weak self] index in
                 guard let self else { return }
+                draggedIndex = index
                 delegate?.tabBar(self, didSelect: index)
             }
+            segment.onDrag = { [weak self] event in self?.dragTab(with: event) }
+            segment.onRelease = { [weak self] in self?.draggedIndex = nil }
             segment.onClose = { [weak self] index in
                 guard let self else { return }
                 delegate?.tabBar(self, didRequestClose: index)
@@ -186,6 +193,19 @@ final class TabBarView: NSView {
         }
     }
 
+    /// Reorders live: crossing into a neighbour's segment swaps places, and
+    /// the thumb slides along with the tab.
+    private func dragTab(with event: NSEvent) {
+        guard let source = draggedIndex, !segments.isEmpty else { return }
+        let x = stack.convert(event.locationInWindow, from: nil).x
+        let width = stack.bounds.width / CGFloat(segments.count)
+        guard width > 0 else { return }
+        let target = min(max(0, Int(x / width)), segments.count - 1)
+        guard target != source else { return }
+        draggedIndex = target
+        delegate?.tabBar(self, moveTabAt: source, to: target)
+    }
+
     @objc private func newTab() {
         delegate?.tabBarDidRequestNewTab(self)
     }
@@ -197,6 +217,8 @@ final class TabSegment: NSView {
     let index: Int
     var onSelect: ((Int) -> Void)?
     var onClose: ((Int) -> Void)?
+    var onDrag: ((NSEvent) -> Void)?
+    var onRelease: (() -> Void)?
 
     private let label = NSTextField(labelWithString: "")
     private let closeButton = NSButton()
@@ -289,6 +311,14 @@ final class TabSegment: NSView {
 
     override func mouseDown(with event: NSEvent) {
         onSelect?(index)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        onDrag?(event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        onRelease?()
     }
 
     @objc private func close() {

@@ -8,6 +8,8 @@ final class MarkdownTextView: NSTextView {
     var onOpenLink: ((String) -> Void)?
     /// The document's file, for placing and linking pasted images.
     var documentURL: () -> URL? = { nil }
+    /// Asked to open markdown files dropped onto the text.
+    var onOpenFiles: (([URL]) -> Void)?
 
     // MARK: - Paste and drop
 
@@ -20,6 +22,13 @@ final class MarkdownTextView: NSTextView {
     }
 
     override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
+        // Markdown files dropped in open as tabs rather than pasting their paths.
+        let files = sender.draggingPasteboard.readObjects(forClasses: [NSURL.self], options: [.urlReadingFileURLsOnly: true]) as? [URL] ?? []
+        let markdown = files.filter(Workspace.isMarkdown)
+        if !markdown.isEmpty, markdown.count == files.count {
+            onOpenFiles?(markdown)
+            return true
+        }
         let point = convert(sender.draggingLocation, from: nil)
         let location = characterIndexForInsertion(at: point)
         if insertImages(from: sender.draggingPasteboard, at: NSRange(location: location, length: 0)) {

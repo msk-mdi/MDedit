@@ -22,6 +22,13 @@ markdown comes back. There is no split pane and no preview mode to switch to.
 - **Extended syntax.** Reference-style links and images, footnotes, YAML front
   matter, raw HTML blocks, `==highlights==`, bare `https://` and `www.` links,
   and hard line breaks — in the editor and in export.
+- **Rich editing.** Click a task box to tick it, ⌘-click a link to follow it
+  (web, local files, `#heading` anchors), see images inline with their alt text
+  as a caption, paste or drop images (pasted screenshots go to `assets/`), paste a
+  URL over text to link it, and switch to plain Source Mode with ⌘/.
+- **Workspaces.** Open a folder (⇧⌘O) for a sidebar with a live file tree, the
+  document outline (⇧⌘L) and Find in Folder (⇧⌘F); Quick Open (⌘P) fuzzy-finds
+  files. Drag tabs to reorder them, or drop markdown files in to open them.
 - **Your work is safe.** Quitting or closing the window asks about unsaved tabs,
   unsaved text is snapshotted for crash recovery, open tabs come back at launch,
   and files keep their encoding and line endings.
@@ -70,6 +77,9 @@ which is enough to run it locally but not to distribute it.
 | `⌘T` / `⌘W` | New tab / close tab |
 | `⇧⌘[` / `⇧⌘]` | Previous / next tab |
 | `⌘F` / `⌘G` / `⌥⌘F` | Find, find next, find and replace |
+| `⌘P` / `⇧⌘O` | Quick Open / open a folder |
+| `⇧⌘E` / `⇧⌘L` / `⇧⌘F` | Files / outline / Find in Folder |
+| `⌘/` | Source mode |
 
 Return continues lists and blockquotes (and renumbers ordered items); on an empty
 item it ends the list instead. Tab and `⇧Tab` indent and outdent list items. Typing
@@ -171,10 +181,8 @@ storage's line-range handling.
 ## Not implemented
 
 Tables render as aligned monospaced rows with striping rather than an editable grid.
-There is no math rendering, no mermaid diagrams, no sidebar file tree, no image
-upload services and no source mode. Inline images show as styled link text;
-`NSTextAttachment` thumbnails are the natural next step. The app is unsandboxed and
-ad-hoc signed.
+There is no math rendering, no mermaid diagrams, no image upload services and only
+one window. The app is unsandboxed and ad-hoc signed.
 
 ## License
 

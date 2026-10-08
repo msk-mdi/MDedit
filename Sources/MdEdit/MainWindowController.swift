@@ -155,6 +155,7 @@ final class MainWindowController: NSWindowController {
             self?.followCaretInOutline()
         }
         editor.textView.documentURL = { [weak document] in document?.url }
+        editor.textView.onOpenFiles = { [weak self] urls in urls.forEach { self?.open(url: $0) } }
         editor.onOpenLink = { [weak self, weak document] destination in
             guard let self, let document else { return }
             openLink(destination, from: document)
@@ -833,5 +834,13 @@ extension MainWindowController: TabBarViewDelegate {
 
     func tabBarDidRequestNewTab(_ bar: TabBarView) {
         newDocument()
+    }
+
+    func tabBar(_ bar: TabBarView, moveTabAt source: Int, to destination: Int) {
+        guard documents.indices.contains(source), documents.indices.contains(destination) else { return }
+        // Pressing a tab selects it, so the dragged tab is the selected one.
+        documents.insert(documents.remove(at: source), at: destination)
+        selection = destination
+        refreshTabs()
     }
 }
