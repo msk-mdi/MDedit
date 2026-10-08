@@ -11,11 +11,15 @@ public indirect enum InlineNode: Equatable, Sendable {
     case emphasis(range: NSRange, markers: [Marker], children: [InlineNode])
     case strong(range: NSRange, markers: [Marker], children: [InlineNode])
     case strikethrough(range: NSRange, markers: [Marker], children: [InlineNode])
+    /// `==marked==`.
+    case highlight(range: NSRange, markers: [Marker], children: [InlineNode])
     case link(range: NSRange, markers: [Marker], destination: String, title: String?, children: [InlineNode])
     case image(range: NSRange, markers: [Marker], source: String, alt: String)
     case autolink(range: NSRange, markers: [Marker], url: String)
     case escape(range: NSRange, marker: NSRange, character: NSRange)
     case rawHTML(NSRange)
+    /// `[^label]`, a reference to a footnote.
+    case footnoteReference(range: NSRange, markers: [Marker], label: String)
 
     public var range: NSRange {
         switch self {
@@ -24,6 +28,8 @@ public indirect enum InlineNode: Equatable, Sendable {
         case let .emphasis(range, _, _): range
         case let .strong(range, _, _): range
         case let .strikethrough(range, _, _): range
+        case let .highlight(range, _, _): range
+        case let .footnoteReference(range, _, _): range
         case let .link(range, _, _, _, _): range
         case let .image(range, _, _, _): range
         case let .autolink(range, _, _): range
@@ -39,6 +45,8 @@ public indirect enum InlineNode: Equatable, Sendable {
         case let .emphasis(_, markers, _): markers
         case let .strong(_, markers, _): markers
         case let .strikethrough(_, markers, _): markers
+        case let .highlight(_, markers, _): markers
+        case let .footnoteReference(_, markers, _): markers
         case let .link(_, markers, _, _, _): markers
         case let .image(_, markers, _, _): markers
         case let .autolink(_, markers, _): markers
@@ -51,18 +59,61 @@ public indirect enum InlineNode: Equatable, Sendable {
         case let .emphasis(_, _, children): children
         case let .strong(_, _, children): children
         case let .strikethrough(_, _, children): children
+        case let .highlight(_, _, children): children
         case let .link(_, _, _, _, children): children
         default: []
         }
     }
 }
 
-public enum InlineParser {
-    public static func parse(_ characters: [UInt16]) -> [InlineNode] {
-        parse(characters, from: 0, to: characters.count)
+/// The link and footnote definitions a document makes, for resolving
+/// `[text][label]`, `[label]` and `[^note]`.
+public struct LinkReferences: Equatable, Sendable {
+    /// Keyed by `normalizeLabel`.
+    public var links: [String: LinkDefinition]
+    public var footnotes: Set<String>
+    /// Export only links what is defined. The editor styles `[text][label]` as
+    /// a link either way, because adding a definition does not restyle every
+    /// line that uses it.
+    public var requireDefinitions: Bool
+
+    public init(links: [String: LinkDefinition] = [:], footnotes: Set<String> = [], requireDefinitions: Bool = false) {
+        self.links = links
+        self.footnotes = footnotes
+        self.requireDefinitions = requireDefinitions
     }
 
-    public static func parse(_ characters: [UInt16], from low: Int, to high: Int) -> [InlineNode] {
+    public static let lenient = LinkReferences()
+
+    /// Gathers every definition in a document; the first of a label wins.
+    public static func collect(from structure: BlockStructure, requireDefinitions: Bool) -> LinkReferences {
+        var references = LinkReferences(requireDefinitions: requireDefinitions)
+        for line in structure.lines {
+            switch line.kind {
+            case let .linkReferenceDefinition(label, definition):
+                let key = normalizeLabel(label)
+                if references.links[key] == nil { references.links[key] = definition }
+            case let .footnoteDefinition(label):
+                references.footnotes.insert(normalizeLabel(label))
+            default:
+                break
+            }
+        }
+        return references
+    }
+}
+
+public enum InlineParser {
+    public static func parse(_ characters: [UInt16], references: LinkReferences = .lenient) -> [InlineNode] {
+        parse(characters, from: 0, to: characters.count, references: references)
+    }
+
+    public static func parse(
+        _ characters: [UInt16],
+        from low: Int,
+        to high: Int,
+        references: LinkReferences = .lenient
+    ) -> [InlineNode] {
         var nodes: [InlineNode] = []
         var textStart = low
         var cursor = low
@@ -105,13 +156,24 @@ public enum InlineParser {
                 }
 
             case UInt16(ascii: "!"), UInt16(ascii: "["):
-                if let link = parseLinkOrImage(characters, at: cursor, limit: high) {
+                if let footnote = parseFootnoteReference(characters, at: cursor, limit: high, references: references) {
+                    node = footnote.node
+                    nextCursor = footnote.end
+                } else if let link = parseLinkOrImage(characters, at: cursor, limit: high, references: references) {
                     node = link.node
                     nextCursor = link.end
                 }
 
-            case UInt16(ascii: "*"), UInt16(ascii: "_"), UInt16(ascii: "~"):
-                if let emphasis = parseEmphasis(characters, at: cursor, limit: high) {
+            case UInt16(ascii: "h"), UInt16(ascii: "w"):
+                // Bare URLs start a word: at the start, or after space or opening punctuation.
+                if cursor == low || isURLBoundary(characters[cursor - 1]),
+                   let url = parseBareURL(characters, at: cursor, limit: high) {
+                    node = url.node
+                    nextCursor = url.end
+                }
+
+            case UInt16(ascii: "*"), UInt16(ascii: "_"), UInt16(ascii: "~"), UInt16(ascii: "="):
+                if let emphasis = parseEmphasis(characters, at: cursor, limit: high, references: references) {
                     flushText(upTo: emphasis.openStart)
                     textStart = emphasis.openStart
                     node = emphasis.node

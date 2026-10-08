@@ -15,6 +15,8 @@ public enum MarkerKind: Int, Equatable, Sendable {
     case taskUnchecked
     /// A fence line, concealed in favour of the code block's background.
     case fence
+    /// A footnote definition's `[^label]:`, kept visible and accented.
+    case label
 }
 
 public struct Marker: Equatable, Sendable {
@@ -49,11 +51,20 @@ public enum BlockKind: Equatable, Sendable {
     case listItem(ordered: Bool, task: TaskState?)
     case tableDelimiter(alignments: [ColumnAlignment])
     case tableRow
+    /// The `---` lines around YAML front matter at the top of the document.
+    case frontMatterDelimiter
+    case frontMatter
+    /// A line of a raw HTML block, passed through to export untouched.
+    case htmlBlock
+    /// `[label]: destination "title"` — defines a link, renders as nothing.
+    case linkReferenceDefinition(label: String, definition: LinkDefinition)
+    /// `[^label]: text` — the text of a footnote.
+    case footnoteDefinition(label: String)
 
     /// True for lines whose body is code, not prose.
     public var isCode: Bool {
         switch self {
-        case .codeLine, .indentedCode, .fenceStart, .fenceEnd: true
+        case .codeLine, .indentedCode, .fenceStart, .fenceEnd, .frontMatter, .frontMatterDelimiter: true
         default: false
         }
     }
@@ -61,7 +72,7 @@ public enum BlockKind: Equatable, Sendable {
     /// True for lines whose body should be scanned for inline markup.
     public var hasInlineContent: Bool {
         switch self {
-        case .paragraph, .atxHeading, .listItem, .tableRow: true
+        case .paragraph, .atxHeading, .listItem, .tableRow, .footnoteDefinition: true
         default: false
         }
     }
@@ -90,6 +101,11 @@ public struct CarryState: Equatable, Sendable {
     public var previousWasParagraph: Bool
     public var previousWasBlank: Bool
     public var inTable: Bool
+    /// Only the first line can open front matter.
+    public var atDocumentStart: Bool
+    public var inFrontMatter: Bool
+    /// The open HTML block and what will close it.
+    public var htmlBlock: HTMLBlockEnd?
     /// Syntax-highlighting state, so a block comment opened on one line keeps
     /// colouring the lines below it — and stops restyling once it closes.
     public var code: CodeState
@@ -100,6 +116,9 @@ public struct CarryState: Equatable, Sendable {
         previousWasParagraph: false,
         previousWasBlank: true,
         inTable: false,
+        atDocumentStart: true,
+        inFrontMatter: false,
+        htmlBlock: nil,
         code: .start
     )
 }
@@ -126,6 +145,25 @@ public enum BlockParser {
         var state = carry
         var markers: [Marker] = []
         var cursor = 0
+        state.atDocumentStart = false
+
+        // 0. Front matter: `---` on the very first line, until `---` or `...`.
+        if carry.inFrontMatter || (carry.atDocumentStart && isFrontMatterOpening(line)) {
+            let isDelimiter = !carry.inFrontMatter || isFrontMatterClosing(line)
+            if isDelimiter {
+                markers.append(Marker(range: NSRange(location: 0, length: line.count), kind: .fence))
+                state.inFrontMatter = !carry.inFrontMatter
+            }
+            return LineInfo(
+                kind: isDelimiter ? .frontMatterDelimiter : .frontMatter,
+                quoteDepth: 0,
+                listDepth: 0,
+                markers: markers,
+                contentStart: isDelimiter ? line.count : 0,
+                tokens: [],
+                state: state
+            )
+        }
 
         // 1. Blockquote prefixes come off first; they nest around everything.
         var quoteDepth = 0
@@ -189,6 +227,24 @@ public enum BlockParser {
                 tokens: tokens,
                 state: state
             )
+        }
+
+        // 2b. Inside an HTML block, lines pass through until its end condition.
+        if let htmlBlock = state.htmlBlock {
+            if htmlBlock == .blankLine, isBlank(line, from: cursor) {
+                state.htmlBlock = nil  // and the blank line below is just a blank line
+            } else {
+                if htmlBlockEnds(htmlBlock, on: line, from: cursor) { state.htmlBlock = nil }
+                return LineInfo(
+                    kind: .htmlBlock,
+                    quoteDepth: quoteDepth,
+                    listDepth: state.lists.count,
+                    markers: markers,
+                    contentStart: cursor,
+                    tokens: [],
+                    state: state
+                )
+            }
         }
 
         // 3. Blank lines close paragraphs and tables but not lists or fences.
@@ -256,6 +312,26 @@ public enum BlockParser {
                     state: state
                 )
             }
+        }
+
+        // 5b. An HTML block.
+        if indent < codeIndentBase + 4,
+           let end = htmlBlockStart(line, from: bodyStart, afterParagraph: state.previousWasParagraph) {
+            // `<!-- note -->` opens and closes on the same line.
+            let opener = min(line.count, bodyStart + 2)
+            state.htmlBlock = htmlBlockEnds(end, on: line, from: opener) ? nil : end
+            state.previousWasParagraph = false
+            state.previousWasBlank = false
+            state.inTable = false
+            return LineInfo(
+                kind: .htmlBlock,
+                quoteDepth: quoteDepth,
+                listDepth: state.lists.count,
+                markers: markers,
+                contentStart: cursor,
+                tokens: [],
+                state: state
+            )
         }
 
         // 6. A setext underline only counts under a paragraph, and beats a
@@ -370,6 +446,39 @@ public enum BlockParser {
             state.previousWasBlank = false
             return LineInfo(
                 kind: .tableRow,
+                quoteDepth: quoteDepth,
+                listDepth: state.lists.count,
+                markers: markers,
+                contentStart: bodyStart,
+                tokens: [],
+                state: state
+            )
+        }
+
+        // 10b. Footnote definitions; consecutive ones need no blank line between.
+        if let footnote = footnoteDefinition(line, from: bodyStart) {
+            markers.append(Marker(range: NSRange(location: bodyStart, length: footnote.labelEnd - bodyStart), kind: .label))
+            // Lines that follow continue the footnote, as they would a paragraph.
+            state.previousWasParagraph = true
+            state.previousWasBlank = false
+            state.inTable = false
+            return LineInfo(
+                kind: .footnoteDefinition(label: footnote.label),
+                quoteDepth: quoteDepth,
+                listDepth: state.lists.count,
+                markers: markers,
+                contentStart: footnote.contentStart,
+                tokens: [],
+                state: state
+            )
+        }
+
+        // 10c. Link reference definitions, which cannot interrupt a paragraph.
+        if !state.previousWasParagraph, let reference = linkReferenceDefinition(line, from: bodyStart) {
+            state.previousWasBlank = false
+            state.inTable = false
+            return LineInfo(
+                kind: .linkReferenceDefinition(label: reference.label, definition: reference.definition),
                 quoteDepth: quoteDepth,
                 listDepth: state.lists.count,
                 markers: markers,

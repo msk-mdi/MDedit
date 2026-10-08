@@ -20,6 +20,8 @@ private func shape(_ nodes: [InlineNode]) -> String {
         case let .autolink(_, _, url): "auto(\(url))"
         case .escape: "escape"
         case .rawHTML: "html"
+        case let .highlight(_, _, children): "mark[\(shape(children))]"
+        case let .footnoteReference(_, _, label): "fn(\(label))"
         }
     }.joined(separator: "+")
 }

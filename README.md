@@ -19,6 +19,12 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   images, autolinks, escapes, blockquotes, nested lists, task lists, tables and
   thematic breaks all render as you type. Syntax markers are hidden on every line
   but the one you are editing.
+- **Extended syntax.** Reference-style links and images, footnotes, YAML front
+  matter, raw HTML blocks, `==highlights==`, bare `https://` and `www.` links,
+  and hard line breaks — in the editor and in export.
+- **Your work is safe.** Quitting or closing the window asks about unsaved tabs,
+  unsaved text is snapshotted for crash recovery, open tabs come back at launch,
+  and files keep their encoding and line endings.
 - **Syntax highlighting** in fenced code blocks for ~30 languages.
 - **Liquid Glass chrome** (macOS 26): a segmented tab track with a sliding glass
   thumb, a unified titlebar, and a full-width status bar.
@@ -158,7 +164,7 @@ and HTML renderer.
 swift test
 ```
 
-47 tests covering block and inline parsing, incremental-reparse equivalence under
+Tests covering block and inline parsing, extended syntax, document persistence, incremental-reparse equivalence under
 random edits, the highlighter for each language family, HTML rendering, and the text
 storage's line-range handling.
 

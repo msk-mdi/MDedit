@@ -6,6 +6,8 @@ import MarkdownKit
 final class MarkdownTextStorage: NSTextStorage {
     private let backing = NSMutableAttributedString()
     private(set) var structure: BlockStructure
+    /// The document's link and footnote definitions, so `[label]` links resolve.
+    private(set) var references = LinkReferences.lenient
     private var styles = ParagraphStyleCache()
 
     /// Range of lines whose markers are revealed because the caret is in them.
@@ -44,6 +46,7 @@ final class MarkdownTextStorage: NSTextStorage {
         if !text.isEmpty {
             backing.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
             structure = BlockStructure(text: backing.string as NSString)
+            references = .collect(from: structure, requireDefinitions: false)
             applyStyles(lineRange: 0...max(0, structure.lineCount - 1))
         }
     }
@@ -91,6 +94,7 @@ final class MarkdownTextStorage: NSTextStorage {
                 editedRange: editedRange,
                 changeInLength: changeInLength
             )
+            references = .collect(from: structure, requireDefinitions: false)
             applyStyles(lineRange: lineRange)
             pendingInvalidation = characterRange(forLines: lineRange)
         }
@@ -238,9 +242,20 @@ final class MarkdownTextStorage: NSTextStorage {
             attributes[.foregroundColor] = headingLevel != nil ? theme.heading : theme.quoteText
             attributes[.mdQuoteDepth] = info.quoteDepth
         }
-        if info.kind == .thematicBreak {
+        switch info.kind {
+        case .thematicBreak:
             attributes[.mdThematicBreak] = true
             attributes[.foregroundColor] = theme.rule
+        case .htmlBlock:
+            attributes[.font] = theme.mono
+            attributes[.foregroundColor] = theme.syntax.tag
+        case .linkReferenceDefinition:
+            // Definitions are bookkeeping, not prose: present but quiet.
+            attributes[.foregroundColor] = theme.secondaryText
+        case .frontMatter, .frontMatterDelimiter:
+            attributes[.foregroundColor] = theme.secondaryText
+        default:
+            break
         }
         let isTableHeader = info.kind == .paragraph
             && isTableDelimiter(structure.info(forLine: line + 1)?.kind ?? .blank)
@@ -266,7 +281,7 @@ final class MarkdownTextStorage: NSTextStorage {
 
         // Inline markup, then markers on top of it.
         if info.kind.hasInlineContent, info.contentStart < characters.count {
-            let nodes = InlineParser.parse(characters, from: info.contentStart, to: characters.count)
+            let nodes = InlineParser.parse(characters, from: info.contentStart, to: characters.count, references: references)
             applyInline(
                 nodes,
                 characters: characters,
@@ -326,6 +341,18 @@ final class MarkdownTextStorage: NSTextStorage {
                     .strikethroughColor: theme.secondaryText,
                 ], range: absolute)
 
+            case .highlight:
+                backing.addAttribute(.backgroundColor, value: theme.highlight, range: absolute)
+
+            case .footnoteReference:
+                // A small raised label, like the superscript it exports as.
+                let size = baseFont.pointSize * 0.75
+                backing.addAttributes([
+                    .font: NSFontManager.shared.convert(baseFont, toSize: size),
+                    .baselineOffset: baseFont.pointSize * 0.35,
+                    .foregroundColor: theme.accent,
+                ], range: absolute)
+
             case let .link(_, _, destination, _, _):
                 backing.addAttributes([
                     .foregroundColor: theme.link,
@@ -381,6 +408,9 @@ final class MarkdownTextStorage: NSTextStorage {
         case .fence:
             attributes[.font] = theme.mono
             if !revealed { attributes[.mdConcealed] = true }
+        case .label:
+            attributes[.foregroundColor] = theme.accent
+            attributes[.font] = baseFont
         case .taskChecked, .taskUnchecked:
             attributes[.foregroundColor] = marker.kind == .taskChecked ? theme.accent : theme.secondaryText
             attributes[.font] = baseFont

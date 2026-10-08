@@ -122,10 +122,15 @@ struct BlockStructureTests {
     @Test("Incremental reparse matches a full parse")
     func incrementalMatchesFull() {
         var generator = SystemRandomNumberGenerator()
-        let fragments = ["`", "```", "\n", "# ", "- ", "> ", "x", "**", "\n\n", "", "|", "---"]
+        let fragments = [
+            "`", "```", "\n", "# ", "- ", "> ", "x", "**", "\n\n", "", "|", "---",
+            "<div>", "<!--", "-->", "[a]: /u", "[^n]: ", "==", "...",
+        ]
 
-        for _ in 0..<300 {
-            var text = """
+        for iteration in 0..<300 {
+            // Half the runs open with front matter, the only construct tied to line 0.
+            let frontMatter = iteration.isMultiple(of: 2) ? "---\ntitle: x\n---\n" : ""
+            var text = frontMatter + """
             # Title
 
             Some *body* text with `code`.

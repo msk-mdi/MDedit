@@ -46,6 +46,15 @@ enum Exporter {
         th { background: rgba(127, 127, 127, 0.1); }
         hr { border: none; border-top: 1px solid rgba(127, 127, 127, 0.35); margin: 2em 0; }
         img { max-width: 100%; }
+        mark { background: rgba(255, 204, 0, 0.35); color: inherit; padding: 0 0.1em; border-radius: 2px; }
+        .footnote-ref { font-size: 0.75em; line-height: 0; }
+        .footnote-ref a, .footnote-backref { text-decoration: none; }
+        .footnotes {
+          margin-top: 3em;
+          padding-top: 1em;
+          border-top: 1px solid rgba(127, 127, 127, 0.35);
+          font-size: 0.9em;
+        }
         .tok-keyword { color: #9c2290; }
         .tok-type { color: #296688; }
         .tok-constant { color: #6b38bf; }

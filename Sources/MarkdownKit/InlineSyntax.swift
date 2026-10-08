@@ -107,14 +107,97 @@ private func matchingBracket(_ characters: [UInt16], from index: Int, limit: Int
     return nil
 }
 
-/// `[text](destination "title")` and `![alt](source)`.
-func parseLinkOrImage(_ characters: [UInt16], at index: Int, limit: Int) -> InlineMatch? {
+/// `[text](destination "title")` and `![alt](source)`, or the reference forms
+/// `[text][label]`, `[text][]` and `[label]`.
+func parseLinkOrImage(_ characters: [UInt16], at index: Int, limit: Int, references: LinkReferences) -> InlineMatch? {
     let isImage = characters[index] == UInt16(ascii: "!")
     let bracket = isImage ? index + 1 : index
     guard bracket < limit, characters[bracket] == UInt16(ascii: "[") else { return nil }
     guard let closingBracket = matchingBracket(characters, from: bracket, limit: limit) else { return nil }
-    guard closingBracket + 1 < limit, characters[closingBracket + 1] == UInt16(ascii: "(") else { return nil }
+    if closingBracket + 1 < limit, characters[closingBracket + 1] == UInt16(ascii: "("),
+       let inline = parseInlineLinkTail(
+           characters, at: index, bracket: bracket, closingBracket: closingBracket,
+           limit: limit, isImage: isImage, references: references
+       ) {
+        return inline
+    }
+    return parseReferenceLinkTail(
+        characters, at: index, bracket: bracket, closingBracket: closingBracket,
+        limit: limit, isImage: isImage, references: references
+    )
+}
 
+/// The reference forms. A shortcut `[label]` needs a known definition even in
+/// the editor, or every bracketed aside would turn into a link.
+private func parseReferenceLinkTail(
+    _ characters: [UInt16],
+    at index: Int,
+    bracket: Int,
+    closingBracket: Int,
+    limit: Int,
+    isImage: Bool,
+    references: LinkReferences
+) -> InlineMatch? {
+    var label = string(characters, from: bracket + 1, to: closingBracket)
+    var end = closingBracket + 1
+    var isShortcut = true
+    if end < limit, characters[end] == UInt16(ascii: "[") {
+        var cursor = end + 1
+        while cursor < limit, characters[cursor] != UInt16(ascii: "]") {
+            if characters[cursor] == UInt16(ascii: "[") { return nil }
+            if characters[cursor] == UInt16(ascii: "\\") { cursor += 1 }
+            cursor += 1
+        }
+        if cursor < limit {
+            let explicit = string(characters, from: end + 1, to: min(cursor, limit))
+            if !explicit.isEmpty { label = explicit }
+            end = cursor + 1
+            isShortcut = false
+        }
+    }
+    let key = normalizeLabel(label)
+    guard !key.isEmpty else { return nil }
+    let definition = references.links[key]
+    if definition == nil, references.requireDefinitions || isShortcut { return nil }
+
+    let range = NSRange(location: index, length: end - index)
+    let markers = [
+        marker(index, bracket + 1 - index),
+        marker(closingBracket, end - closingBracket),
+    ]
+    if isImage {
+        return InlineMatch(
+            node: .image(
+                range: range,
+                markers: markers,
+                source: definition?.destination ?? "",
+                alt: string(characters, from: bracket + 1, to: closingBracket)
+            ),
+            end: end
+        )
+    }
+    return InlineMatch(
+        node: .link(
+            range: range,
+            markers: markers,
+            destination: definition?.destination ?? "",
+            title: definition?.title,
+            children: unlinked(InlineParser.parse(characters, from: bracket + 1, to: closingBracket, references: references))
+        ),
+        end: end
+    )
+}
+
+/// `(destination "title")` after the link text.
+private func parseInlineLinkTail(
+    _ characters: [UInt16],
+    at index: Int,
+    bracket: Int,
+    closingBracket: Int,
+    limit: Int,
+    isImage: Bool,
+    references: LinkReferences
+) -> InlineMatch? {
     // Destination, optionally angle-bracketed, then an optional quoted title.
     var cursor = skipSpaces(characters, from: closingBracket + 2, limit: Int.max)
     var destination = ""
@@ -181,7 +264,7 @@ func parseLinkOrImage(_ characters: [UInt16], at index: Int, limit: Int) -> Inli
             markers: markers,
             destination: destination,
             title: title,
-            children: InlineParser.parse(characters, from: textRange.lowerBound, to: textRange.upperBound)
+            children: unlinked(InlineParser.parse(characters, from: textRange.lowerBound, to: textRange.upperBound, references: references))
         ),
         end: end
     )
@@ -195,11 +278,14 @@ struct EmphasisMatch {
     var end: Int
 }
 
-/// `*em*`, `**strong**`, `***both***`, `_em_`, `~~struck~~`.
-func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int) -> EmphasisMatch? {
+/// `*em*`, `**strong**`, `***both***`, `_em_`, `~~struck~~`, `==marked==`.
+func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int, references: LinkReferences) -> EmphasisMatch? {
     guard let open = delimiterRun(characters, at: index, character: nil) else { return nil }
     let character = open.character
-    let isTilde = character == UInt16(ascii: "~")
+    let isEquals = character == UInt16(ascii: "=")
+    if isEquals, open.count != 2 { return nil }
+    // `~~` and `==` pair whole runs rather than nesting like `*`.
+    let isTilde = character == UInt16(ascii: "~") || isEquals
 
     // Left-flanking: content must follow immediately.
     guard open.end < limit, !isUnicodeWhitespace(characters[open.end]) else { return nil }
@@ -245,7 +331,7 @@ func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int) -> Emphasi
         // Build from the inside out, so `***x***` is em(strong(x)).
         var low = open.end
         var high = cursor
-        var children = InlineParser.parse(characters, from: low, to: high)
+        var children = InlineParser.parse(characters, from: low, to: high, references: references)
         var remaining = pairs
 
         while remaining > 0 {
@@ -254,7 +340,9 @@ func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int) -> Emphasi
             high += take
             let range = NSRange(location: low, length: high - low)
             let markers = [marker(low, take), marker(high - take, take)]
-            let node: InlineNode = if isTilde {
+            let node: InlineNode = if isEquals {
+                .highlight(range: range, markers: markers, children: children)
+            } else if isTilde {
                 .strikethrough(range: range, markers: markers, children: children)
             } else if take == 2 {
                 .strong(range: range, markers: markers, children: children)
@@ -274,4 +362,86 @@ func parseEmphasis(_ characters: [UInt16], at index: Int, limit: Int) -> Emphasi
 /// Letters and digits, for the intraword `_` rule.
 private func isWordCharacter(_ character: UInt16) -> Bool {
     isASCIILetter(character) || isASCIIDigit(character)
+}
+
+/// `[^label]`. Export only links footnotes that are defined.
+func parseFootnoteReference(_ characters: [UInt16], at index: Int, limit: Int, references: LinkReferences) -> InlineMatch? {
+    guard let label = footnoteLabel(characters, at: index, limit: limit) else { return nil }
+    if references.requireDefinitions, !references.footnotes.contains(normalizeLabel(label.label)) { return nil }
+    return InlineMatch(
+        node: .footnoteReference(
+            range: NSRange(location: index, length: label.end - index),
+            markers: [marker(index, 2), marker(label.end - 1, 1)],
+            label: label.label
+        ),
+        end: label.end
+    )
+}
+
+/// Characters a bare URL may follow.
+func isURLBoundary(_ character: UInt16) -> Bool {
+    isUnicodeWhitespace(character)
+        || character == UInt16(ascii: "(")
+        || character == UInt16(ascii: "*")
+        || character == UInt16(ascii: "_")
+        || character == UInt16(ascii: "~")
+        || character == UInt16(ascii: "=")
+}
+
+/// GFM's extended autolinks: `https://…`, `http://…` and `www.…` without
+/// angle brackets. Trailing punctuation and unbalanced `)` stay outside.
+func parseBareURL(_ characters: [UInt16], at index: Int, limit: Int) -> InlineMatch? {
+    let prefixes = ["https://", "http://", "www."]
+    guard let prefix = prefixes.first(where: { prefix in
+        let units = Array(prefix.utf16)
+        return index + units.count <= limit && Array(characters[index..<(index + units.count)]) == units
+    }) else { return nil }
+    let bodyStart = index + prefix.utf16.count
+
+    var end = bodyStart
+    while end < limit, !isUnicodeWhitespace(characters[end]), characters[end] != UInt16(ascii: "<") { end += 1 }
+
+    let trailing = Set("?!.,:;*_~'\"=".utf16)
+    while end > bodyStart {
+        let last = characters[end - 1]
+        if trailing.contains(last) {
+            end -= 1
+            continue
+        }
+        if last == UInt16(ascii: ")") {
+            let span = characters[index..<end]
+            let opens = span.filter { $0 == UInt16(ascii: "(") }.count
+            let closes = span.filter { $0 == UInt16(ascii: ")") }.count
+            if closes > opens {
+                end -= 1
+                continue
+            }
+        }
+        break
+    }
+    // The host needs at least one character.
+    guard end > bodyStart else { return nil }
+    let text = string(characters, from: index, to: end)
+    return InlineMatch(
+        node: .autolink(
+            range: NSRange(location: index, length: end - index),
+            markers: [],
+            url: prefix == "www." ? "http://" + text : text
+        ),
+        end: end
+    )
+}
+
+/// Link text cannot contain another link, so a bare URL there is just text.
+private func unlinked(_ nodes: [InlineNode]) -> [InlineNode] {
+    nodes.map { node in
+        switch node {
+        case let .autolink(range, markers, _) where markers.isEmpty: .text(range)
+        case let .emphasis(range, markers, children): .emphasis(range: range, markers: markers, children: unlinked(children))
+        case let .strong(range, markers, children): .strong(range: range, markers: markers, children: unlinked(children))
+        case let .strikethrough(range, markers, children): .strikethrough(range: range, markers: markers, children: unlinked(children))
+        case let .highlight(range, markers, children): .highlight(range: range, markers: markers, children: unlinked(children))
+        default: node
+        }
+    }
 }

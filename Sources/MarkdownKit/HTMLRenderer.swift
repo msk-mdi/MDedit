@@ -17,6 +17,7 @@ public struct HTMLRenderer {
         let structure = BlockStructure(text: text)
         var out = ""
         var state = RenderState()
+        let context = Context(references: .collect(from: structure, requireDefinitions: true))
 
         var line = 0
         while line < structure.lineCount {
@@ -26,6 +27,16 @@ public struct HTMLRenderer {
 
             adjustQuotes(to: info.quoteDepth, state: &state, out: &out)
 
+            // Paragraph lines straight after a footnote definition continue it.
+            if let footnote = state.currentFootnote {
+                if info.kind == .paragraph {
+                    context.footnoteBodies[footnote, default: ""] += "\n" + inlineHTML(characters, from: info.contentStart, to: characters.count, context)
+                    line += 1
+                    continue
+                }
+                state.currentFootnote = nil
+            }
+
             switch info.kind {
             case .blank:
                 closeParagraph(&state, &out)
@@ -34,7 +45,7 @@ public struct HTMLRenderer {
 
             case let .atxHeading(level):
                 closeParagraph(&state, &out)
-                out += "<h\(level)>\(inlineHTML(characters, from: info.contentStart, to: headingEnd(info, characters)))</h\(level)>\n"
+                out += "<h\(level)>\(inlineHTML(characters, from: info.contentStart, to: headingEnd(info, characters), context))</h\(level)>\n"
 
             case .setextUnderline:
                 break  // consumed by the paragraph above
@@ -82,20 +93,20 @@ public struct HTMLRenderer {
                 case .checked: "<input type=\"checkbox\" checked disabled /> "
                 case nil: ""
                 }
-                out += "<li>\(box)\(inlineHTML(characters, from: info.contentStart, to: characters.count))</li>\n"
+                out += "<li>\(box)\(inlineHTML(characters, from: info.contentStart, to: characters.count, context))</li>\n"
 
             case .paragraph:
                 // A paragraph followed by `===` or `---` is a heading.
                 if case let .setextUnderline(level)? = next?.kind {
                     closeParagraph(&state, &out)
-                    out += "<h\(level)>\(inlineHTML(characters, from: info.contentStart, to: characters.count))</h\(level)>\n"
+                    out += "<h\(level)>\(inlineHTML(characters, from: info.contentStart, to: characters.count, context))</h\(level)>\n"
                     break
                 }
                 // A paragraph followed by `| --- |` is a table header.
                 if case let .tableDelimiter(alignments)? = next?.kind {
                     closeParagraph(&state, &out)
                     out += "<table>\n<thead>\n"
-                    out += row(characters, from: info.contentStart, alignments: alignments, cell: "th")
+                    out += row(characters, from: info.contentStart, alignments: alignments, cell: "th", context)
                     out += "</thead>\n<tbody>\n"
                     state.tableAlignments = alignments
                     state.inTable = true
@@ -106,15 +117,37 @@ public struct HTMLRenderer {
                     out += "<p>"
                     state.inParagraph = true
                 } else {
-                    out += "\n"
+                    out += state.pendingHardBreak ? "<br />\n" : "\n"
                 }
-                out += inlineHTML(characters, from: info.contentStart, to: characters.count)
+                // A line ending in two spaces or a backslash breaks before the next.
+                let continues = next?.kind == .paragraph
+                let (end, hardBreak) = paragraphLineEnd(characters, from: info.contentStart, continues: continues)
+                out += inlineHTML(characters, from: info.contentStart, to: end, context)
+                state.pendingHardBreak = hardBreak
 
             case .tableDelimiter:
                 break  // consumed by the header row
 
             case .tableRow:
-                out += row(characters, from: info.contentStart, alignments: state.tableAlignments, cell: "td")
+                out += row(characters, from: info.contentStart, alignments: state.tableAlignments, cell: "td", context)
+
+            case .frontMatterDelimiter, .frontMatter, .linkReferenceDefinition:
+                // Metadata and definitions shape the output but are not part of it.
+                closeParagraph(&state, &out)
+
+            case .htmlBlock:
+                closeParagraph(&state, &out)
+                closeTable(&state, &out)
+                closeLists(to: 0, state: &state, out: &out)
+                out += string(characters, from: info.contentStart, to: characters.count) + "\n"
+
+            case let .footnoteDefinition(label):
+                closeParagraph(&state, &out)
+                let key = normalizeLabel(label)
+                // The first definition of a label wins, as with links.
+                guard context.footnoteBodies[key] == nil else { break }
+                context.footnoteBodies[key] = inlineHTML(characters, from: info.contentStart, to: characters.count, context)
+                state.currentFootnote = key
             }
 
             line += 1
@@ -125,7 +158,36 @@ public struct HTMLRenderer {
         closeLists(to: 0, state: &state, out: &out)
         adjustQuotes(to: 0, state: &state, out: &out)
         if state.inCodeBlock || state.inIndentedCode { out += "</code></pre>\n" }
+        out += footnoteSection(context)
         return out
+    }
+
+    /// Numbered in order of first reference; unreferenced footnotes are dropped.
+    private func footnoteSection(_ context: Context) -> String {
+        guard !context.footnoteOrder.isEmpty else { return "" }
+        var out = "<section class=\"footnotes\">\n<ol>\n"
+        for (offset, label) in context.footnoteOrder.enumerated() {
+            let number = offset + 1
+            let body = context.footnoteBodies[label] ?? ""
+            out += "<li id=\"fn-\(number)\"><p>\(body) <a href=\"#fnref-\(number)\" class=\"footnote-backref\">↩</a></p></li>\n"
+        }
+        return out + "</ol>\n</section>\n"
+    }
+
+    /// Where a paragraph line's text ends, and whether it ends in a hard break.
+    private func paragraphLineEnd(_ characters: [UInt16], from start: Int, continues: Bool) -> (Int, Bool) {
+        var end = characters.count
+        var spaces = 0
+        while end > start, characters[end - 1] == UInt16(ascii: " ") {
+            end -= 1
+            spaces += 1
+        }
+        guard continues else { return (end, false) }
+        if spaces >= 2 { return (end, true) }
+        var backslashes = 0
+        while end - backslashes > start, characters[end - backslashes - 1] == UInt16(ascii: "\\") { backslashes += 1 }
+        if spaces == 0, backslashes % 2 == 1 { return (end - 1, true) }
+        return (end, false)
     }
 
     /// A full standalone page, for Export as HTML.
@@ -151,7 +213,32 @@ public struct HTMLRenderer {
 
     // MARK: - Blocks
 
+    /// State shared across the whole render, including inline rendering.
+    private final class Context {
+        let references: LinkReferences
+        /// Footnote labels in order of first reference; the index is the number.
+        var footnoteOrder: [String] = []
+        var footnoteReferenceCounts: [String: Int] = [:]
+        var footnoteBodies: [String: String] = [:]
+
+        init(references: LinkReferences) {
+            self.references = references
+        }
+
+        /// The footnote's number, and this reference's id.
+        func reference(to label: String) -> (number: Int, id: String) {
+            let key = normalizeLabel(label)
+            if !footnoteOrder.contains(key) { footnoteOrder.append(key) }
+            let number = footnoteOrder.firstIndex(of: key)! + 1
+            let count = footnoteReferenceCounts[key, default: 0] + 1
+            footnoteReferenceCounts[key] = count
+            return (number, count == 1 ? "fnref-\(number)" : "fnref-\(number)-\(count)")
+        }
+    }
+
     private struct RenderState {
+        var pendingHardBreak = false
+        var currentFootnote: String?
         var inParagraph = false
         var inCodeBlock = false
         var inIndentedCode = false
@@ -167,6 +254,7 @@ public struct HTMLRenderer {
             out += "</p>\n"
             state.inParagraph = false
         }
+        state.pendingHardBreak = false
     }
 
     private func closeTable(_ state: inout RenderState, _ out: inout String) {
@@ -222,7 +310,7 @@ public struct HTMLRenderer {
         return characters.count
     }
 
-    private func row(_ characters: [UInt16], from start: Int, alignments: [ColumnAlignment], cell: String) -> String {
+    private func row(_ characters: [UInt16], from start: Int, alignments: [ColumnAlignment], cell: String, _ context: Context) -> String {
         var out = "<tr>\n"
         for (column, field) in cells(characters, from: start).enumerated() {
             let alignment = column < alignments.count ? alignments[column] : ColumnAlignment.none
@@ -232,7 +320,7 @@ public struct HTMLRenderer {
             case .center: " style=\"text-align:center\""
             case .right: " style=\"text-align:right\""
             }
-            out += "<\(cell)\(style)>\(inlineHTML(field, from: 0, to: field.count))</\(cell)>\n"
+            out += "<\(cell)\(style)>\(inlineHTML(field, from: 0, to: field.count, context))</\(cell)>\n"
         }
         return out + "</tr>\n"
     }
@@ -311,12 +399,12 @@ public struct HTMLRenderer {
 
     // MARK: - Inlines
 
-    private func inlineHTML(_ characters: [UInt16], from low: Int, to high: Int) -> String {
+    private func inlineHTML(_ characters: [UInt16], from low: Int, to high: Int, _ context: Context) -> String {
         guard low < high else { return "" }
-        return nodesHTML(InlineParser.parse(characters, from: low, to: high), characters)
+        return nodesHTML(InlineParser.parse(characters, from: low, to: high, references: context.references), characters, context)
     }
 
-    private func nodesHTML(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
+    private func nodesHTML(_ nodes: [InlineNode], _ characters: [UInt16], _ context: Context) -> String {
         var out = ""
         for node in nodes {
             switch node {
@@ -325,18 +413,27 @@ public struct HTMLRenderer {
             case let .code(_, content, _):
                 out += "<code>\(escape(text(characters, content)))</code>"
             case let .emphasis(_, _, children):
-                out += "<em>\(nodesHTML(children, characters))</em>"
+                out += "<em>\(nodesHTML(children, characters, context))</em>"
             case let .strong(_, _, children):
-                out += "<strong>\(nodesHTML(children, characters))</strong>"
+                out += "<strong>\(nodesHTML(children, characters, context))</strong>"
             case let .strikethrough(_, _, children):
-                out += "<del>\(nodesHTML(children, characters))</del>"
+                out += "<del>\(nodesHTML(children, characters, context))</del>"
             case let .link(_, _, destination, title, children):
                 let titleAttribute = title.map { " title=\"\(escape($0))\"" } ?? ""
-                out += "<a href=\"\(escape(resolve(destination)))\"\(titleAttribute)>\(nodesHTML(children, characters))</a>"
+                out += "<a href=\"\(escape(resolve(destination)))\"\(titleAttribute)>\(nodesHTML(children, characters, context))</a>"
             case let .image(_, _, source, alt):
                 out += "<img src=\"\(escape(resolve(source)))\" alt=\"\(escape(alt))\" />"
-            case let .autolink(_, _, url):
-                out += "<a href=\"\(escape(url))\">\(escape(url))</a>"
+            case let .highlight(_, _, children):
+                out += "<mark>\(nodesHTML(children, characters, context))</mark>"
+            case let .footnoteReference(_, _, label):
+                let reference = context.reference(to: label)
+                out += "<sup class=\"footnote-ref\"><a href=\"#fn-\(reference.number)\" id=\"\(reference.id)\">\(reference.number)</a></sup>"
+            case let .autolink(range, markers, url):
+                // Shown as written: `www.x.dev`, or the address without `mailto:`.
+                let shown = markers.count == 2
+                    ? NSRange(location: range.location + 1, length: range.length - 2)
+                    : range
+                out += "<a href=\"\(escape(url))\">\(escape(text(characters, shown)))</a>"
             case let .escape(_, _, character):
                 out += escape(text(characters, character))
             case let .rawHTML(range):

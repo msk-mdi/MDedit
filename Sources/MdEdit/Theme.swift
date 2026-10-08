@@ -163,3 +163,8 @@ struct Theme {
         return theme
     }
 }
+
+extension Theme {
+    /// Behind `==marked==` text; translucent so it works on either canvas.
+    var highlight: NSColor { NSColor.systemYellow.withAlphaComponent(0.32) }
+}
