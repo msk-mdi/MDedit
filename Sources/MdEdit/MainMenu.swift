@@ -123,6 +123,8 @@ enum MainMenu {
             add(menu, "Next Tab", #selector(MainWindowController.selectNextDocumentTab(_:)), "]", [.command, .shift])
             add(menu, "Previous Tab", #selector(MainWindowController.selectPreviousDocumentTab(_:)), "[", [.command, .shift])
             menu.addItem(.separator())
+            add(menu, "Show Outline", #selector(MainWindowController.toggleOutline(_:)), "l", [.command, .shift])
+            menu.addItem(.separator())
             add(menu, "Source Mode", #selector(MainWindowController.toggleSourceMode(_:)), "/")
             add(menu, "Typewriter Mode", #selector(MainWindowController.toggleTypewriterMode(_:)))
             add(menu, "Focus Mode", #selector(MainWindowController.toggleFocusMode(_:)))

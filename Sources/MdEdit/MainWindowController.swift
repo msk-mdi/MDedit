@@ -10,6 +10,11 @@ final class MainWindowController: NSWindowController {
 
     private let tabBar = TabBarView()
     private let statusBar = StatusBarView()
+    private let outline = OutlineView()
+    /// Pins the current editor's leading edge to the window or the outline.
+    private var editorLeading: NSLayoutConstraint?
+    private var isOutlineVisible = UserDefaults.standard.bool(forKey: "showOutline")
+    private var pendingOutlineRefresh: DispatchWorkItem?
     private let canvas = NSView()
     /// Owns the editors as real child view controllers, so their lifecycle runs
     /// and the responder chain reaches this controller.
@@ -76,10 +81,22 @@ final class MainWindowController: NSWindowController {
         window.addTitlebarAccessoryViewController(accessory)
 
         canvas.addSubview(statusBar)
+        canvas.addSubview(outline)
+        outline.isHidden = !isOutlineVisible
+        outline.onSelectHeading = { [weak self] heading in
+            guard let self, let document = activeDocument else { return }
+            moveCaret(toLine: heading.line, in: document)
+        }
         NSLayoutConstraint.activate([
             statusBar.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
             statusBar.bottomAnchor.constraint(equalTo: canvas.bottomAnchor),
+
+            outline.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            // Below the titlebar and tab strip: under the glass, the list
+            // would be refracted into the chrome.
+            outline.topAnchor.constraint(equalTo: (window.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? canvas.topAnchor),
+            outline.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
         ])
 
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
@@ -99,6 +116,7 @@ final class MainWindowController: NSWindowController {
         window?.backgroundColor = theme.canvas
         tabBar.applyTheme(theme)
         statusBar.applyTheme(theme)
+        outline.applyTheme(theme)
         for editor in editors.values { editor.applyTheme(theme) }
     }
 
@@ -116,7 +134,10 @@ final class MainWindowController: NSWindowController {
         documents.append(document)
         let editor = EditorViewController(textStorage: document.storage)
         editor.applyTheme(theme)
-        editor.onSelectionChange = { [weak self] in self?.refreshStatus() }
+        editor.onSelectionChange = { [weak self] in
+            self?.refreshStatus()
+            self?.followCaretInOutline()
+        }
         editor.textView.documentURL = { [weak document] in document?.url }
         editor.onOpenLink = { [weak self, weak document] destination in
             guard let self, let document else { return }
@@ -127,6 +148,7 @@ final class MainWindowController: NSWindowController {
             self?.refreshTabs()
             self?.refreshStatus()
             self?.scheduleRecoverySnapshot()
+            self?.scheduleOutlineRefresh()
         }
         editors[ObjectIdentifier(document)] = editor
         select(index: documents.count - 1)
@@ -157,14 +179,19 @@ final class MainWindowController: NSWindowController {
         window?.representedURL = document.url
         refreshTabs()
         refreshStatus()
+        refreshOutline()
     }
 
     private func install(_ editor: EditorViewController) {
         contentController.addChild(editor)
         editor.view.translatesAutoresizingMaskIntoConstraints = false
         canvas.addSubview(editor.view, positioned: .below, relativeTo: statusBar)
+        let leading = editor.view.leadingAnchor.constraint(
+            equalTo: isOutlineVisible ? outline.trailingAnchor : canvas.leadingAnchor
+        )
+        editorLeading = leading
         NSLayoutConstraint.activate([
-            editor.view.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
+            leading,
             editor.view.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
             editor.view.topAnchor.constraint(equalTo: canvas.topAnchor),
             editor.view.bottomAnchor.constraint(equalTo: statusBar.topAnchor),
@@ -391,16 +418,57 @@ final class MainWindowController: NSWindowController {
     private func jumpToHeading(slug: String, in document: Document) {
         let text = document.storage.string as NSString
         let wanted = (slug.removingPercentEncoding ?? slug).lowercased()
-        guard let heading = document.storage.structure.headings(in: text).first(where: { $0.slug == wanted }),
-              let editor = editors[ObjectIdentifier(document)]
-        else {
+        guard let heading = document.storage.structure.headings(in: text).first(where: { $0.slug == wanted }) else {
             NSSound.beep()
             return
         }
-        let range = NSRange(location: document.storage.structure.index.range(ofLine: heading.line).location, length: 0)
+        moveCaret(toLine: heading.line, in: document)
+    }
+
+    /// Puts the caret at the start of a line and brings it into view.
+    private func moveCaret(toLine line: Int, in document: Document) {
+        guard let editor = editors[ObjectIdentifier(document)], line < document.storage.structure.lineCount else { return }
+        let range = NSRange(location: document.storage.structure.index.range(ofLine: line).location, length: 0)
         editor.textView.setSelectedRange(range)
         editor.textView.scrollRangeToVisible(range)
         window?.makeFirstResponder(editor.textView)
+    }
+
+    // MARK: - Outline
+
+    @objc func toggleOutline(_ sender: Any?) {
+        isOutlineVisible.toggle()
+        UserDefaults.standard.set(isOutlineVisible, forKey: "showOutline")
+        outline.isHidden = !isOutlineVisible
+        if let editor = currentEditor {
+            editorLeading?.isActive = false
+            editorLeading = editor.view.leadingAnchor.constraint(
+                equalTo: isOutlineVisible ? outline.trailingAnchor : canvas.leadingAnchor
+            )
+            editorLeading?.isActive = true
+        }
+        refreshOutline()
+    }
+
+    /// Headings are cheap to find but typing is frequent, so wait for a pause.
+    private func scheduleOutlineRefresh() {
+        guard isOutlineVisible else { return }
+        pendingOutlineRefresh?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.refreshOutline() }
+        pendingOutlineRefresh = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+    }
+
+    private func refreshOutline() {
+        guard isOutlineVisible, let document = activeDocument else { return }
+        let storage = document.storage
+        outline.setHeadings(storage.structure.headings(in: storage.string as NSString))
+        followCaretInOutline()
+    }
+
+    private func followCaretInOutline() {
+        guard isOutlineVisible, let document = activeDocument, let editor = currentEditor else { return }
+        outline.highlightSection(containing: document.storage.line(at: editor.textView.selectedRange().location))
     }
 
     // MARK: - Unsaved changes
@@ -611,6 +679,8 @@ extension MainWindowController: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let editor = currentEditor
         switch item.action {
+        case #selector(toggleOutline(_:)):
+            item.title = isOutlineVisible ? "Hide Outline" : "Show Outline"
         case #selector(toggleSourceMode(_:)):
             item.state = editor?.sourceMode == true ? .on : .off
         case #selector(toggleTypewriterMode(_:)):
