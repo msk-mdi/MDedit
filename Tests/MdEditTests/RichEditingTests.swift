@@ -47,6 +47,55 @@ struct RichEditingTests {
         #expect(storage.attribute(.mdImage, at: 0, effectiveRange: nil) == nil)
     }
 
+    @Test("An image wrapped in a link still shows as an image")
+    func linkedImage() async throws {
+        let image = try writeImage(width: 120, height: 30)
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.baseURL = image.deletingLastPathComponent().appendingPathComponent("doc.md")
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "[![badge](pic.png)](https://example.com)\n")
+
+        for _ in 0..<50 where storage.attribute(.mdImage, at: 0, effectiveRange: nil) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let inline = try #require(storage.attribute(.mdImage, at: 0, effectiveRange: nil) as? InlineImage)
+        #expect(inline.size == CGSize(width: 120, height: 30))
+    }
+
+    @Test("A reference definition hides until the caret is on it")
+    func referenceDefinitionHides() throws {
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "See [it][a].\n\n[a]: https://example.com \"Title\"\n")
+        let definition = (storage.string as NSString).range(of: "[a]:").location
+        #expect(storage.attribute(.mdConcealed, at: definition, effectiveRange: nil) != nil)
+        // The reference still resolves.
+        #expect(storage.attribute(.mdConcealed, at: 0, effectiveRange: nil) == nil)
+
+        storage.revealedLines = 2...2
+        #expect(storage.attribute(.mdConcealed, at: definition, effectiveRange: nil) == nil)
+    }
+
+    @Test("A hidden definition between blank lines leaves a single gap")
+    func referenceDefinitionGap() throws {
+        let storage = MarkdownTextStorage(theme: .light)
+        // Lines: 0 text, 1 blank, 2 definition, 3 blank, 4 text.
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "One.\n\n[a]: https://example.com\n\nTwo.\n")
+        func hidden(_ line: Int) -> Bool {
+            let start = storage.string.components(separatedBy: "\n")[..<line].reduce(0) { $0 + ($1 as NSString).length + 1 }
+            return storage.attribute(.mdConcealed, at: start, effectiveRange: nil) != nil
+        }
+        #expect(hidden(1) && hidden(2) && !hidden(3))
+
+        // With the caret on the definition, both blanks come back.
+        storage.revealedLines = 2...2
+        #expect(!hidden(1) && !hidden(2))
+
+        // Text right below the definition needs the blank above it.
+        storage.revealedLines = 0...0
+        storage.replaceCharacters(in: NSRange(location: (storage.string as NSString).length - 6, length: 1), with: "")
+        #expect(storage.string == "One.\n\n[a]: https://example.com\nTwo.\n")
+        #expect(!hidden(1))
+    }
+
     @Test("Clicking a task box toggles it in the source")
     func toggleTask() throws {
         let storage = MarkdownTextStorage(theme: .light)

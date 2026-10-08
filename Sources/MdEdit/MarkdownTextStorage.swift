@@ -402,7 +402,7 @@ final class MarkdownTextStorage: NSTextStorage {
             }
             lineRange = clampedLineRange(lineRange) ?? lineRange
             // A formula or diagram is one image: editing a line of it redraws it all.
-            lineRange = expandedToTypesetBlocks(lineRange)
+            lineRange = expandedToDefinitionGaps(expandedToTypesetBlocks(lineRange))
             applyStyles(lineRange: lineRange)
             pendingInvalidation = characterRange(forLines: lineRange)
         }
@@ -472,7 +472,7 @@ final class MarkdownTextStorage: NSTextStorage {
     /// Reveals the newly active block and re-hides the one left behind.
     private func restyleRevealChange(from old: ClosedRange<Int>?, to new: ClosedRange<Int>?) {
         // A block that shows as an image opens and closes as a whole.
-        let touched = [old, new].compactMap { $0 }.compactMap(clampedLineRange).map(expandedToTypesetBlocks)
+        let touched = [old, new].compactMap { $0 }.compactMap(clampedLineRange).map { self.expandedToDefinitionGaps(self.expandedToTypesetBlocks($0)) }
         guard !touched.isEmpty else { return }
 
         beginEditing()
@@ -516,6 +516,20 @@ final class MarkdownTextStorage: NSTextStorage {
         }
         let characters = structure.characters(of: text, line: line)
         var revealed = sourceMode || (revealedLines?.contains(line) ?? false)
+
+        // `[label]: url` is bookkeeping, not prose: it folds away, as it is
+        // missing from rendered output, until the caret comes to edit it.
+        // So does the blank line above it, when one below already keeps the
+        // paragraphs apart, or the hidden line would leave a double gap.
+        if isHiddenDefinition(line) || (!revealed && hidesDefinitionGap(line)) {
+            backing.setAttributes([
+                .font: theme.body,
+                .foregroundColor: theme.secondaryText,
+                .paragraphStyle: Self.hiddenStyle,
+                .mdConcealed: true,
+            ], range: range)
+            return
+        }
 
         // Display math and diagrams show as their image, unless being edited;
         // then the source shows with the image as a preview below it.
@@ -760,6 +774,10 @@ final class MarkdownTextStorage: NSTextStorage {
             switch node {
             case let .image(_, _, imageSource, _, _) where source == nil:
                 source = imageSource
+            // A linked image, `[![alt](image)](target)`, is still just an image.
+            case let .link(_, _, _, _, children) where source == nil:
+                guard children.count == 1, case let .image(_, _, imageSource, _, _) = children[0] else { return nil }
+                source = imageSource
             case let .text(range):
                 let text = (String(utf16CodeUnits: Array(characters[range.location..<NSMaxRange(range)]), count: range.length))
                 guard text.allSatisfy(\.isWhitespace) else { return nil }
@@ -916,6 +934,31 @@ final class MarkdownTextStorage: NSTextStorage {
     }
 
     /// Widens a line range to whole typeset blocks at either end.
+    /// A `[label]: url` line the caret is away from, so it folds away.
+    private func isHiddenDefinition(_ line: Int) -> Bool {
+        guard !sourceMode, case .linkReferenceDefinition? = structure.info(forLine: line)?.kind else { return false }
+        return !(revealedLines?.contains(line) ?? false)
+    }
+
+    /// A blank line before hidden definitions that are themselves followed by
+    /// a blank line or the end: one of the two blanks is enough.
+    private func hidesDefinitionGap(_ line: Int) -> Bool {
+        guard structure.info(forLine: line)?.kind == .blank, isHiddenDefinition(line + 1) else { return false }
+        var next = line + 1
+        while isHiddenDefinition(next) { next += 1 }
+        return next >= structure.lineCount || structure.info(forLine: next)?.kind == .blank
+    }
+
+    /// Whether a definition hides depends on the lines below it, so
+    /// restyling a line reaches up over definitions to the blank above them.
+    private func expandedToDefinitionGaps(_ range: ClosedRange<Int>) -> ClosedRange<Int> {
+        guard !sourceMode else { return range }
+        var lower = range.lowerBound
+        while lower > 0, case .linkReferenceDefinition? = structure.info(forLine: lower - 1)?.kind { lower -= 1 }
+        if lower > 0, structure.info(forLine: lower - 1)?.kind == .blank { lower -= 1 }
+        return lower...range.upperBound
+    }
+
     private func expandedToTypesetBlocks(_ range: ClosedRange<Int>) -> ClosedRange<Int> {
         guard !sourceMode else { return range }
         let lower = typesetBlock(containing: range.lowerBound)?.lines.lowerBound ?? range.lowerBound
