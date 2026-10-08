@@ -11,7 +11,8 @@ let package = Package(
     targets: [
         .target(name: "MarkdownKit"),
         .executableTarget(name: "MdEdit", dependencies: ["MarkdownKit"]),
-        .testTarget(name: "MarkdownKitTests", dependencies: ["MarkdownKit"]),
+        // The spec fixtures are read from disk by path, not bundled.
+        .testTarget(name: "MarkdownKitTests", dependencies: ["MarkdownKit"], exclude: ["Fixtures"]),
         .testTarget(name: "MdEditTests", dependencies: ["MdEdit", "MarkdownKit"]),
     ]
 )
