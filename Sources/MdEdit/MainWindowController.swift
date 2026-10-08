@@ -32,6 +32,16 @@ final class MainWindowController: NSWindowController {
     private var appearanceObservation: NSKeyValueObservation?
 
     private let recovery = RecoveryStore.standard
+
+    // Hooks to the app, which owns every window.
+    /// Something worth recording in the session changed.
+    var onSessionChange: (() -> Void)?
+    /// The window closed for good.
+    var onClose: ((MainWindowController) -> Void)?
+    /// Brings a file forward if another window has it open.
+    var focusElsewhere: ((URL) -> Bool)?
+    /// Asked to give a document a window of its own.
+    var onMoveToNewWindow: ((Document) -> Void)?
     private var pendingSnapshot: DispatchWorkItem?
     /// Set once the user has answered for every unsaved document, so closing
     /// the window and the quit that follows do not ask twice.
@@ -103,7 +113,6 @@ final class MainWindowController: NSWindowController {
             self?.searchScope() ?? (nil, [], [:])
         }
         sidebar.search.onOpenMatch = { [weak self] url, match in self?.openMatch(url, match) }
-        setWorkspace(Workspace.load())
         NSLayoutConstraint.activate([
             statusBar.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
@@ -175,10 +184,14 @@ final class MainWindowController: NSWindowController {
 
     /// Brings an already-open file forward instead of opening it twice.
     func focusDocument(at url: URL) -> Bool {
-        guard let index = documents.firstIndex(where: { $0.url == url }) else { return false }
+        let path = url.standardizedFileURL.path
+        guard let index = documents.firstIndex(where: { $0.url?.standardizedFileURL.path == path }) else { return false }
         select(index: index)
+        window?.makeKeyAndOrderFront(nil)
         return true
     }
+
+    var openDocumentCount: Int { documents.count }
 
     func select(index: Int) {
         guard documents.indices.contains(index) else { return }
@@ -219,32 +232,60 @@ final class MainWindowController: NSWindowController {
     func closeDocument(at index: Int) {
         guard documents.indices.contains(index) else { return }
         let document = documents[index]
-
-        let finish = { [weak self] in
-            guard let self else { return }
-            if let editor = editors.removeValue(forKey: ObjectIdentifier(document)) {
-                if editor === currentEditor {
-                    editor.view.removeFromSuperview()
-                    editor.removeFromParent()
-                    currentEditor = nil
-                }
-            }
-            documents.remove(at: index)
-            recovery.remove(id: document.id)
-            if documents.isEmpty {
-                window?.close()
-            } else {
-                select(index: min(index, documents.count - 1))
-            }
-        }
-
         guard document.isDirty else {
-            finish()
+            remove(document)
+            recovery.remove(id: document.id)
             return
         }
-        confirmDiscard(document) { discard in
-            if discard { finish() }
+        confirmDiscard(document) { [weak self] discard in
+            guard discard, let self else { return }
+            remove(document)
+            recovery.remove(id: document.id)
         }
+    }
+
+    /// Takes a document out of this window without asking about changes;
+    /// the window closes once it has nothing left.
+    private func remove(_ document: Document) {
+        // Looked up afresh: tabs may have moved while a sheet was up.
+        guard let index = documents.firstIndex(where: { $0 === document }) else { return }
+        if let editor = editors.removeValue(forKey: ObjectIdentifier(document)) {
+            if editor === currentEditor {
+                editor.view.removeFromSuperview()
+                editor.removeFromParent()
+                currentEditor = nil
+            }
+            editor.detachFromStorage()
+        }
+        documents.remove(at: index)
+        if documents.isEmpty {
+            window?.close()
+        } else {
+            select(index: min(index, documents.count - 1))
+        }
+    }
+
+    // MARK: - Moving tabs between windows
+
+    @objc func moveTabToNewWindow(_ sender: Any?) {
+        moveToNewWindow(at: selection)
+    }
+
+    private func moveToNewWindow(at index: Int) {
+        // A lone tab already has a window of its own.
+        guard documents.count > 1, documents.indices.contains(index) else {
+            NSSound.beep()
+            return
+        }
+        let document = documents[index]
+        remove(document)
+        onMoveToNewWindow?(document)
+    }
+
+    /// Takes in a document from another window, unsaved changes and all.
+    func adopt(_ document: Document) {
+        addReplacingPlaceholder(document)
+        onSessionChange?()
     }
 
     private func confirmDiscard(_ document: Document, completion: @escaping (Bool) -> Void) {
@@ -295,6 +336,7 @@ final class MainWindowController: NSWindowController {
 
     func open(url: URL) {
         if focusDocument(at: url) { return }
+        if focusElsewhere?(url) == true { return }
         do {
             addReplacingPlaceholder(try Document.open(contentsOf: url, theme: theme))
         } catch {
@@ -536,7 +578,7 @@ final class MainWindowController: NSWindowController {
         }
     }
 
-    private func setWorkspace(_ newWorkspace: Workspace?) {
+    func setWorkspace(_ newWorkspace: Workspace?) {
         workspace = newWorkspace
         newWorkspace?.save()
         sidebar.files.setRoot(newWorkspace?.root)
@@ -544,6 +586,7 @@ final class MainWindowController: NSWindowController {
         directoryWatcher = newWorkspace.flatMap { workspace in
             DirectoryWatcher(url: workspace.root) { [weak self] in self?.sidebar.files.reload() }
         }
+        onSessionChange?()
     }
 
     @objc func quickOpen(_ sender: Any?) {
@@ -636,18 +679,22 @@ final class MainWindowController: NSWindowController {
                 recovery.remove(id: document.id)
             }
         }
-        currentSession().save()
+        onSessionChange?()
     }
 
-    /// Called on a clean quit: the user has answered for every unsaved
-    /// document, so the snapshots are no longer needed.
-    func prepareForTermination() {
+    /// Stops pending snapshot writes, for a clean quit.
+    func cancelPendingWork() {
         pendingSnapshot?.cancel()
-        currentSession().save()
-        recovery.removeAll()
+        pendingSnapshot = nil
     }
 
-    private func currentSession() -> Session {
+    /// Whether this window has a file or unsaved snapshot for a URL.
+    func contains(_ url: URL) -> Bool {
+        documents.contains { $0.url?.standardizedFileURL.path == url.standardizedFileURL.path }
+    }
+
+    /// This window's tabs, folder and position, for the session.
+    func windowSession() -> Session.Window {
         var tabs: [Session.Tab] = []
         var selectedIndex = 0
         for (index, document) in documents.enumerated() {
@@ -656,24 +703,41 @@ final class MainWindowController: NSWindowController {
             let location = editors[ObjectIdentifier(document)]?.textView.selectedRange().location ?? 0
             tabs.append(.init(url: url, selectedLocation: location))
         }
-        return Session(tabs: tabs, selectedIndex: selectedIndex)
+        return Session.Window(
+            tabs: tabs,
+            selectedIndex: selectedIndex,
+            workspace: workspace?.root,
+            frame: window?.frameDescriptor
+        )
     }
 
-    /// Reopens the previous session's files, then lays any recovered unsaved
-    /// text over them (or into new tabs for untitled documents).
-    func restore(session: Session?, snapshots: [RecoveryStore.Snapshot]) {
+    /// Reopens a window's files from the previous session, skipping any
+    /// that have gone, and its folder and position.
+    func restore(_ saved: Session.Window) {
+        if let frame = saved.frame { window?.setFrame(from: frame) }
+        if let root = saved.workspace, FileManager.default.fileExists(atPath: root.path) {
+            setWorkspace(Workspace(root: root))
+        }
         var selected: Document?
-        for (index, tab) in (session?.tabs ?? []).enumerated() {
+        for (index, tab) in saved.tabs.enumerated() {
             let document = documents.first(where: { $0.url == tab.url })
                 ?? (try? Document.open(contentsOf: tab.url, theme: theme)).map { opened in
                     addReplacingPlaceholder(opened)
                     return opened
                 }
             guard let document else { continue }
-            if index == session?.selectedIndex { selected = document }
+            if index == saved.selectedIndex { selected = document }
             restoreCaret(of: document, to: tab.selectedLocation)
         }
+        if let selected, let index = documents.firstIndex(where: { $0 === selected }) {
+            select(index: index)
+        }
+        refreshTabs()
+    }
 
+    /// Lays recovered unsaved text over the files it belongs to, or into new
+    /// tabs for untitled documents and files that have gone.
+    func restore(snapshots: [RecoveryStore.Snapshot]) {
         for snapshot in snapshots {
             if let url = snapshot.url {
                 if let open = documents.first(where: { $0.url == url }) {
@@ -694,13 +758,7 @@ final class MainWindowController: NSWindowController {
             }
         }
 
-        if snapshots.isEmpty, let selected, let index = documents.firstIndex(where: { $0 === selected }) {
-            select(index: index)
-        }
         refreshTabs()
-        // Snapshots were keyed by the old documents' ids; rewrite them under the new ones.
-        recovery.removeAll()
-        writeRecoverySnapshots()
     }
 
     private func restoreCaret(of document: Document, to location: Int) {
@@ -816,6 +874,8 @@ extension MainWindowController: NSMenuItemValidation {
     func validateMenuItem(_ item: NSMenuItem) -> Bool {
         let editor = currentEditor
         switch item.action {
+        case #selector(moveTabToNewWindow(_:)):
+            return documents.count > 1
         case #selector(toggleOutline(_:)):
             item.title = isSidebarVisible && sidebar.pane == .outline ? "Hide Outline" : "Show Outline"
         case #selector(toggleFiles(_:)):
@@ -838,6 +898,18 @@ extension MainWindowController: NSMenuItemValidation {
 }
 
 extension MainWindowController: NSWindowDelegate {
+    func windowWillClose(_ notification: Notification) {
+        cancelPendingWork()
+        pendingOutlineRefresh?.cancel()
+        // Every unsaved document here was answered for, so none should come
+        // back from a crash later.
+        for document in documents { recovery.remove(id: document.id) }
+        onClose?(self)
+    }
+
+    func windowDidMove(_ notification: Notification) { onSessionChange?() }
+    func windowDidEndLiveResize(_ notification: Notification) { onSessionChange?() }
+
     func windowShouldClose(_ sender: NSWindow) -> Bool {
         guard hasUnreviewedChanges else { return true }
         reviewUnsavedChanges { [weak self] proceed in
@@ -858,6 +930,10 @@ extension MainWindowController: TabBarViewDelegate {
 
     func tabBarDidRequestNewTab(_ bar: TabBarView) {
         newDocument()
+    }
+
+    func tabBar(_ bar: TabBarView, didDragOutTabAt index: Int) {
+        moveToNewWindow(at: index)
     }
 
     func tabBar(_ bar: TabBarView, moveTabAt source: Int, to destination: Int) {

@@ -39,6 +39,9 @@ enum Metrics {
     /// Space above and below an inline image preview.
     static let imageSpacing: CGFloat = 6
 
+    /// How far a tab must be dragged off the strip to tear off into a window.
+    static let tearOffDistance: CGFloat = 40
+
     /// Height of a table's hidden delimiter row, drawn as a rule.
     static let tableRuleHeight: CGFloat = 9
 

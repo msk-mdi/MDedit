@@ -32,6 +32,9 @@ markdown comes back. There is no split pane and no preview mode to switch to.
 - **Workspaces.** Open a folder (⇧⌘O) for a sidebar with a live file tree, the
   document outline (⇧⌘L) and Find in Folder (⇧⌘F); Quick Open (⌘P) fuzzy-finds
   files. Drag tabs to reorder them, or drop markdown files in to open them.
+- **Multiple windows.** ⌘N opens a window with its own tabs and folder; drag a
+  tab off the strip (or use Window ▸ Move Tab to New Window) to give it a window
+  of its own. Every window, its tabs and its folder come back at the next launch.
 - **Your work is safe.** Quitting or closing the window asks about unsaved tabs,
   unsaved text is snapshotted for crash recovery, open tabs come back at launch,
   and files keep their encoding and line endings.
@@ -78,6 +81,7 @@ which is enough to run it locally but not to distribute it.
 | `⇧⌘'` | Blockquote |
 | `⌥⌘C` | Code block |
 | `⌘T` / `⌘W` | New tab / close tab |
+| `⌘N` | New window |
 | `⇧⌘[` / `⇧⌘]` | Previous / next tab |
 | `⌘F` / `⌘G` / `⌥⌘F` | Find, find next, find and replace |
 | `⌘P` / `⇧⌘O` | Quick Open / open a folder |
@@ -183,8 +187,7 @@ storage's line-range handling.
 
 ## Not implemented
 
-There is no math rendering, no mermaid diagrams, no image upload services and only
-one window. The app is unsandboxed and ad-hoc signed.
+There is no math rendering, no mermaid diagrams and no image upload services. The app is unsandboxed and ad-hoc signed.
 
 ## License
 

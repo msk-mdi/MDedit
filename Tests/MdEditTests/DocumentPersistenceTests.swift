@@ -89,12 +89,22 @@ struct SessionTests {
         defer { defaults.removePersistentDomain(forName: suite) }
 
         #expect(Session.load(from: defaults) == nil)
-        let session = Session(
-            tabs: [.init(url: URL(fileURLWithPath: "/tmp/a.md"), selectedLocation: 12)],
-            selectedIndex: 0
-        )
+        let session = Session(windows: [
+            .init(tabs: [.init(url: URL(fileURLWithPath: "/tmp/a.md"), selectedLocation: 12)], selectedIndex: 0,
+                  workspace: URL(fileURLWithPath: "/tmp", isDirectory: true), frame: "10 20 800 600 0 0 1512 949 "),
+            .init(tabs: [], selectedIndex: 0),
+        ])
         session.save(to: defaults)
         #expect(Session.load(from: defaults) == session)
+    }
+
+    @Test("A session saved before multiple windows loads as one window")
+    func legacyFormat() throws {
+        let legacy = Data(#"{"tabs":[{"url":"file:///tmp/a.md","selectedLocation":3}],"selectedIndex":0}"#.utf8)
+        let session = try JSONDecoder().decode(Session.self, from: legacy)
+        #expect(session.windows.count == 1)
+        #expect(session.windows[0].tabs.map(\.selectedLocation) == [3])
+        #expect(session.windows[0].workspace == nil)
     }
 }
 

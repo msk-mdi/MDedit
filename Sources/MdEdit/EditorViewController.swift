@@ -27,6 +27,12 @@ final class EditorViewController: NSViewController {
         set { textView.onOpenLink = newValue }
     }
 
+    /// Unhooks this editor's layout from the document, so the document can
+    /// move to another window's editor without being laid out twice.
+    func detachFromStorage() {
+        storage.removeLayoutManager(layoutManager)
+    }
+
     var table: TableEditor { TableEditor(storage: storage, textView: textView) }
 
     var sourceMode: Bool {

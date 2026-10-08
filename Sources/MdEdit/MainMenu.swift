@@ -54,6 +54,7 @@ enum MainMenu {
     private static func fileMenu() -> NSMenuItem {
         submenu("File") { menu in
             add(menu, "New Tab", #selector(AppDelegate.newDocument(_:)), "t")
+            add(menu, "New Window", #selector(AppDelegate.newWindow(_:)), "n")
             add(menu, "Open…", #selector(AppDelegate.openDocument(_:)), "o")
             add(menu, "Open Folder…", #selector(MainWindowController.openFolder(_:)), "o", [.command, .shift])
             add(menu, "Quick Open…", #selector(MainWindowController.quickOpen(_:)), "p")
@@ -161,6 +162,8 @@ enum MainMenu {
         let item = submenu("Window") { menu in
             add(menu, "Minimize", #selector(NSWindow.performMiniaturize(_:)), "m")
             add(menu, "Zoom", #selector(NSWindow.performZoom(_:)))
+            menu.addItem(.separator())
+            add(menu, "Move Tab to New Window", #selector(MainWindowController.moveTabToNewWindow(_:)))
             menu.addItem(.separator())
             add(menu, "Bring All to Front", #selector(NSApplication.arrangeInFront(_:)))
         }

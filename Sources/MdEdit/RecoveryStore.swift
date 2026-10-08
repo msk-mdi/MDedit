@@ -53,16 +53,58 @@ struct RecoveryStore {
     }
 }
 
-/// The open tabs, restored at the next launch.
+/// The open windows and their tabs, restored at the next launch.
 struct Session: Codable, Equatable {
     struct Tab: Codable, Equatable {
         var url: URL
         var selectedLocation: Int
     }
 
-    var tabs: [Tab]
-    /// Index into `tabs`.
-    var selectedIndex: Int
+    struct Window: Codable, Equatable {
+        var tabs: [Tab]
+        /// Index into `tabs`.
+        var selectedIndex: Int
+        /// The folder open in this window's sidebar.
+        var workspace: URL?
+        /// `NSWindow.frameDescriptor`, so windows come back where they were.
+        var frame: String?
+
+        init(tabs: [Tab], selectedIndex: Int, workspace: URL? = nil, frame: String? = nil) {
+            self.tabs = tabs
+            self.selectedIndex = selectedIndex
+            self.workspace = workspace
+            self.frame = frame
+        }
+    }
+
+    var windows: [Window]
+
+    init(windows: [Window]) {
+        self.windows = windows
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case windows
+        // The single-window format written before there could be more than one.
+        case tabs, selectedIndex
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        if let windows = try container.decodeIfPresent([Window].self, forKey: .windows) {
+            self.windows = windows
+        } else {
+            windows = [Window(
+                tabs: try container.decode([Tab].self, forKey: .tabs),
+                selectedIndex: try container.decode(Int.self, forKey: .selectedIndex)
+            )]
+        }
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(windows, forKey: .windows)
+    }
 
     private static let key = "MdEditSession"
 

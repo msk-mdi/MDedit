@@ -11,6 +11,7 @@ protocol TabBarViewDelegate: AnyObject {
     func tabBar(_ bar: TabBarView, didRequestClose index: Int)
     func tabBarDidRequestNewTab(_ bar: TabBarView)
     func tabBar(_ bar: TabBarView, moveTabAt source: Int, to destination: Int)
+    func tabBar(_ bar: TabBarView, didDragOutTabAt index: Int)
 }
 
 /// The tab strip, shaped like a segmented control: one recessed track spanning
@@ -197,6 +198,13 @@ final class TabBarView: NSView {
     /// the thumb slides along with the tab.
     private func dragTab(with event: NSEvent) {
         guard let source = draggedIndex, !segments.isEmpty else { return }
+        // Pulled well clear of the strip, the tab leaves for a window of its own.
+        let point = convert(event.locationInWindow, from: nil)
+        if point.y < -Metrics.tearOffDistance || point.y > bounds.height + Metrics.tearOffDistance {
+            draggedIndex = nil
+            delegate?.tabBar(self, didDragOutTabAt: source)
+            return
+        }
         let x = stack.convert(event.locationInWindow, from: nil).x
         let width = stack.bounds.width / CGFloat(segments.count)
         guard width > 0 else { return }
