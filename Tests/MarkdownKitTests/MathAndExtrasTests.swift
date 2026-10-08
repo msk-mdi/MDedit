@@ -19,7 +19,7 @@ struct MathTests {
         #expect(kinds("$$") == [.mathDelimiter])
         #expect(kinds("```\n$$\n```") == [.fenceStart(language: ""), .codeLine, .fenceEnd])
         #expect(html("$$\nx < y\n$$") == "<div class=\"math display\">\\[\nx &lt; y\n\\]</div>")
-        #expect(html("$$ a+b $$") == "<div class=\"math display\">\\[ a+b \\]</div>")
+        #expect(html("$$ a+b $$") == "<div class=\"math display\">\\[\n a+b \n\\]</div>")
     }
 
     @Test("Inline math hugs its content and leaves prices alone")
@@ -40,7 +40,7 @@ struct MathTests {
         #expect(!renderer.renderDocument(markdown: "plain", title: "t", css: "").contains("katex"))
         #expect(renderer.renderDocument(markdown: "$x$", title: "t", css: "").contains("katex@0.16.11"))
         let mermaid = renderer.renderDocument(markdown: "```mermaid\ngraph TD; A-->B\n```", title: "t", css: "")
-        #expect(mermaid.contains("<pre class=\"mermaid\">\ngraph TD; A--&gt;B\n</pre>"))
+        #expect(mermaid.contains("<pre class=\"mermaid\">graph TD; A--&gt;B\n</pre>"))
         #expect(mermaid.contains("mermaid@11.4.1"))
         #expect(!mermaid.contains("katex"))
     }

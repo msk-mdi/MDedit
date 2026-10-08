@@ -19,8 +19,9 @@ struct CommonMarkSpecTests {
     }
 
     /// Raise this when conformance improves; the test fails if it drops.
-    /// Recorded 2026-10-08 against spec 0.31.2: 376 of 652.
-    static let baseline = 376
+    /// Recorded 2026-10-08 against spec 0.31.2: 650 of 652. The two left are
+    /// bare `https://` text, which GFM-style autolinking deliberately links.
+    static let baseline = 650
 
     private static func examples() throws -> [Example] {
         let url = URL(fileURLWithPath: #filePath)
@@ -53,13 +54,20 @@ struct CommonMarkSpecTests {
         var passed: [String: Int] = [:]
         var total: [String: Int] = [:]
         var sections: [String] = []
+        var failures = ""
         for example in examples {
             if total[example.section] == nil { sections.append(example.section) }
             total[example.section, default: 0] += 1
             let rendered = HTMLRenderer().render(markdown: example.markdown)
             if Self.normalize(rendered) == Self.normalize(example.html) {
                 passed[example.section, default: 0] += 1
+            } else {
+                failures += "## \(example.example) \(example.section)\n--- markdown\n\(example.markdown)--- expected\n\(example.html)--- actual\n\(rendered)\n"
             }
+        }
+        // Set COMMONMARK_FAILURES to a path to get every failing example, for working on conformance.
+        if let path = ProcessInfo.processInfo.environment["COMMONMARK_FAILURES"] {
+            try failures.write(toFile: path, atomically: true, encoding: .utf8)
         }
 
         let passCount = passed.values.reduce(0, +)

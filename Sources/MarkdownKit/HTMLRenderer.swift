@@ -2,8 +2,10 @@ import Foundation
 
 /// Renders markdown to HTML for export and "Copy as HTML".
 ///
-/// Walks the same `BlockStructure` and `InlineParser` the editor styles with,
-/// so what you export is what the editor understood.
+/// Export parses with `DocumentParser`, the spec's full container algorithm,
+/// rather than the editor's line-at-a-time `BlockParser`: what you export is
+/// CommonMark, while the editor stays fast. Inline markup comes from the same
+/// `InlineParser` the editor styles with.
 public struct HTMLRenderer {
     /// Resolves relative image and link paths, when the document has a location.
     public var baseURL: URL?
@@ -14,250 +16,6 @@ public struct HTMLRenderer {
 
     public func render(markdown: String) -> String {
         renderBody(markdown).html
-    }
-
-    /// The body, and what the page around it must load to show it.
-    private func renderBody(_ markdown: String) -> (html: String, context: Context) {
-        let text = markdown as NSString
-        let structure = BlockStructure(text: text)
-        var out = ""
-        var state = RenderState()
-        let context = Context(references: .collect(from: structure, requireDefinitions: true))
-
-        var line = 0
-        while line < structure.lineCount {
-            guard let info = structure.info(forLine: line) else { break }
-            let characters = structure.characters(of: text, line: line)
-            let next = structure.info(forLine: line + 1)
-
-            adjustQuotes(to: info.quoteDepth, state: &state, out: &out)
-
-            // Paragraph lines straight after a footnote definition continue it.
-            if let footnote = state.currentFootnote {
-                if info.kind == .paragraph {
-                    context.footnoteBodies[footnote, default: ""] += "\n" + inlineHTML(characters, from: info.contentStart, to: characters.count, context)
-                    line += 1
-                    continue
-                }
-                state.currentFootnote = nil
-            }
-
-            switch info.kind {
-            case .blank:
-                closeParagraph(&state, &out)
-                closeTable(&state, &out)
-                closeLists(to: 0, state: &state, out: &out)
-
-            case let .atxHeading(level):
-                closeParagraph(&state, &out)
-                let end = headingContentEnd(info, characters)
-                let id = context.slugs.slug(for: plainText(characters, from: info.contentStart, to: end))
-                out += "<h\(level) id=\"\(escape(id))\">\(inlineHTML(characters, from: info.contentStart, to: end, context))</h\(level)>\n"
-
-            case .setextUnderline:
-                break  // consumed by the paragraph above
-
-            case .thematicBreak:
-                closeParagraph(&state, &out)
-                out += "<hr />\n"
-
-            case let .fenceStart(language) where language.split(separator: " ").first?.lowercased() == "mermaid":
-                // Left as source for Mermaid to draw in the browser.
-                closeParagraph(&state, &out)
-                out += "<pre class=\"mermaid\">\n"
-                state.inCodeBlock = true
-                state.inMermaid = true
-                context.usesMermaid = true
-
-            case let .fenceStart(language):
-                closeParagraph(&state, &out)
-                let attribute = language.isEmpty ? "" : " class=\"language-\(escape(language.components(separatedBy: " ")[0]))\""
-                out += "<pre><code\(attribute)>"
-                state.inCodeBlock = true
-                state.codeLanguage = info.state.fence?.language
-
-            case .fenceEnd:
-                out += state.inMermaid ? "</pre>\n" : "</code></pre>\n"
-                state.inCodeBlock = false
-                state.inMermaid = false
-                state.codeLanguage = nil
-
-            case .codeLine:
-                if state.codeLanguage != nil, !info.tokens.isEmpty {
-                    out += highlighted(characters, from: info.contentStart, tokens: info.tokens) + "\n"
-                } else {
-                    out += escape(string(characters, from: info.contentStart, to: characters.count)) + "\n"
-                }
-
-            case .indentedCode:
-                if !state.inIndentedCode {
-                    closeParagraph(&state, &out)
-                    out += "<pre><code>"
-                    state.inIndentedCode = true
-                }
-                out += escape(string(characters, from: min(4, characters.count), to: characters.count)) + "\n"
-                if next?.kind != .indentedCode {
-                    out += "</code></pre>\n"
-                    state.inIndentedCode = false
-                }
-
-            case let .listItem(ordered, task):
-                closeParagraph(&state, &out)
-                openLists(to: info.listDepth, ordered: ordered, state: &state, out: &out)
-                let box = switch task {
-                case .unchecked: "<input type=\"checkbox\" disabled /> "
-                case .checked: "<input type=\"checkbox\" checked disabled /> "
-                case nil: ""
-                }
-                out += "<li>\(box)\(inlineHTML(characters, from: info.contentStart, to: characters.count, context))</li>\n"
-
-            case .paragraph:
-                // A paragraph followed by `===` or `---` is a heading.
-                if case let .setextUnderline(level)? = next?.kind {
-                    closeParagraph(&state, &out)
-                    let id = context.slugs.slug(for: plainText(characters, from: info.contentStart, to: characters.count))
-                    out += "<h\(level) id=\"\(escape(id))\">\(inlineHTML(characters, from: info.contentStart, to: characters.count, context))</h\(level)>\n"
-                    break
-                }
-                // A paragraph followed by `| --- |` is a table header.
-                if case let .tableDelimiter(alignments)? = next?.kind {
-                    closeParagraph(&state, &out)
-                    out += "<table>\n<thead>\n"
-                    out += row(characters, from: info.contentStart, alignments: alignments, cell: "th", context)
-                    out += "</thead>\n<tbody>\n"
-                    state.tableAlignments = alignments
-                    state.inTable = true
-                    break
-                }
-                closeLists(to: 0, state: &state, out: &out)
-                if !state.inParagraph {
-                    out += "<p>"
-                    state.inParagraph = true
-                } else {
-                    out += state.pendingHardBreak ? "<br />\n" : "\n"
-                }
-                // A line ending in two spaces or a backslash breaks before the next.
-                let continues = next?.kind == .paragraph
-                let (end, hardBreak) = paragraphLineEnd(characters, from: info.contentStart, continues: continues)
-                out += inlineHTML(characters, from: info.contentStart, to: end, context)
-                state.pendingHardBreak = hardBreak
-
-            case .tableDelimiter:
-                break  // consumed by the header row
-
-            case .tableRow:
-                out += row(characters, from: info.contentStart, alignments: state.tableAlignments, cell: "td", context)
-
-            case .frontMatterDelimiter, .frontMatter, .linkReferenceDefinition:
-                // Metadata and definitions shape the output but are not part of it.
-                closeParagraph(&state, &out)
-
-            case .htmlBlock:
-                closeParagraph(&state, &out)
-                closeTable(&state, &out)
-                closeLists(to: 0, state: &state, out: &out)
-                out += string(characters, from: info.contentStart, to: characters.count) + "\n"
-
-            case .mathDelimiter:
-                // KaTeX finds `\[ … \]` and typesets what is between.
-                closeParagraph(&state, &out)
-                if state.inMath {
-                    out += "\\]</div>\n"
-                } else {
-                    out += "<div class=\"math display\">\\[\n"
-                    context.usesMath = true
-                }
-                state.inMath.toggle()
-
-            case .mathLine:
-                if state.inMath {
-                    out += escape(string(characters, from: info.contentStart, to: characters.count)) + "\n"
-                } else {
-                    // `$$ … $$` on one line: the markers bracket the formula.
-                    closeParagraph(&state, &out)
-                    let start = info.markers.first.map { NSMaxRange($0.range) } ?? info.contentStart
-                    let end = info.markers.last.map(\.range.location) ?? characters.count
-                    out += "<div class=\"math display\">\\[\(escape(string(characters, from: start, to: end)))\\]</div>\n"
-                    context.usesMath = true
-                }
-
-            case let .footnoteDefinition(label):
-                closeParagraph(&state, &out)
-                let key = normalizeLabel(label)
-                // The first definition of a label wins, as with links.
-                guard context.footnoteBodies[key] == nil else { break }
-                context.footnoteBodies[key] = inlineHTML(characters, from: info.contentStart, to: characters.count, context)
-                state.currentFootnote = key
-            }
-
-            line += 1
-        }
-
-        closeParagraph(&state, &out)
-        closeTable(&state, &out)
-        closeLists(to: 0, state: &state, out: &out)
-        adjustQuotes(to: 0, state: &state, out: &out)
-        if state.inMermaid {
-            out += "</pre>\n"
-        } else if state.inCodeBlock || state.inIndentedCode {
-            out += "</code></pre>\n"
-        }
-        if state.inMath { out += "\\]</div>\n" }
-        out += footnoteSection(context)
-        return (out, context)
-    }
-
-    /// Math and diagrams are drawn in the browser, by KaTeX and Mermaid
-    /// loaded from a CDN, and only when the document has any.
-    private func headExtras(_ context: Context) -> String {
-        var out = ""
-        if context.usesMath {
-            out += """
-            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
-            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
-              onload="renderMathInElement(document.body, {delimiters: [{left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}], ignoredClasses: ['mermaid']})"></script>
-
-            """
-        }
-        if context.usesMermaid {
-            out += """
-            <script type="module">
-            import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
-            mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
-            </script>
-
-            """
-        }
-        return out
-    }
-
-    /// Numbered in order of first reference; unreferenced footnotes are dropped.
-    private func footnoteSection(_ context: Context) -> String {
-        guard !context.footnoteOrder.isEmpty else { return "" }
-        var out = "<section class=\"footnotes\">\n<ol>\n"
-        for (offset, label) in context.footnoteOrder.enumerated() {
-            let number = offset + 1
-            let body = context.footnoteBodies[label] ?? ""
-            out += "<li id=\"fn-\(number)\"><p>\(body) <a href=\"#fnref-\(number)\" class=\"footnote-backref\">↩</a></p></li>\n"
-        }
-        return out + "</ol>\n</section>\n"
-    }
-
-    /// Where a paragraph line's text ends, and whether it ends in a hard break.
-    private func paragraphLineEnd(_ characters: [UInt16], from start: Int, continues: Bool) -> (Int, Bool) {
-        var end = characters.count
-        var spaces = 0
-        while end > start, characters[end - 1] == UInt16(ascii: " ") {
-            end -= 1
-            spaces += 1
-        }
-        guard continues else { return (end, false) }
-        if spaces >= 2 { return (end, true) }
-        var backslashes = 0
-        while end - backslashes > start, characters[end - backslashes - 1] == UInt16(ascii: "\\") { backslashes += 1 }
-        if spaces == 0, backslashes % 2 == 1 { return (end - 1, true) }
-        return (end, false)
     }
 
     /// A full standalone page, for Export as HTML.
@@ -282,7 +40,48 @@ public struct HTMLRenderer {
         """
     }
 
-    // MARK: - Blocks
+    /// The body, and what the page around it must load to show it.
+    private func renderBody(_ markdown: String) -> (html: String, context: Context) {
+        let parser = DocumentParser()
+        let document = parser.parse(stripFrontMatter(markdown))
+        let context = Context(references: parser.references)
+        var writer = Writer()
+        render(document, into: &writer, context)
+        writer.out += footnoteSection(context)
+        return (writer.out, context)
+    }
+
+    /// YAML front matter is metadata, not content: a `---` first line through
+    /// the next `---` or `...` line is left out — when what is between reads
+    /// as YAML. Otherwise `---` is a rule or a setext underline, as usual.
+    private func stripFrontMatter(_ markdown: String) -> String {
+        guard markdown.hasPrefix("---") else { return markdown }
+        var lines = markdown.components(separatedBy: "\n")
+        guard lines.first?.trimmingCharacters(in: .whitespaces) == "---" else { return markdown }
+        for index in lines.indices.dropFirst() {
+            let line = lines[index].trimmingCharacters(in: .whitespaces)
+            guard line == "---" || line == "..." else { continue }
+            let body = lines[1..<index]
+            guard body.contains(where: { !$0.trimmingCharacters(in: .whitespaces).isEmpty }),
+                  body.allSatisfy(isYAMLLine)
+            else { return markdown }
+            lines.removeSubrange(0...index)
+            return lines.joined(separator: "\n")
+        }
+        return markdown
+    }
+
+    /// `key: value`, `- item`, a comment, an indented continuation, or blank.
+    private func isYAMLLine(_ line: String) -> Bool {
+        let trimmed = line.trimmingCharacters(in: .whitespaces)
+        if trimmed.isEmpty || trimmed.hasPrefix("#") || trimmed.hasPrefix("- ") || trimmed == "-" { return true }
+        if line.first == " " || line.first == "\t" { return true }
+        guard let colon = trimmed.firstIndex(of: ":") else { return false }
+        let key = trimmed[..<colon]
+        return !key.isEmpty && !key.contains(" ") || key.hasPrefix("\"") || key.hasPrefix("'")
+    }
+
+    // MARK: - Context
 
     /// State shared across the whole render, including inline rendering.
     private final class Context {
@@ -312,128 +111,236 @@ public struct HTMLRenderer {
         }
     }
 
-    private struct RenderState {
-        var pendingHardBreak = false
-        var inMath = false
-        var inMermaid = false
-        var currentFootnote: String?
-        var inParagraph = false
-        var inCodeBlock = false
-        var inIndentedCode = false
-        var inTable = false
-        var codeLanguage: Language?
-        var tableAlignments: [ColumnAlignment] = []
-        var listStack: [Bool] = []  // true = ordered
-        var quoteDepth = 0
-    }
-
-    private func closeParagraph(_ state: inout RenderState, _ out: inout String) {
-        if state.inParagraph {
-            out += "</p>\n"
-            state.inParagraph = false
-        }
-        state.pendingHardBreak = false
-    }
-
-    private func closeTable(_ state: inout RenderState, _ out: inout String) {
-        if state.inTable {
-            out += "</tbody>\n</table>\n"
-            state.inTable = false
-            state.tableAlignments = []
-        }
-    }
-
-    private func openLists(to depth: Int, ordered: Bool, state: inout RenderState, out: inout String) {
-        while state.listStack.count > depth {
-            out += state.listStack.removeLast() ? "</ol>\n" : "</ul>\n"
-        }
-        while state.listStack.count < depth {
-            out += ordered ? "<ol>\n" : "<ul>\n"
-            state.listStack.append(ordered)
-        }
-        // A bullet list following a numbered one at the same depth restarts.
-        if let top = state.listStack.last, top != ordered {
-            out += top ? "</ol>\n" : "</ul>\n"
-            out += ordered ? "<ol>\n" : "<ul>\n"
-            state.listStack[state.listStack.count - 1] = ordered
-        }
-    }
-
-    private func closeLists(to depth: Int, state: inout RenderState, out: inout String) {
-        while state.listStack.count > depth {
-            out += state.listStack.removeLast() ? "</ol>\n" : "</ul>\n"
-        }
-    }
-
-    private func adjustQuotes(to depth: Int, state: inout RenderState, out: inout String) {
-        while state.quoteDepth > depth {
-            closeParagraph(&state, &out)
-            closeLists(to: 0, state: &state, out: &out)
-            out += "</blockquote>\n"
-            state.quoteDepth -= 1
-        }
-        while state.quoteDepth < depth {
-            closeParagraph(&state, &out)
-            out += "<blockquote>\n"
-            state.quoteDepth += 1
-        }
-    }
-
-    private func row(_ characters: [UInt16], from start: Int, alignments: [ColumnAlignment], cell: String, _ context: Context) -> String {
-        var out = "<tr>\n"
-        for (column, field) in cells(characters, from: start).enumerated() {
-            let alignment = column < alignments.count ? alignments[column] : ColumnAlignment.none
-            let style = switch alignment {
-            case .none: ""
-            case .left: " style=\"text-align:left\""
-            case .center: " style=\"text-align:center\""
-            case .right: " style=\"text-align:right\""
-            }
-            out += "<\(cell)\(style)>\(inlineHTML(field, from: 0, to: field.count, context))</\(cell)>\n"
-        }
-        return out + "</tr>\n"
-    }
-
-    /// Splits a table row on unescaped pipes, dropping the optional outer ones.
-    private func cells(_ characters: [UInt16], from start: Int) -> [[UInt16]] {
-        var fields: [[UInt16]] = []
-        var current: [UInt16] = []
-        var cursor = start
-        if cursor < characters.count, characters[cursor] == UInt16(ascii: "|") { cursor += 1 }
-        while cursor < characters.count {
-            let character = characters[cursor]
-            if character == UInt16(ascii: "\\"), cursor + 1 < characters.count {
-                current.append(character)
-                current.append(characters[cursor + 1])
-                cursor += 2
-                continue
-            }
-            if character == UInt16(ascii: "|") {
-                fields.append(trim(current))
-                current = []
-            } else {
-                current.append(character)
-            }
-            cursor += 1
-        }
-        let last = trim(current)
-        if !last.isEmpty { fields.append(last) }
-        return fields
-    }
-
-    private func trim(_ characters: [UInt16]) -> [UInt16] {
-        var low = 0
-        var high = characters.count
-        while low < high, isSpaceOrTab(characters[low]) { low += 1 }
-        while high > low, isSpaceOrTab(characters[high - 1]) { high -= 1 }
-        return Array(characters[low..<high])
-    }
-
-    /// Wraps each token in a span so exported code carries the same colours the
-    /// editor shows.
-    private func highlighted(_ characters: [UInt16], from start: Int, tokens: [Token]) -> String {
+    /// Output with the reference renderer's newline rule: `cr()` starts a new
+    /// line only if one is not already started.
+    private struct Writer {
         var out = ""
-        var cursor = start
+
+        mutating func cr() {
+            if !out.isEmpty, !out.hasSuffix("\n") { out += "\n" }
+        }
+
+        mutating func write(_ text: String) {
+            out += text
+        }
+    }
+
+    // MARK: - Blocks
+
+    private func render(_ block: Block, into writer: inout Writer, _ context: Context) {
+        switch block.kind {
+        case .document:
+            renderChildren(block, into: &writer, context)
+
+        case .paragraph:
+            let tight = block.parent.map(isInTightList) ?? false
+            var content = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            var checkbox = ""
+            // GFM task items: `[ ]` or `[x]` opening the item's first paragraph.
+            if let parent = block.parent, case .item = parent.kind, parent.children.first === block,
+               let box = taskBox(content) {
+                checkbox = box.html
+                content = box.rest
+            }
+            if !tight {
+                writer.cr()
+                writer.write("<p>")
+            }
+            writer.write(checkbox + inlineHTML(content, context))
+            if !tight {
+                writer.write("</p>")
+                writer.cr()
+            }
+
+        case let .heading(level):
+            let content = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
+            let characters = Array(content.utf16)
+            let id = context.slugs.slug(for: plainText(characters, from: 0, to: characters.count))
+            writer.cr()
+            writer.write("<h\(level) id=\"\(escape(id))\">\(inlineHTML(content, context))</h\(level)>")
+            writer.cr()
+
+        case .thematicBreak:
+            writer.cr()
+            writer.write("<hr />")
+            writer.cr()
+
+        case let .codeBlock(fence):
+            let info = fence?.info ?? ""
+            let language = info.split(separator: " ").first.map(String.init) ?? ""
+            writer.cr()
+            if language.lowercased() == "mermaid" {
+                // Left as source for Mermaid to draw in the browser.
+                writer.write("<pre class=\"mermaid\">\(escape(block.content))</pre>")
+                context.usesMermaid = true
+            } else {
+                let attribute = language.isEmpty ? "" : " class=\"language-\(escape(language))\""
+                writer.write("<pre><code\(attribute)>\(highlightedCode(block.content, info: info))</code></pre>")
+            }
+            writer.cr()
+
+        case .htmlBlock:
+            writer.cr()
+            var content = block.content
+            if content.hasSuffix("\n") { content.removeLast() }
+            writer.write(content)
+            writer.cr()
+
+        case .mathBlock:
+            // KaTeX finds `\[ … \]` and typesets what is between.
+            writer.cr()
+            writer.write("<div class=\"math display\">\\[\n\(escape(block.content))\\]</div>")
+            writer.cr()
+            context.usesMath = true
+
+        case .blockQuote:
+            writer.cr()
+            writer.write("<blockquote>")
+            writer.cr()
+            renderChildren(block, into: &writer, context)
+            writer.cr()
+            writer.write("</blockquote>")
+            writer.cr()
+
+        case let .list(data):
+            let tag = data.ordered ? "ol" : "ul"
+            let start = data.ordered && data.start != 1 ? " start=\"\(data.start)\"" : ""
+            writer.cr()
+            writer.write("<\(tag)\(start)>")
+            writer.cr()
+            renderChildren(block, into: &writer, context)
+            writer.cr()
+            writer.write("</\(tag)>")
+            writer.cr()
+
+        case .item:
+            writer.write("<li>")
+            renderChildren(block, into: &writer, context)
+            writer.write("</li>")
+            writer.cr()
+
+        case let .footnote(label):
+            // Collected now, written in a section at the end.
+            let key = normalizeLabel(label)
+            guard context.footnoteBodies[key] == nil else { break }
+            var body = Writer()
+            renderChildren(block, into: &body, context)
+            context.footnoteBodies[key] = body.out
+
+        case let .table(alignments):
+            writer.cr()
+            writer.write(table(block.rows, alignments: alignments, context))
+            writer.cr()
+        }
+    }
+
+    private func renderChildren(_ block: Block, into writer: inout Writer, _ context: Context) {
+        for child in block.children { render(child, into: &writer, context) }
+    }
+
+    /// Paragraphs directly in an item of a tight list render without `<p>`.
+    private func isInTightList(_ parent: Block) -> Bool {
+        guard case .item = parent.kind, let list = parent.parent, case let .list(data) = list.kind else { return false }
+        return data.tight
+    }
+
+    private func taskBox(_ content: String) -> (html: String, rest: String)? {
+        for (prefix, checked) in [("[ ]", false), ("[x]", true), ("[X]", true)] where content.hasPrefix(prefix) {
+            let rest = content.dropFirst(3)
+            guard rest.isEmpty || rest.first == " " || rest.first == "\t" else { return nil }
+            let html = checked ? "<input type=\"checkbox\" checked disabled /> " : "<input type=\"checkbox\" disabled /> "
+            return (html, String(rest.drop(while: { $0 == " " || $0 == "\t" })))
+        }
+        return nil
+    }
+
+    private func table(_ rows: [String], alignments: [ColumnAlignment], _ context: Context) -> String {
+        func row(_ line: String, cell: String) -> String {
+            var cells = MarkdownTable.cells(of: line)
+            // A row has as many cells as the header: extra ones go, missing ones are empty.
+            if cells.count > alignments.count { cells = Array(cells.prefix(alignments.count)) }
+            cells += Array(repeating: "", count: max(0, alignments.count - cells.count))
+            var out = "<tr>\n"
+            for (column, text) in cells.enumerated() {
+                let style = switch alignments[column] {
+                case .none: ""
+                case .left: " style=\"text-align:left\""
+                case .center: " style=\"text-align:center\""
+                case .right: " style=\"text-align:right\""
+                }
+                // An escaped pipe is part of the cell, not a boundary.
+                out += "<\(cell)\(style)>\(inlineHTML(text.replacingOccurrences(of: "\\|", with: "|"), context))</\(cell)>\n"
+            }
+            return out + "</tr>\n"
+        }
+        guard let header = rows.first else { return "" }
+        var out = "<table>\n<thead>\n" + row(header, cell: "th") + "</thead>\n"
+        if rows.count > 1 {
+            out += "<tbody>\n" + rows.dropFirst().map { row($0, cell: "td") }.joined() + "</tbody>\n"
+        }
+        return out + "</table>"
+    }
+
+    /// Numbered in order of first reference; unreferenced footnotes are dropped.
+    private func footnoteSection(_ context: Context) -> String {
+        guard !context.footnoteOrder.isEmpty else { return "" }
+        var out = "<section class=\"footnotes\">\n<ol>\n"
+        for (offset, label) in context.footnoteOrder.enumerated() {
+            let number = offset + 1
+            var body = (context.footnoteBodies[label] ?? "").trimmingCharacters(in: .newlines)
+            let backref = " <a href=\"#fnref-\(number)\" class=\"footnote-backref\">↩</a>"
+            // The way back sits at the end of the note's last paragraph.
+            if body.hasSuffix("</p>") {
+                body.insert(contentsOf: backref, at: body.index(body.endIndex, offsetBy: -4))
+            } else {
+                body += backref
+            }
+            out += "<li id=\"fn-\(number)\">\(body)</li>\n"
+        }
+        return out + "</ol>\n</section>\n"
+    }
+
+    /// Math and diagrams are drawn in the browser, by KaTeX and Mermaid
+    /// loaded from a CDN, and only when the document has any.
+    private func headExtras(_ context: Context) -> String {
+        var out = ""
+        if context.usesMath {
+            out += """
+            <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css" />
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js"></script>
+            <script defer src="https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js"
+              onload="renderMathInElement(document.body, {delimiters: [{left: '\\\\[', right: '\\\\]', display: true}, {left: '\\\\(', right: '\\\\)', display: false}], ignoredClasses: ['mermaid']})"></script>
+
+            """
+        }
+        if context.usesMermaid {
+            out += """
+            <script type="module">
+            import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.esm.min.mjs";
+            mermaid.initialize({ startOnLoad: true, theme: matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "default" });
+            </script>
+
+            """
+        }
+        return out
+    }
+
+    // MARK: - Code
+
+    /// Wraps each token in a span so exported code carries the same colours
+    /// the editor shows.
+    private func highlightedCode(_ code: String, info: String) -> String {
+        guard let language = Language.named(info), !code.isEmpty else { return escape(code) }
+        let lines = code.components(separatedBy: "\n")
+        let tokens = SyntaxHighlighter.tokens(code: code, language: language)
+        return zip(lines, tokens).map { line, lineTokens in
+            highlighted(Array(line.utf16), tokens: lineTokens)
+        }.joined(separator: "\n")
+    }
+
+    private func highlighted(_ characters: [UInt16], tokens: [Token]) -> String {
+        var out = ""
+        var cursor = 0
         for token in tokens.sorted(by: { $0.range.location < $1.range.location }) {
             guard token.range.location >= cursor else { continue }
             if token.range.location > cursor {
@@ -468,9 +375,10 @@ public struct HTMLRenderer {
 
     // MARK: - Inlines
 
-    private func inlineHTML(_ characters: [UInt16], from low: Int, to high: Int, _ context: Context) -> String {
-        guard low < high else { return "" }
-        return nodesHTML(InlineParser.parse(characters, from: low, to: high, references: context.references), characters, context)
+    private func inlineHTML(_ content: String, _ context: Context) -> String {
+        let characters = Array(content.utf16)
+        guard !characters.isEmpty else { return "" }
+        return nodesHTML(InlineParser.parse(characters, references: context.references), characters, context)
     }
 
     private func nodesHTML(_ nodes: [InlineNode], _ characters: [UInt16], _ context: Context) -> String {
@@ -480,18 +388,13 @@ public struct HTMLRenderer {
             case let .text(range):
                 out += escape(text(characters, range))
             case let .code(_, content, _):
-                out += "<code>\(escape(text(characters, content)))</code>"
+                out += "<code>\(escape(codeSpanText(text(characters, content))))</code>"
             case let .emphasis(_, _, children):
                 out += "<em>\(nodesHTML(children, characters, context))</em>"
             case let .strong(_, _, children):
                 out += "<strong>\(nodesHTML(children, characters, context))</strong>"
             case let .strikethrough(_, _, children):
                 out += "<del>\(nodesHTML(children, characters, context))</del>"
-            case let .link(_, _, destination, title, children):
-                let titleAttribute = title.map { " title=\"\(escape($0))\"" } ?? ""
-                out += "<a href=\"\(escape(resolve(destination)))\"\(titleAttribute)>\(nodesHTML(children, characters, context))</a>"
-            case let .image(_, _, source, alt):
-                out += "<img src=\"\(escape(resolve(source)))\" alt=\"\(escape(alt))\" />"
             case let .highlight(_, _, children):
                 out += "<mark>\(nodesHTML(children, characters, context))</mark>"
             case let .math(_, _, content, display):
@@ -507,14 +410,24 @@ public struct HTMLRenderer {
             case let .footnoteReference(_, _, label):
                 let reference = context.reference(to: label)
                 out += "<sup class=\"footnote-ref\"><a href=\"#fn-\(reference.number)\" id=\"\(reference.id)\">\(reference.number)</a></sup>"
+            case let .link(_, _, destination, title, children):
+                let titleAttribute = title.map { " title=\"\(escape($0))\"" } ?? ""
+                out += "<a href=\"\(escape(normalizeURL(resolve(destination))))\"\(titleAttribute)>\(nodesHTML(children, characters, context))</a>"
+            case let .image(_, _, source, alt, title):
+                let titleAttribute = title.map { " title=\"\(escape($0))\"" } ?? ""
+                out += "<img src=\"\(escape(normalizeURL(resolve(source))))\" alt=\"\(escape(alt))\"\(titleAttribute) />"
             case let .autolink(range, markers, url):
                 // Shown as written: `www.x.dev`, or the address without `mailto:`.
                 let shown = markers.count == 2
                     ? NSRange(location: range.location + 1, length: range.length - 2)
                     : range
-                out += "<a href=\"\(escape(url))\">\(escape(text(characters, shown)))</a>"
+                out += "<a href=\"\(escape(normalizeURL(url)))\">\(escape(text(characters, shown)))</a>"
             case let .escape(_, _, character):
                 out += escape(text(characters, character))
+            case let .entity(_, decoded):
+                out += escape(decoded)
+            case let .lineBreak(_, hard):
+                out += hard ? "<br />\n" : "\n"
             case let .rawHTML(range):
                 out += text(characters, range)
             }
@@ -535,6 +448,37 @@ public struct HTMLRenderer {
               !destination.hasPrefix("/")
         else { return destination }
         return URL(fileURLWithPath: destination, relativeTo: baseURL.deletingLastPathComponent()).absoluteString
+    }
+
+    /// Percent-encodes what a URL may not contain, leaving existing `%XX`
+    /// escapes and URL punctuation alone, as the reference renderer does.
+    private func normalizeURL(_ url: String) -> String {
+        let safe = Set("ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789;/?:@&=+$,-_.!~*'()#".utf8)
+        let bytes = Array(url.utf8)
+        var out = ""
+        var index = 0
+        while index < bytes.count {
+            let byte = bytes[index]
+            if byte == UInt8(ascii: "%"), index + 2 < bytes.count,
+               isHex(bytes[index + 1]), isHex(bytes[index + 2]) {
+                out += String(decoding: bytes[index...(index + 2)], as: UTF8.self)
+                index += 3
+                continue
+            }
+            if safe.contains(byte) {
+                out.append(Character(Unicode.Scalar(byte)))
+            } else {
+                out += String(format: "%%%02X", byte)
+            }
+            index += 1
+        }
+        return out
+    }
+
+    private func isHex(_ byte: UInt8) -> Bool {
+        (UInt8(ascii: "0")...UInt8(ascii: "9")).contains(byte)
+            || (UInt8(ascii: "a")...UInt8(ascii: "f")).contains(byte)
+            || (UInt8(ascii: "A")...UInt8(ascii: "F")).contains(byte)
     }
 
     private func escape(_ value: String) -> String {

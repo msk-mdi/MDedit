@@ -139,6 +139,18 @@ chips — is painted in `drawBackground(forGlyphRange:at:)`.
 
 This is TextKit 1 on purpose: both of those are direct, supported overrides there.
 
+### Export parses the whole document
+
+Line-at-a-time parsing is what keeps typing fast, but some of CommonMark is not
+line-local: a list item can hold several paragraphs, a line can lazily continue a
+quote, emphasis can span lines. So export uses a second parser, `DocumentParser`,
+a port of the spec's container algorithm, and parses inline content only after
+every link definition is known. Both share `InlineParser`, which implements the
+spec's delimiter-run and bracket algorithm.
+
+`CommonMarkSpecTests` runs all 652 examples of CommonMark 0.31.2: 650 pass. The
+two that do not are bare `https://` URLs, which MdEdit links on purpose.
+
 ### Highlighting rides along with parsing
 
 A fence's info string selects a language, and a table-driven tokeniser colours

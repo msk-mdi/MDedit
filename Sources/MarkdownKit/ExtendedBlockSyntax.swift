@@ -97,9 +97,11 @@ public struct LinkDefinition: Equatable, Sendable {
     }
 }
 
-/// Labels match case-insensitively with internal whitespace collapsed.
+/// Labels match with Unicode case folding (so `ẞ` matches `SS`) and
+/// internal whitespace collapsed.
 public func normalizeLabel(_ label: String) -> String {
-    label.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ").lowercased()
+    label.split(whereSeparator: { $0.isWhitespace }).joined(separator: " ")
+        .folding(options: .caseInsensitive, locale: nil).lowercased()
 }
 
 /// `[label]: destination "optional title"`, on a single line.

@@ -86,7 +86,7 @@ struct ReferenceLinkTests {
         #expect(html("[text][Foo  Bar]" + defs) == "<p><a href=\"/url\" title=\"Title\">text</a></p>")
         #expect(html("[Foo Bar][]" + defs) == "<p><a href=\"/url\" title=\"Title\">Foo Bar</a></p>")
         #expect(html("[foo bar]" + defs) == "<p><a href=\"/url\" title=\"Title\">foo bar</a></p>")
-        #expect(html("![alt][foo bar]" + defs) == "<p><img src=\"/url\" alt=\"alt\" /></p>")
+        #expect(html("![alt][foo bar]" + defs) == "<p><img src=\"/url\" alt=\"alt\" title=\"Title\" /></p>")
         // A definition later in the document still counts; the first of a label wins.
         #expect(html("[x]\n\n[x]: /one\n[x]: /two") == "<p><a href=\"/one\">x</a></p>")
     }
@@ -151,6 +151,13 @@ struct FootnoteTests {
         #expect(out.contains("<li id=\"fn-1\"><p>Beta\ncontinues. <a href=\"#fnref-1\""))
         #expect(out.contains("<li id=\"fn-2\"><p>Alpha. <a href=\"#fnref-2\""))
         #expect(!out.contains("Never cited"))
+    }
+
+    @Test("A footnote can follow link definitions directly")
+    func afterDefinitions() {
+        let out = html("See[^n] [it].\n\n[it]: /u\n[^n]: Note.")
+        #expect(out.contains("<a href=\"/u\">it</a>"))
+        #expect(out.contains("<li id=\"fn-1\"><p>Note. <a href=\"#fnref-1\""))
     }
 
     @Test("An undefined footnote stays text in export")

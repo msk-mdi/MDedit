@@ -412,7 +412,7 @@ final class MarkdownTextStorage: NSTextStorage {
         var source: String?
         for node in nodes {
             switch node {
-            case let .image(_, _, imageSource, _) where source == nil:
+            case let .image(_, _, imageSource, _, _) where source == nil:
                 source = imageSource
             case let .text(range):
                 let text = (String(utf16CodeUnits: Array(characters[range.location..<NSMaxRange(range)]), count: range.length))
@@ -534,7 +534,7 @@ final class MarkdownTextStorage: NSTextStorage {
                     .toolTip: linkToolTip(destination),
                 ], range: absolute)
 
-            case let .image(_, _, source, _):
+            case let .image(_, _, source, _, _):
                 backing.addAttributes([
                     .foregroundColor: theme.link,
                     .mdLink: source,
@@ -549,7 +549,7 @@ final class MarkdownTextStorage: NSTextStorage {
                     .toolTip: linkToolTip(url),
                 ], range: absolute)
 
-            case .escape, .rawHTML:
+            case .escape, .rawHTML, .entity, .lineBreak:
                 break
             }
 

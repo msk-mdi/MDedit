@@ -16,7 +16,9 @@ private func shape(_ nodes: [InlineNode]) -> String {
         case let .strong(_, _, children): "strong[\(shape(children))]"
         case let .strikethrough(_, _, children): "strike[\(shape(children))]"
         case let .link(_, _, destination, _, children): "link(\(destination))[\(shape(children))]"
-        case let .image(_, _, source, alt): "image(\(source),\(alt))"
+        case let .image(_, _, source, alt, _): "image(\(source),\(alt))"
+        case .entity: "entity"
+        case let .lineBreak(_, hard): hard ? "br" : "soft"
         case let .autolink(_, _, url): "auto(\(url))"
         case .escape: "escape"
         case .rawHTML: "html"
@@ -107,6 +109,38 @@ struct InlineParserTests {
                 covered = NSMaxRange(node.range)
             }
             #expect(covered == markdown.utf16.count, "short coverage of \(markdown.debugDescription)")
+        }
+    }
+}
+
+@Suite("InlineParser robustness")
+struct InlineParserRobustnessTests {
+    /// The editor runs the parser on every keystroke, over whatever is
+    /// half-typed. Random markup must never crash it, and every range it
+    /// reports must lie inside the text, children inside their parents.
+    @Test("Random markup parses to in-bounds, ordered ranges")
+    func randomMarkup() {
+        let alphabet = Array("ab *_~=`[]()!<>:$^\\&#;\n /x1".utf16)
+        var generator = SystemRandomNumberGenerator()
+        for _ in 0..<3000 {
+            let length = Int.random(in: 0...40, using: &generator)
+            let characters = (0..<length).map { _ in alphabet.randomElement(using: &generator)! }
+            let nodes = InlineParser.parse(characters)
+            check(nodes, within: NSRange(location: 0, length: characters.count), characters)
+        }
+    }
+
+    private func check(_ nodes: [InlineNode], within bounds: NSRange, _ characters: [UInt16]) {
+        var previousEnd = bounds.location
+        for node in nodes {
+            let range = node.range
+            #expect(range.location >= previousEnd && NSMaxRange(range) <= NSMaxRange(bounds),
+                    "\(range) outside \(bounds) in \(String(decoding: characters, as: UTF16.self).debugDescription)")
+            for marker in node.markers {
+                #expect(NSIntersectionRange(marker.range, range) == marker.range)
+            }
+            previousEnd = NSMaxRange(range)
+            check(node.children, within: range, characters)
         }
     }
 }

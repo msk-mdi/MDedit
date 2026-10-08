@@ -47,7 +47,8 @@ struct HTMLRendererTests {
     func lists() {
         #expect(html("- a\n- b") == "<ul>\n<li>a</li>\n<li>b</li>\n</ul>")
         #expect(html("1. a") == "<ol>\n<li>a</li>\n</ol>")
-        #expect(html("- a\n  - b") == "<ul>\n<li>a</li>\n<ul>\n<li>b</li>\n</ul>\n</ul>")
+        // A nested list belongs inside its parent item.
+        #expect(html("- a\n  - b") == "<ul>\n<li>a\n<ul>\n<li>b</li>\n</ul>\n</li>\n</ul>")
         #expect(html("- [x] done").contains("checked"))
     }
 

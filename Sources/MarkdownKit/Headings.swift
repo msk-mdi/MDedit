@@ -42,21 +42,22 @@ public struct SlugGenerator {
 /// Inline content flattened to the text a reader sees.
 public func plainText(_ characters: [UInt16], from low: Int, to high: Int) -> String {
     guard low < high else { return "" }
-    return flatten(InlineParser.parse(characters, from: low, to: high), characters)
+    return flattenInline(InlineParser.parse(characters, from: low, to: high), characters)
         .trimmingCharacters(in: .whitespaces)
 }
 
-private func flatten(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
+/// The text a reader sees in inline nodes, as in image alt text and outlines.
+func flattenInline(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
     var out = ""
     for node in nodes {
         switch node {
         case let .text(range):
             out += string(characters, from: range.location, to: NSMaxRange(range))
         case let .code(_, content, _):
-            out += string(characters, from: content.location, to: NSMaxRange(content))
+            out += codeSpanText(string(characters, from: content.location, to: NSMaxRange(content)))
         case let .escape(_, _, character):
             out += string(characters, from: character.location, to: NSMaxRange(character))
-        case let .image(_, _, _, alt):
+        case let .image(_, _, _, alt, _):
             out += alt
         case let .autolink(range, markers, _):
             let shown = markers.count == 2 ? NSRange(location: range.location + 1, length: range.length - 2) : range
@@ -65,10 +66,14 @@ private func flatten(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
             out += string(characters, from: content.location, to: NSMaxRange(content))
         case let .emoji(_, _, _, emoji):
             out += emoji
+        case let .entity(_, text):
+            out += text
+        case let .lineBreak(_, hard):
+            out += hard ? "\n" : " "
         case .rawHTML, .footnoteReference:
             break
         case .emphasis, .strong, .strikethrough, .highlight, .link, .superscript, .subscript:
-            out += flatten(node.children, characters)
+            out += flattenInline(node.children, characters)
         }
     }
     return out
