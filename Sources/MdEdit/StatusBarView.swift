@@ -25,8 +25,8 @@ final class StatusBarView: NSView {
         counts.font = .systemFont(ofSize: 11)
         counts.target = self
         counts.action = #selector(showStatistics)
-        counts.toolTip = "Statistics and word goal"
-        counts.setAccessibilityLabel("Document statistics")
+        counts.toolTip = String(localized: "Statistics and word goal")
+        counts.setAccessibilityLabel(String(localized: "Document statistics"))
 
         goalProgress.style = .bar
         goalProgress.isIndeterminate = false
@@ -90,11 +90,11 @@ final class StatusBarView: NSView {
         let words = statistics.words.formatted()
         var left: String
         if let selection, selection.characters > 0 {
-            left = "Selected: \(selection.words.formatted()) of \(words) words   Characters: \(selection.characters.formatted())"
+            left = String(localized: "Selected: \(selection.words.formatted()) of \(words) words   Characters: \(selection.characters.formatted())")
         } else if let goal {
-            left = "Words: \(words) of \(goal.formatted())   Characters: \(statistics.characters.formatted())"
+            left = String(localized: "Words: \(words) of \(goal.formatted())   Characters: \(statistics.characters.formatted())")
         } else {
-            left = "Words: \(words)   Characters: \(statistics.characters.formatted())   Lines: \(statistics.lines.formatted())"
+            left = String(localized: "Words: \(words)   Characters: \(statistics.characters.formatted())   Lines: \(statistics.lines.formatted())")
         }
         if let goal, statistics.words >= goal { left += "   ✓" }
         counts.attributedTitle = NSAttributedString(string: left, attributes: titleAttributes)
@@ -106,7 +106,7 @@ final class StatusBarView: NSView {
             goalProgress.doubleValue = Double(min(statistics.words, goal))
         }
         let minutes = statistics.readingMinutes
-        details.stringValue = "\(max(1, minutes)) min read   ·   Line \(line), Column \(column)"
+        details.stringValue = String(localized: "\(max(1, minutes)) min read   ·   Line \(line), Column \(column)")
     }
 }
 
@@ -120,7 +120,9 @@ final class StatisticsViewController: NSViewController {
     var onSetGoal: ((Int?) -> Void)?
 
     private static let rows = [
-        "Words", "Characters", "Without spaces", "Paragraphs", "Sentences", "Lines", "Reading time", "Speaking time",
+        String(localized: "Words"), String(localized: "Characters"), String(localized: "Without spaces"),
+        String(localized: "Paragraphs"), String(localized: "Sentences"), String(localized: "Lines"),
+        String(localized: "Reading time"), String(localized: "Speaking time"),
     ]
 
     override func loadView() {
@@ -136,7 +138,7 @@ final class StatisticsViewController: NSViewController {
             values.append(value)
             grid.addRow(with: [label, value])
         }
-        goalField.placeholderString = "None"
+        goalField.placeholderString = String(localized: "None")
         goalField.formatter = {
             let formatter = NumberFormatter()
             formatter.minimum = 0
@@ -147,7 +149,7 @@ final class StatisticsViewController: NSViewController {
         goalField.widthAnchor.constraint(equalToConstant: 90).isActive = true
         goalField.target = self
         goalField.action = #selector(goalChanged)
-        let goalLabel = NSTextField(labelWithString: "Word goal")
+        let goalLabel = NSTextField(labelWithString: String(localized: "Word goal"))
         goalLabel.textColor = .secondaryLabelColor
         grid.addRow(with: [goalLabel, goalField])
         grid.row(at: grid.numberOfRows - 1).topPadding = 8
@@ -165,7 +167,7 @@ final class StatisticsViewController: NSViewController {
 
     func show(_ statistics: TextStatistics, isSelection: Bool, goal: Int?) {
         loadViewIfNeeded()
-        func minutes(_ value: Int) -> String { value == 0 ? "—" : "\(value) min" }
+        func minutes(_ value: Int) -> String { value == 0 ? "—" : String(localized: "\(value) min") }
         let texts = [
             statistics.words.formatted(), statistics.characters.formatted(),
             statistics.charactersExcludingSpaces.formatted(), statistics.paragraphs.formatted(),
@@ -173,7 +175,7 @@ final class StatisticsViewController: NSViewController {
             minutes(statistics.readingMinutes), minutes(statistics.speakingMinutes),
         ]
         for (field, text) in zip(values, texts) { field.stringValue = text }
-        (grid.cell(atColumnIndex: 0, rowIndex: 0).contentView as? NSTextField)?.stringValue = isSelection ? "Selected words" : "Words"
+        (grid.cell(atColumnIndex: 0, rowIndex: 0).contentView as? NSTextField)?.stringValue = isSelection ? String(localized: "Selected words") : String(localized: "Words")
         if view.window?.firstResponder !== goalField.currentEditor() {
             goalField.stringValue = goal.map(String.init) ?? ""
         }

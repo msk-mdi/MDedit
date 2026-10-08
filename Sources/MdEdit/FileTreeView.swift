@@ -9,7 +9,7 @@ final class FileTreeView: NSView {
 
     private let scrollView = NSScrollView()
     private let outline = NSOutlineView()
-    private let emptyButton = NSButton(title: "Open Folder…", target: nil, action: nil)
+    private let emptyButton = NSButton(title: String(localized: "Open Folder…"), target: nil, action: nil)
     private var root: FileNode?
     private var theme: Theme = .light
 
@@ -141,8 +141,8 @@ final class FileTreeView: NSView {
 
     private func contextMenu() -> NSMenu {
         let menu = NSMenu()
-        menu.addItem(withTitle: "New Markdown File", action: #selector(newFile), keyEquivalent: "").target = self
-        menu.addItem(withTitle: "Reveal in Finder", action: #selector(revealInFinder), keyEquivalent: "").target = self
+        menu.addItem(withTitle: String(localized: "New Markdown File"), action: #selector(newFile), keyEquivalent: "").target = self
+        menu.addItem(withTitle: String(localized: "Reveal in Finder"), action: #selector(revealInFinder), keyEquivalent: "").target = self
         return menu
     }
 

@@ -9,7 +9,7 @@ final class OutlineView: NSView {
 
     private let scrollView = NSScrollView()
     private let table = NSTableView()
-    private let emptyLabel = NSTextField(labelWithString: "No headings")
+    private let emptyLabel = NSTextField(labelWithString: String(localized: "No headings"))
     private var headings: [Heading] = []
     private var theme: Theme = .light
     /// Set while the highlight follows the caret, so it is not taken as a click.
@@ -103,7 +103,7 @@ extension OutlineView: NSTableViewDataSource, NSTableViewDelegate {
         let cell = tableView.makeView(withIdentifier: identifier, owner: nil) as? OutlineCell ?? OutlineCell()
         cell.identifier = identifier
         let heading = headings[row]
-        cell.configure(title: heading.title.isEmpty ? "Untitled" : heading.title, level: heading.level, theme: theme)
+        cell.configure(title: heading.title.isEmpty ? String(localized: "Untitled") : heading.title, level: heading.level, theme: theme)
         return cell
     }
 

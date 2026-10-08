@@ -84,7 +84,7 @@ final class VersionBrowserController: NSWindowController, NSTableViewDataSource,
     private let versions: [VersionHistory.Version]
     private let table = NSTableView()
     private let preview = NSTextView()
-    private let restoreButton = NSButton(title: "Restore", target: nil, action: nil)
+    private let restoreButton = NSButton(title: String(localized: "Restore"), target: nil, action: nil)
     /// Called with the chosen version's text, or nil on Cancel.
     var onFinish: ((String?) -> Void)?
 
@@ -96,7 +96,7 @@ final class VersionBrowserController: NSWindowController, NSTableViewDataSource,
             backing: .buffered,
             defer: false
         )
-        window.title = "Versions of “\(title)”"
+        window.title = String(localized: "Versions of “\(title)”")
         window.minSize = NSSize(width: 520, height: 320)
         super.init(window: window)
         build()
@@ -108,7 +108,7 @@ final class VersionBrowserController: NSWindowController, NSTableViewDataSource,
     private func build() {
         guard let window else { return }
         let column = NSTableColumn(identifier: .init("version"))
-        column.title = "Saved"
+        column.title = String(localized: "Saved")
         table.addTableColumn(column)
         table.headerView = nil
         table.dataSource = self
@@ -135,14 +135,14 @@ final class VersionBrowserController: NSWindowController, NSTableViewDataSource,
         split.addArrangedSubview(previewScroll)
         tableScroll.widthAnchor.constraint(greaterThanOrEqualToConstant: 200).isActive = true
 
-        let cancel = NSButton(title: "Cancel", target: self, action: #selector(cancel(_:)))
+        let cancel = NSButton(title: String(localized: "Cancel"), target: self, action: #selector(cancel(_:)))
         cancel.keyEquivalent = "\u{1b}"
         restoreButton.target = self
         restoreButton.action = #selector(restore(_:))
         restoreButton.keyEquivalent = "\r"
         let note = NSTextField(labelWithString: versions.isEmpty
-            ? "No versions yet. MdEdit keeps one each time you open or save a file."
-            : "Restoring replaces the text in the editor; you can undo it, and nothing is saved until you save.")
+            ? String(localized: "No versions yet. MdEdit keeps one each time you open or save a file.")
+            : String(localized: "Restoring replaces the text in the editor; you can undo it, and nothing is saved until you save."))
         note.textColor = .secondaryLabelColor
         note.font = .systemFont(ofSize: 11)
         note.lineBreakMode = .byTruncatingTail
@@ -186,7 +186,7 @@ final class VersionBrowserController: NSWindowController, NSTableViewDataSource,
     func tableView(_ tableView: NSTableView, viewFor tableColumn: NSTableColumn?, row: Int) -> NSView? {
         let version = versions[row]
         let title = Self.dateFormatter.string(from: version.date)
-        let label = NSTextField(labelWithString: version.isSystemVersion ? "\(title) · macOS" : title)
+        let label = NSTextField(labelWithString: version.isSystemVersion ? String(localized: "\(title) · macOS") : title)
         label.lineBreakMode = .byTruncatingTail
         return label
     }

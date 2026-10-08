@@ -28,15 +28,15 @@ final class CodeBlockAccessory: NSView {
         (languageButton.cell as? NSPopUpButtonCell)?.arrowPosition = .arrowAtBottom
         languageButton.target = self
         languageButton.action = #selector(languageChosen)
-        languageButton.toolTip = "Code block language"
+        languageButton.toolTip = String(localized: "Code block language")
 
-        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy code")
+        copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: String(localized: "Copy code"))
         copyButton.symbolConfiguration = NSImage.SymbolConfiguration(pointSize: 11, weight: .regular)
         copyButton.isBordered = false
         copyButton.bezelStyle = .accessoryBarAction
         copyButton.target = self
         copyButton.action = #selector(copyCode)
-        copyButton.toolTip = "Copy code"
+        copyButton.toolTip = String(localized: "Copy code")
 
         let stack = NSStackView(views: [languageButton, copyButton])
         stack.orientation = .horizontal
@@ -70,7 +70,7 @@ final class CodeBlockAccessory: NSView {
         let name = info.split(separator: " ").first.map(String.init) ?? ""
         guard name != currentLanguage else { return }
         currentLanguage = name
-        languageButton.item(at: 0)?.title = name.isEmpty ? "Plain Text" : name
+        languageButton.item(at: 0)?.title = name.isEmpty ? String(localized: "Plain Text") : name
         for item in languageButton.itemArray.dropFirst() {
             item.state = (item.representedObject as? String) == name.lowercased() ? .on : .off
         }
@@ -79,8 +79,8 @@ final class CodeBlockAccessory: NSView {
     private func rebuildMenu() {
         languageButton.removeAllItems()
         // A pull-down's first item is its title.
-        languageButton.addItem(withTitle: "Plain Text")
-        let plain = NSMenuItem(title: "Plain Text", action: nil, keyEquivalent: "")
+        languageButton.addItem(withTitle: String(localized: "Plain Text"))
+        let plain = NSMenuItem(title: String(localized: "Plain Text"), action: nil, keyEquivalent: "")
         plain.representedObject = ""
         languageButton.menu?.addItem(plain)
         languageButton.menu?.addItem(.separator())
@@ -99,9 +99,9 @@ final class CodeBlockAccessory: NSView {
     @objc private func copyCode() {
         onCopy?()
         // A moment of confirmation, then back to the copy icon.
-        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: "Copied")
+        copyButton.image = NSImage(systemSymbolName: "checkmark", accessibilityDescription: String(localized: "Copied"))
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) { [weak self] in
-            self?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: "Copy code")
+            self?.copyButton.image = NSImage(systemSymbolName: "doc.on.doc", accessibilityDescription: String(localized: "Copy code"))
         }
     }
 }

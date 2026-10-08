@@ -195,7 +195,7 @@ enum ThemeFile {
         while let open = rest.firstIndex(of: "{") {
             let selectorText = rest[..<open].trimmingCharacters(in: .whitespacesAndNewlines)
             guard let close = rest[open...].firstIndex(of: "}") else {
-                warnings.append("Unclosed block after “\(selectorText)”")
+                warnings.append(String(localized: "Unclosed block after “\(selectorText)”"))
                 break
             }
             let body = rest[rest.index(after: open)..<close]
@@ -205,7 +205,7 @@ enum ThemeFile {
                 let parts = declaration.split(separator: ":", maxSplits: 1)
                 guard parts.count == 2 else {
                     let text = declaration.trimmingCharacters(in: .whitespacesAndNewlines)
-                    if !text.isEmpty { warnings.append("Not a declaration: “\(text)”") }
+                    if !text.isEmpty { warnings.append(String(localized: "Not a declaration: “\(text)”")) }
                     continue
                 }
                 declarations.append((
@@ -224,7 +224,7 @@ enum ThemeFile {
                 if let builtIn = ThemeCatalog.builtIns.first(where: { $0.name.lowercased() == value.lowercased() }) {
                     base = builtIn
                 } else {
-                    warnings.append("Unknown base theme “\(value)”")
+                    warnings.append(String(localized: "Unknown base theme “\(value)”"))
                 }
             }
         }
@@ -232,19 +232,19 @@ enum ThemeFile {
         var family = ThemeFamily(name: name, light: base.light, dark: base.dark)
         for block in blocks {
             for selector in block.selectors where ![":root", "*", "light", "dark"].contains(selector) {
-                warnings.append("Unknown selector “\(selector)”; use :root, light or dark")
+                warnings.append(String(localized: "Unknown selector “\(selector)”; use :root, light or dark"))
             }
             let toLight = block.selectors.contains { [":root", "*", "light"].contains($0) }
             let toDark = block.selectors.contains { [":root", "*", "dark"].contains($0) }
             for (property, value) in block.declarations where property != "base" {
                 guard let color = NSColor(cssColor: value) else {
-                    warnings.append("Not a colour: “\(property): \(value)”")
+                    warnings.append(String(localized: "Not a colour: “\(property): \(value)”"))
                     continue
                 }
                 var known = true
                 if toLight { known = apply(color, to: property, in: &family.light) }
                 if toDark { known = apply(color, to: property, in: &family.dark) }
-                if !known { warnings.append("Unknown property “\(property)”") }
+                if !known { warnings.append(String(localized: "Unknown property “\(property)”")) }
             }
         }
         return Result(family: family, warnings: warnings)

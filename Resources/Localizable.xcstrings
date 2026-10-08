@@ -1,0 +1,819 @@
+{
+  "sourceLanguage" : "en",
+  "strings" : {
+    " (first %lld)" : {
+
+    },
+    "$Math$ and $$display math$$" : {
+
+    },
+    "%.1f lines" : {
+
+    },
+    "%@ · macOS" : {
+
+    },
+    "%@, edited" : {
+
+    },
+    "%lld min" : {
+
+    },
+    "%lld min read   ·   Line %lld, Column %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld min read   ·   Line %2$lld, Column %3$lld"
+          }
+        }
+      }
+    },
+    "%lld pt" : {
+
+    },
+    "%lld results in %lld files" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld results in %2$lld files"
+          }
+        }
+      }
+    },
+    "%lld results in 1 file" : {
+
+    },
+    "* Asterisk" : {
+
+    },
+    "+ Plus" : {
+
+    },
+    "- Hyphen" : {
+
+    },
+    "1 result in 1 file" : {
+
+    },
+    ":emoji: shortcodes" : {
+
+    },
+    "==Highlight==" : {
+
+    },
+    "About MdEdit" : {
+
+    },
+    "Actual Size" : {
+
+    },
+    "Add Caret Above" : {
+
+    },
+    "Add Caret Below" : {
+
+    },
+    "Add Column" : {
+
+    },
+    "Add Column After" : {
+
+    },
+    "Add Column Before" : {
+
+    },
+    "Add Next Occurrence" : {
+
+    },
+    "Add Row" : {
+
+    },
+    "Add Row Above" : {
+
+    },
+    "Add Row Below" : {
+
+    },
+    "Add a table of contents" : {
+
+    },
+    "Align Column" : {
+
+    },
+    "Align Column Center" : {
+
+    },
+    "Align Column Left" : {
+
+    },
+    "Align Column Right" : {
+
+    },
+    "Appearance" : {
+
+    },
+    "Blockquote" : {
+
+    },
+    "Bold" : {
+
+    },
+    "Bring All to Front" : {
+
+    },
+    "Browse Versions…" : {
+
+    },
+    "Bulleted List" : {
+
+    },
+    "Cancel" : {
+
+    },
+    "Characters" : {
+
+    },
+    "Cheat Sheet" : {
+
+    },
+    "Check Task" : {
+
+    },
+    "Check for Updates…" : {
+
+    },
+    "Check for updates once a day" : {
+
+    },
+    "Check spelling while typing" : {
+
+    },
+    "Close %@" : {
+
+    },
+    "Close Tab" : {
+
+    },
+    "Close brackets and backticks automatically" : {
+
+    },
+    "Close tab" : {
+
+    },
+    "Code Block" : {
+
+    },
+    "Code block language" : {
+
+    },
+    "Code colours:" : {
+
+    },
+    "Code font:" : {
+
+    },
+    "Copied" : {
+
+    },
+    "Copy" : {
+
+    },
+    "Copy as HTML" : {
+
+    },
+    "Copy as Rich Text" : {
+
+    },
+    "Copy code" : {
+
+    },
+    "Couldn’t check for updates." : {
+
+    },
+    "Cut" : {
+
+    },
+    "Definition lists (Term, then : definition)" : {
+
+    },
+    "Delete Column" : {
+
+    },
+    "Delete Row" : {
+
+    },
+    "Document statistics" : {
+
+    },
+    "Don’t Save" : {
+
+    },
+    "Edit" : {
+
+    },
+    "Editor" : {
+
+    },
+    "Editor Theme" : {
+
+    },
+    "Embed KaTeX and Mermaid (works offline)" : {
+
+    },
+    "Embed images in the file" : {
+
+    },
+    "Enter Full Screen" : {
+
+    },
+    "Export" : {
+
+    },
+    "Extended syntax:" : {
+
+    },
+    "File" : {
+
+    },
+    "Files" : {
+
+    },
+    "Find" : {
+
+    },
+    "Find Next" : {
+
+    },
+    "Find Previous" : {
+
+    },
+    "Find and Replace…" : {
+
+    },
+    "Find in Folder" : {
+
+    },
+    "Find in Folder…" : {
+
+    },
+    "Find in folder" : {
+
+    },
+    "Find…" : {
+
+    },
+    "Focus Mode" : {
+
+    },
+    "Fold All Sections" : {
+
+    },
+    "Fold Section" : {
+
+    },
+    "Font:" : {
+
+    },
+    "Format" : {
+
+    },
+    "Format Table" : {
+
+    },
+    "Format:" : {
+
+    },
+    "HTML…" : {
+
+    },
+    "Heading %lld" : {
+
+    },
+    "Headings:" : {
+
+    },
+    "Help" : {
+
+    },
+    "Hide Files" : {
+
+    },
+    "Hide MdEdit" : {
+
+    },
+    "Hide Others" : {
+
+    },
+    "Hide Outline" : {
+
+    },
+    "Image, " : {
+
+    },
+    "Image: %@. " : {
+
+    },
+    "Include stylesheet" : {
+
+    },
+    "Inline Code" : {
+
+    },
+    "Insert Image" : {
+
+    },
+    "Insert Table" : {
+
+    },
+    "Insert Table of Contents" : {
+
+    },
+    "Italic" : {
+
+    },
+    "Keep My Changes" : {
+
+    },
+    "Last Saved" : {
+
+    },
+    "Later" : {
+
+    },
+    "Line height:" : {
+
+    },
+    "Line width:" : {
+
+    },
+    "Lines" : {
+
+    },
+    "Link" : {
+
+    },
+    "Links from bare https:// and www. addresses" : {
+
+    },
+    "Link…" : {
+
+    },
+    "Margins:" : {
+
+    },
+    "Markdown" : {
+
+    },
+    "Markdown Cheat Sheet" : {
+
+    },
+    "MdEdit" : {
+
+    },
+    "MdEdit %@ is available." : {
+
+    },
+    "MdEdit is up to date." : {
+
+    },
+    "MdEdit on GitHub" : {
+
+    },
+    "Minimize" : {
+
+    },
+    "Move Tab to New Window" : {
+
+    },
+    "Narrow" : {
+
+    },
+    "New Markdown File" : {
+
+    },
+    "New Tab" : {
+
+    },
+    "New Tab (⌘T)" : {
+
+    },
+    "New Window" : {
+
+    },
+    "New bulleted lists:" : {
+
+    },
+    "New numbered lists:" : {
+
+    },
+    "New tab" : {
+
+    },
+    "New tabs start in:" : {
+
+    },
+    "Next Tab" : {
+
+    },
+    "No headings" : {
+
+    },
+    "No results" : {
+
+    },
+    "No versions yet. MdEdit keeps one each time you open or save a file." : {
+
+    },
+    "None" : {
+
+    },
+    "Normal" : {
+
+    },
+    "Not a colour: “%@: %@”" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Not a colour: “%1$@: %2$@”"
+          }
+        }
+      }
+    },
+    "Not a declaration: “%@”" : {
+
+    },
+    "Number headings (1, 1.1, 1.2…) in the editor and export" : {
+
+    },
+    "Numbered List" : {
+
+    },
+    "Open Folder" : {
+
+    },
+    "Open Folder…" : {
+
+    },
+    "Open Recent" : {
+
+    },
+    "Open Release Page" : {
+
+    },
+    "Open file…" : {
+
+    },
+    "Opens the folder for .mdtheme files, with a commented example to start from" : {
+
+    },
+    "Open…" : {
+
+    },
+    "Outline" : {
+
+    },
+    "PDF…" : {
+
+    },
+    "Pandoc could not export the document.\n\n%@" : {
+
+    },
+    "Pandoc is not installed." : {
+
+    },
+    "Paper:" : {
+
+    },
+    "Paragraph" : {
+
+    },
+    "Paragraphs" : {
+
+    },
+    "Paste" : {
+
+    },
+    "Paste Link" : {
+
+    },
+    "Paste and Match Style" : {
+
+    },
+    "Plain Text" : {
+
+    },
+    "Plain Text…" : {
+
+    },
+    "Previous Tab" : {
+
+    },
+    "Print…" : {
+
+    },
+    "Quick Open…" : {
+
+    },
+    "Quit MdEdit" : {
+
+    },
+    "Reading time" : {
+
+    },
+    "Redo" : {
+
+    },
+    "Reload" : {
+
+    },
+    "Remove Column Alignment" : {
+
+    },
+    "Restore" : {
+
+    },
+    "Restore Version" : {
+
+    },
+    "Restoring replaces the text in the editor; you can undo it, and nothing is saved until you save." : {
+
+    },
+    "Reveal in Finder" : {
+
+    },
+    "Revert To" : {
+
+    },
+    "Revert to Saved" : {
+
+    },
+    "Rich Text" : {
+
+    },
+    "Rich Text…" : {
+
+    },
+    "Save" : {
+
+    },
+    "Save As…" : {
+
+    },
+    "Save changes to “%@” before closing?" : {
+
+    },
+    "Saved" : {
+
+    },
+    "Searching…" : {
+
+    },
+    "Select All" : {
+
+    },
+    "Select All Occurrences" : {
+
+    },
+    "Selected words" : {
+
+    },
+    "Selected: %@ of %@ words   Characters: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Selected: %1$@ of %2$@ words   Characters: %3$@"
+          }
+        }
+      }
+    },
+    "Selection" : {
+
+    },
+    "Sentences" : {
+
+    },
+    "Set Language" : {
+
+    },
+    "Settings" : {
+
+    },
+    "Settings…" : {
+
+    },
+    "Show All" : {
+
+    },
+    "Show Files" : {
+
+    },
+    "Show Outline" : {
+
+    },
+    "Size:" : {
+
+    },
+    "Source Mode" : {
+
+    },
+    "Space after blocks:" : {
+
+    },
+    "Speaking time" : {
+
+    },
+    "Statistics and word goal" : {
+
+    },
+    "Statistics…" : {
+
+    },
+    "Strikethrough" : {
+
+    },
+    "System" : {
+
+    },
+    "Table" : {
+
+    },
+    "Table of Contents" : {
+
+    },
+    "Tabs" : {
+
+    },
+    "Task List" : {
+
+    },
+    "Theme Folder…" : {
+
+    },
+    "Theme:" : {
+
+    },
+    "Title and page numbers on each page" : {
+
+    },
+    "Top and bottom padding:" : {
+
+    },
+    "Typewriter Mode" : {
+
+    },
+    "Typing:" : {
+
+    },
+    "US Legal" : {
+
+    },
+    "US Letter" : {
+
+    },
+    "Uncheck Task" : {
+
+    },
+    "Unclosed block after “%@”" : {
+
+    },
+    "Undo" : {
+
+    },
+    "Unfold All Sections" : {
+
+    },
+    "Unfold Section" : {
+
+    },
+    "Unknown base theme “%@”" : {
+
+    },
+    "Unknown property “%@”" : {
+
+    },
+    "Unknown selector “%@”; use :root, light or dark" : {
+
+    },
+    "Untitled" : {
+
+    },
+    "Updates:" : {
+
+    },
+    "Use Selection for Find" : {
+
+    },
+    "Use smart quotes and dashes (never in code)" : {
+
+    },
+    "Version %@ is the latest." : {
+
+    },
+    "Versions of “%@”" : {
+
+    },
+    "View" : {
+
+    },
+    "Welcome" : {
+
+    },
+    "Welcome to MdEdit" : {
+
+    },
+    "Wide" : {
+
+    },
+    "Window" : {
+
+    },
+    "With Pandoc (not installed)" : {
+
+    },
+    "With Pandoc…" : {
+
+    },
+    "Without spaces" : {
+
+    },
+    "Word Document" : {
+
+    },
+    "Word Document…" : {
+
+    },
+    "Word goal" : {
+
+    },
+    "Words" : {
+
+    },
+    "Words: %@   Characters: %@   Lines: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Words: %1$@   Characters: %2$@   Lines: %3$@"
+          }
+        }
+      }
+    },
+    "Words: %@ of %@   Characters: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Words: %1$@ of %2$@   Characters: %3$@"
+          }
+        }
+      }
+    },
+    "You have unsaved changes here. Reloading discards them." : {
+
+    },
+    "You have version %@. The release page has the new disk image; with Homebrew, run brew upgrade mdedit." : {
+
+    },
+    "Your changes will be lost if you don’t save them." : {
+
+    },
+    "Zoom" : {
+
+    },
+    "Zoom In" : {
+
+    },
+    "Zoom Out" : {
+
+    },
+    "^Superscript^ and ~subscript~" : {
+
+    },
+    "checked" : {
+
+    },
+    "diagram %@" : {
+
+    },
+    "formula %@" : {
+
+    },
+    "pt  ·  View ▸ Zoom scales it further" : {
+
+    },
+    "tab" : {
+
+    },
+    "unchecked" : {
+
+    },
+    "“%@” changed on disk." : {
+
+    }
+  },
+  "version" : "1.0"
+}

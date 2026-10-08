@@ -43,7 +43,7 @@ final class QuickOpenController: NSObject {
         content.material = .popover
         content.state = .active
 
-        field.placeholderString = "Open file…"
+        field.placeholderString = String(localized: "Open file…")
         field.font = .systemFont(ofSize: 16)
         field.focusRingType = .none
         field.delegate = self

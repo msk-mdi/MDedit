@@ -21,7 +21,7 @@ final class SearchPaneView: NSView {
         super.init(frame: frameRect)
         translatesAutoresizingMaskIntoConstraints = false
 
-        field.placeholderString = "Find in folder"
+        field.placeholderString = String(localized: "Find in folder")
         field.sendsSearchStringImmediately = false
         field.sendsWholeSearchString = false
         field.target = self
@@ -85,7 +85,7 @@ final class SearchPaneView: NSView {
             return
         }
         workspace = scope.workspace
-        status.stringValue = "Searching…"
+        status.stringValue = String(localized: "Searching…")
         searchTask = Task.detached(priority: .userInitiated) { [weak self] in
             var files = scope.workspace?.markdownFiles() ?? []
             let known = Set(files.map(\.standardizedFileURL.path))
@@ -99,9 +99,12 @@ final class SearchPaneView: NSView {
     private func show(_ found: [WorkspaceSearch.FileResult], query: String) {
         results = found.map { FileGroup(result: $0) }
         let count = found.reduce(0) { $0 + $1.matches.count }
-        status.stringValue = query.isEmpty ? "" : count == 0 ? "No results"
-            : "\(count) result\(count == 1 ? "" : "s") in \(found.count) file\(found.count == 1 ? "" : "s")"
-            + (count >= WorkspaceSearch.matchLimit ? " (first \(WorkspaceSearch.matchLimit))" : "")
+        let summary = count == 1 ? String(localized: "1 result in 1 file")
+            : found.count == 1 ? String(localized: "\(count) results in 1 file")
+            : String(localized: "\(count) results in \(found.count) files")
+        status.stringValue = query.isEmpty ? "" : count == 0 ? String(localized: "No results")
+            : summary
+            + (count >= WorkspaceSearch.matchLimit ? String(localized: " (first \(WorkspaceSearch.matchLimit))") : "")
         outline.reloadData()
         outline.expandItem(nil, expandChildren: true)
     }

@@ -16,9 +16,9 @@ final class SidebarView: NSView {
 
         var label: String {
             switch self {
-            case .files: "Files"
-            case .outline: "Outline"
-            case .search: "Find in Folder"
+            case .files: String(localized: "Files")
+            case .outline: String(localized: "Outline")
+            case .search: String(localized: "Find in Folder")
             }
         }
     }
