@@ -24,7 +24,7 @@ jobs:
     env:
       HAS_SIGNING: ${{ secrets.DEVELOPER_ID_P12 != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
         with:
           fetch-depth: 0  # the build number is the commit count
 
@@ -33,8 +33,11 @@ jobs:
           version="$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' Resources/Info.plist)"
           [ "v$version" = "$GITHUB_REF_NAME" ] || { echo "tag $GITHUB_REF_NAME, Info.plist $version"; exit 1; }
 
+      - name: Toolchain
+        run: Scripts/ci.sh toolchain
+
       - name: Test
-        run: swift test
+        run: Scripts/ci.sh test
 
       - name: Bundle KaTeX and Mermaid
         run: Scripts/fetch-vendor.sh
