@@ -3,6 +3,17 @@
 Versions follow the milestones in [ROADMAP.md](ROADMAP.md). The release
 workflow publishes the section for a version as its release notes.
 
+## [0.9.1] - 2026-10-09
+
+### Fixed
+- Building with Xcode 26 and its Command Line Tools, as the Homebrew formula and
+  GitHub's macOS 26 runners do: a macOS 27 glass API is now guarded at compile time.
+  0.9.0 built only with Xcode 27, so its release was never published.
+
+### Changed
+- CI reports compiler errors and test failures as annotations, readable without
+  signing in to GitHub.
+
 ## [0.9.0] - 2026-10-09
 
 Quality, accessibility and distribution (roadmap P3).
