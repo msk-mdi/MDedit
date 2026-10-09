@@ -8,7 +8,7 @@ list continuation, typewriter/focus mode, file watching, HTML/PDF export, a 3-op
 and 47 tests. The README's own "Not implemented" list plus a code survey gave the gaps below.
 Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkText/Typora, P2 = power features, P3 = polish & distribution.
 
-**Status (2026-10-08):** P0–P3 are done — 208 tests, CommonMark 650/652. What v1.0 still needs is outside the code: a Developer ID to sign and notarize a release, and a tap for the cask.
+**Status (2026-10-08):** P0–P3 are done — 208 tests, CommonMark 650/652. What v1.0 still needs is outside the code: the `msk-mdi/homebrew-tap` repository and a first tagged release.
 
 ---
 
@@ -85,11 +85,12 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 - [x] **Undo grouping** (`4152fca`): per-document undo managers (tabs shared the window's — undo could hit another tab); input-handler edits were registered twice and threw on undo; commands are named steps that don't coalesce with typing.
 - Also fixed: `- ` after a list item parsed as a setext underline (`f6d72cc`).
 
-## P3 — Distribution ✅ (scripted; needs an Apple Developer ID to run for real)
+## P3 — Distribution ✅ (free: no Apple Developer Program)
+- [x] Unpaid route: notarization needs the paid program, so releases are ad-hoc signed DMGs whose notes and "First launch.txt" explain Open Anyway, and `Packaging/Homebrew/mdedit.rb` is a formula that builds from source — locally built apps are not quarantined, so Gatekeeper never asks. `make-app.sh` takes `MDEDIT_SWIFT_FLAGS` (Homebrew's `--disable-sandbox`) and works with the Command Line Tools alone.
 - [x] Developer ID signing (hardened runtime) and notarization in `Scripts/make-app.sh` from `MDEDIT_SIGN_IDENTITY` / `MDEDIT_NOTARY_PROFILE`; `--sandbox` signs with App Sandbox entitlements. `FileAccess` keeps bookmarks (security-scoped when sandboxed) for opened files and workspace folders and resolves the session through them — which also follows files renamed between launches. Recents use `NSDocumentController`'s own. The sandboxed build has not been launched.
 - [~] Auto-update: Check for Updates… and an opt-out daily check against GitHub Releases, opening the release page. No Sparkle (it would be the first dependency) and no Mac App Store build (needs an account).
 - [x] Markdown UTI declared, MdEdit the default handler, document icon (`make-icon.swift` draws both). Quick Look preview extension (`Sources/MdEditQuickLook`, a SwiftPM executable entered at `NSExtensionMain`, wrapped as an `.appex` by `make-app.sh`) renders with `MarkdownKit` and its own light/dark stylesheet — checked with `qlmanage -p`.
-- [x] `Scripts/make-dmg.sh`, `.github/workflows/release.yml` (tag `v*` → test, vendor, sign, notarize, DMG, GitHub release with the CHANGELOG section), `Packaging/Homebrew/mdedit.rb`, `CHANGELOG.md`, version 0.9.0 with the commit count as build number.
+- [x] `Scripts/make-dmg.sh`, `.github/workflows/release.yml` (tag `v*` → test, vendor, DMG, GitHub release with the CHANGELOG section and install notes; signs and notarizes too if secrets are ever added), `CHANGELOG.md`, version 0.9.0 with the commit count as build number.
 - [x] Help: Welcome page on first launch and a Markdown Cheat Sheet, opened as editable untitled copies; MdEdit on GitHub.
 
 ---
@@ -101,7 +102,7 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 4. ✅ **v0.5 "Tables & math"** — table editor, math, mermaid in export.
 5. ✅ **v0.6 "Workspace"** — file tree, quick open, multi-window, settings, export and writing tools (P2).
 6. ✅ **v0.9** — accessibility, tests and CI, undo, localization scaffolding, Quick Look, signing and release scripts.
-7. ☐ **v1.0** — the first signed, notarized release; translations.
+7. ☐ **v1.0** — the first public release (DMG and Homebrew tap); translations.
 
 ## Known gaps carried forward
 - Not exercised with real input (macOS blocked synthetic keystrokes and drags from the dev session): the new Settings window, export panels and Print, fold chips, ⌥-click carets, the version browser, Quick Open, Find in Folder typing, tab dragging, image/HTML paste from other apps, code-block menu and Copy. Typing, list and table keys, the quit review and tear-off are now covered by tests.

@@ -9,6 +9,8 @@
 #                         xcrun notarytool store-credentials <profile> ...
 # --sandbox signs with Resources/MdEdit-Sandbox.entitlements (App Sandbox, as
 # the Mac App Store requires) instead of the hardened runtime alone.
+# MDEDIT_SWIFT_FLAGS passes extra flags to swift build (Homebrew sets
+# --disable-sandbox, as its own sandbox forbids SwiftPM's).
 set -euo pipefail
 
 CONFIG=debug
@@ -24,9 +26,10 @@ done
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$ROOT"
 
-swift build -c "$CONFIG" --product MdEdit
-swift build -c "$CONFIG" --product MdEditQuickLook
-BIN="$(swift build -c "$CONFIG" --show-bin-path)"
+read -r -a FLAGS <<< "${MDEDIT_SWIFT_FLAGS:-}"
+swift build -c "$CONFIG" ${FLAGS[@]+"${FLAGS[@]}"} --product MdEdit
+swift build -c "$CONFIG" ${FLAGS[@]+"${FLAGS[@]}"} --product MdEditQuickLook
+BIN="$(swift build -c "$CONFIG" ${FLAGS[@]+"${FLAGS[@]}"} --show-bin-path)"
 
 APP="$ROOT/build/MdEdit.app"
 rm -rf "$APP"
@@ -37,7 +40,11 @@ cp "$ROOT/Resources/Info.plist" "$APP/Contents/Info.plist"
 cp "$ROOT/Resources/AppIcon.icns" "$ROOT/Resources/MarkdownDocument.icns" "$APP/Contents/Resources/"
 cp "$ROOT/Resources/Help/"*.md "$APP/Contents/Resources/"
 # Translations: the catalog compiles to one .lproj folder per language.
-xcrun xcstringstool compile "$ROOT/Resources/Localizable.xcstrings" --output-directory "$APP/Contents/Resources" >/dev/null
+# xcstringstool comes with Xcode, not the Command Line Tools; without it the
+# app is English only, as it is anyway until there are translations.
+if xcrun --find xcstringstool >/dev/null 2>&1; then
+	xcrun xcstringstool compile "$ROOT/Resources/Localizable.xcstrings" --output-directory "$APP/Contents/Resources" >/dev/null
+fi
 # KaTeX and Mermaid for offline math and diagrams, if Scripts/fetch-vendor.sh has run.
 if [ -d "$ROOT/Resources/vendor" ]; then
 	cp -R "$ROOT/Resources/vendor" "$APP/Contents/Resources/vendor"

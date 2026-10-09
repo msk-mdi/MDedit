@@ -90,9 +90,35 @@ markdown comes back. There is no split pane and no preview mode to switch to.
   repository. Only math and diagrams borrow from the web: KaTeX and Mermaid run in
   one hidden web view, and the editor draws the images it takes.
 
-## Requirements
+## Installing
 
-macOS 26 or later (the Liquid Glass APIs), and Xcode 26 or later to build.
+MdEdit needs macOS 26 or later (the Liquid Glass APIs).
+
+**With Homebrew** — it builds MdEdit on your Mac, so it opens without any warning.
+It needs Xcode 26 or its Command Line Tools (`xcode-select --install`):
+
+```sh
+brew install msk-mdi/tap/mdedit
+ln -sf "$(brew --prefix mdedit)/MdEdit.app" /Applications/MdEdit.app
+```
+
+`brew upgrade mdedit` updates it, and the link follows. The formula also puts the
+`mdedit` command on your path, for `mdedit --render`.
+
+**From a release** — download the DMG from
+[Releases](https://github.com/msk-mdi/MDedit/releases) and drag MdEdit to
+Applications. MdEdit is free and not notarized by Apple (that takes a paid
+developer account), so the first time it opens macOS stops it with "Apple could
+not verify…". Click **Done**, open System Settings ▸ Privacy & Security, and
+click **Open Anyway** next to MdEdit. Or run this once:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/MdEdit.app
+```
+
+## Requirements to build
+
+Xcode 26 or later, or its Command Line Tools.
 
 ## Building
 
@@ -112,18 +138,20 @@ locally but not to distribute it.
 
 ### Releasing
 
-```sh
-export MDEDIT_SIGN_IDENTITY="Developer ID Application: Name (TEAMID)"
-export MDEDIT_NOTARY_PROFILE=mdedit-notary   # xcrun notarytool store-credentials mdedit-notary …
-Scripts/make-app.sh release    # signed with the hardened runtime, notarized, stapled
-Scripts/make-dmg.sh            # build/MdEdit-<version>.dmg, also notarized; prints its sha256
-```
+1. Set `CFBundleShortVersionString` in `Resources/Info.plist` and add a section to
+   `CHANGELOG.md`.
+2. Push a `v<version>` tag. GitHub Actions (`.github/workflows/release.yml`)
+   tests, builds the app and `Scripts/make-dmg.sh`'s DMG, and publishes a release
+   with that CHANGELOG section and install instructions as notes. The DMG holds a
+   "First launch.txt" explaining Open Anyway.
+3. Update the tap: copy `Packaging/Homebrew/mdedit.rb` to `Formula/mdedit.rb` in
+   the `msk-mdi/homebrew-tap` repository, with the new version in `url` and the
+   tarball's checksum in `sha256` (the formula's comment has the command).
 
-`Scripts/make-app.sh release --sandbox` signs with the App Sandbox entitlements
-the Mac App Store requires. Pushing a `v<version>` tag runs the same steps in
-GitHub Actions (`.github/workflows/release.yml`, given the signing secrets it
-lists) and publishes the DMG with that version's CHANGELOG section as notes.
-`Packaging/Homebrew/mdedit.rb` is the cask for a tap; set its `sha256` per release.
+The same scripts sign and notarize when given an Apple Developer ID, should the
+project ever have one: set `MDEDIT_SIGN_IDENTITY` and `MDEDIT_NOTARY_PROFILE`
+locally, or the secrets `release.yml` lists. `Scripts/make-app.sh release
+--sandbox` signs with the App Sandbox entitlements the Mac App Store requires.
 
 ### Other scripts
 

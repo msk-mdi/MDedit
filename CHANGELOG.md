@@ -3,7 +3,7 @@
 Versions follow the milestones in [ROADMAP.md](ROADMAP.md). The release
 workflow publishes the section for a version as its release notes.
 
-## [0.9.0] - 2026-10-08
+## [0.9.0] - 2026-10-09
 
 Quality, accessibility and distribution (roadmap P3).
 
@@ -19,9 +19,11 @@ Quality, accessibility and distribution (roadmap P3).
 - Check for Updates… in the app menu, and an optional daily check (Settings ▸ Editor).
 - Localization: every user-facing string is localizable, collected into
   `Resources/Localizable.xcstrings` by `Scripts/update-strings.sh`.
-- Distribution: Developer ID signing and notarization in `Scripts/make-app.sh`, an
-  App Sandbox build (`--sandbox`) with security-scoped bookmarks for the session and
-  workspace folders, `Scripts/make-dmg.sh`, a release workflow and a Homebrew cask.
+- Distribution without a paid Apple account: a Homebrew formula that builds MdEdit
+  from source (so Gatekeeper never stops it), and a DMG on GitHub Releases with
+  first-launch instructions, built by a tag-triggered workflow. Developer ID signing,
+  notarization and an App Sandbox build (`--sandbox`, with security-scoped bookmarks
+  for the session and workspace folders) are scripted for if that changes.
 - CI on macOS 26: build, test, lint (`Scripts/lint.sh`, swift-format) and app assembly.
 - Tests for the Format commands, undo, window flows (closing and quitting with
   unsaved tabs, tab tear-off), typing through real key events, and large files.
