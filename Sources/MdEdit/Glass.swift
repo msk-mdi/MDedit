@@ -92,9 +92,12 @@ final class GlassPanel: NSView {
             let effect = NSGlassEffectView()
             effect.style = style.appKitStyle
             effect.tintColor = tint
+            // The macOS 27 SDK added this; the 26 SDK (Xcode 26) cannot see it.
+            #if compiler(>=6.4)
             if #available(macOS 27, *) {
                 effect.effectIsInteractive = interactive
             }
+            #endif
             effect.contentView = content
             glass = effect
             backdrop = effect
