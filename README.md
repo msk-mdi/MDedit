@@ -94,16 +94,14 @@ markdown comes back. There is no split pane and no preview mode to switch to.
 
 MdEdit needs macOS 26 or later (the Liquid Glass APIs).
 
-**With Homebrew** — it builds MdEdit on your Mac, so it opens without any warning.
-It needs Xcode 26 or its Command Line Tools (`xcode-select --install`):
+**With Homebrew** — MdEdit goes into /Applications, ready to open with no
+warning, and the `mdedit` command (for `mdedit --render`) onto your path:
 
 ```sh
 brew install msk-mdi/tap/mdedit
-ln -sf "$(brew --prefix mdedit)/MdEdit.app" /Applications/MdEdit.app
 ```
 
-`brew upgrade mdedit` updates it, and the link follows. The formula also puts the
-`mdedit` command on your path, for `mdedit --render`.
+`brew upgrade` updates it; `brew uninstall --zap mdedit` removes it and its settings.
 
 **From a release** — download the DMG from
 [Releases](https://github.com/msk-mdi/MDedit/releases) and drag MdEdit to
@@ -144,9 +142,9 @@ locally but not to distribute it.
    tests, builds the app and `Scripts/make-dmg.sh`'s DMG, and publishes a release
    with that CHANGELOG section and install instructions as notes. The DMG holds a
    "First launch.txt" explaining Open Anyway.
-3. Update the tap: copy `Packaging/Homebrew/mdedit.rb` to `Formula/mdedit.rb` in
-   the `msk-mdi/homebrew-tap` repository, with the new version in `url` and the
-   tarball's checksum in `sha256` (the formula's comment has the command).
+3. Update the tap: copy `Packaging/Homebrew/mdedit.rb` to `Casks/mdedit.rb` in
+   the `msk-mdi/homebrew-tap` repository, with the new `version` and the DMG's
+   checksum in `sha256` (`shasum -a 256` of the release's DMG).
 
 The same scripts sign and notarize when given an Apple Developer ID, should the
 project ever have one: set `MDEDIT_SIGN_IDENTITY` and `MDEDIT_NOTARY_PROFILE`

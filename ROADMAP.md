@@ -8,7 +8,7 @@ list continuation, typewriter/focus mode, file watching, HTML/PDF export, a 3-op
 and 47 tests. The README's own "Not implemented" list plus a code survey gave the gaps below.
 Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkText/Typora, P2 = power features, P3 = polish & distribution.
 
-**Status (2026-10-08):** P0–P3 are done — 208 tests, CommonMark 650/652. What v1.0 still needs is outside the code: the `msk-mdi/homebrew-tap` repository and a first tagged release.
+**Status (2026-10-08):** P0–P3 are done — 208 tests, CommonMark 650/652. 0.9.1 is released, as a DMG and through the `msk-mdi/tap` Homebrew cask.
 
 ---
 
@@ -86,7 +86,7 @@ Ordered by priority: P0 = data-safety / correctness, P1 = core parity with MarkT
 - Also fixed: `- ` after a list item parsed as a setext underline (`f6d72cc`).
 
 ## P3 — Distribution ✅ (free: no Apple Developer Program)
-- [x] Unpaid route: notarization needs the paid program, so releases are ad-hoc signed DMGs whose notes and "First launch.txt" explain Open Anyway, and `Packaging/Homebrew/mdedit.rb` is a formula that builds from source — locally built apps are not quarantined, so Gatekeeper never asks. `make-app.sh` takes `MDEDIT_SWIFT_FLAGS` (Homebrew's `--disable-sandbox`) and works with the Command Line Tools alone.
+- [x] Unpaid route: notarization needs the paid program, so releases are ad-hoc signed DMGs whose notes and "First launch.txt" explain Open Anyway, and `Packaging/Homebrew/mdedit.rb` is a cask (in `msk-mdi/homebrew-tap`) that installs the DMG into /Applications, links `mdedit`, and clears the quarantine flag in `postflight_steps`, so Gatekeeper never asks. (A build-from-source formula came first; formulas cannot write to /Applications.) `make-app.sh` takes `MDEDIT_SWIFT_FLAGS` and works with the Command Line Tools alone.
 - [x] Developer ID signing (hardened runtime) and notarization in `Scripts/make-app.sh` from `MDEDIT_SIGN_IDENTITY` / `MDEDIT_NOTARY_PROFILE`; `--sandbox` signs with App Sandbox entitlements. `FileAccess` keeps bookmarks (security-scoped when sandboxed) for opened files and workspace folders and resolves the session through them — which also follows files renamed between launches. Recents use `NSDocumentController`'s own. The sandboxed build has not been launched.
 - [~] Auto-update: Check for Updates… and an opt-out daily check against GitHub Releases, opening the release page. No Sparkle (it would be the first dependency) and no Mac App Store build (needs an account).
 - [x] Markdown UTI declared, MdEdit the default handler, document icon (`make-icon.swift` draws both). Quick Look preview extension (`Sources/MdEditQuickLook`, a SwiftPM executable entered at `NSExtensionMain`, wrapped as an `.appex` by `make-app.sh`) renders with `MarkdownKit` and its own light/dark stylesheet — checked with `qlmanage -p`.

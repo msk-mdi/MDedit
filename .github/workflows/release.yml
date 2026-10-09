@@ -82,7 +82,7 @@ jobs:
 
           ### Installing
 
-          With Homebrew, which builds MdEdit on your Mac so it opens without a warning:
+          With Homebrew, which puts MdEdit in Applications ready to open, with no warning:
           `brew install msk-mdi/tap/mdedit`
 
           Or download the DMG below and drag MdEdit to Applications. It is not notarized

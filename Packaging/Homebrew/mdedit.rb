@@ -1,42 +1,38 @@
-# Homebrew formula for MdEdit: builds the app on the user's Mac, so it is not
-# quarantined and opens without Gatekeeper's warning — no Apple Developer ID
-# needed. It belongs in a tap: a repository named homebrew-tap under
-# msk-mdi, as Formula/mdedit.rb. Then:
-#   brew install msk-mdi/tap/mdedit        # the latest release
-#   brew install --HEAD msk-mdi/tap/mdedit # main
-# For each release, set url's version and sha256:
-#   curl -sL https://github.com/msk-mdi/MDedit/archive/refs/tags/v<version>.tar.gz | shasum -a 256
-class Mdedit < Formula
+# Homebrew cask for MdEdit, in the msk-mdi/homebrew-tap repository as
+# Casks/mdedit.rb:
+#   brew install msk-mdi/tap/mdedit
+# It installs the release's disk image into /Applications and links the
+# mdedit command. MdEdit is not notarized (that takes a paid Apple developer
+# account), so the cask clears the quarantine flag the download leaves on the
+# app, and it opens without Gatekeeper's prompt.
+# For each release, set version and the DMG's sha256 (make-dmg.sh prints it).
+cask "mdedit" do
+  version "0.9.1"
+  sha256 "98a2d6e354dee5b394eb257c002f70e18c5a3b9a6662a482d199f674112c7399"
+
+  url "https://github.com/msk-mdi/MDedit/releases/download/v#{version}/MdEdit-#{version}.dmg"
+  name "MdEdit"
   desc "Native in-place WYSIWYG markdown editor"
   homepage "https://github.com/msk-mdi/MDedit"
-  url "https://github.com/msk-mdi/MDedit/archive/refs/tags/v0.9.1.tar.gz"
-  sha256 "REPLACE_WITH_THE_TARBALL_SHA256"
-  license "Apache-2.0"
-  head "https://github.com/msk-mdi/MDedit.git", branch: "main"
 
-  # Swift 6.2 and the macOS 26 SDK, from Xcode 26 or its Command Line Tools.
+  livecheck do
+    url :url
+    strategy :github_latest
+  end
+
   depends_on macos: :tahoe
 
-  def install
-    # Homebrew's sandbox and SwiftPM's cannot nest.
-    ENV["MDEDIT_SWIFT_FLAGS"] = "--disable-sandbox"
-    system "Scripts/make-app.sh", "release"
-    prefix.install "build/MdEdit.app"
-    # The command line renderer: mdedit --render notes.md
-    bin.install_symlink prefix/"MdEdit.app/Contents/MacOS/MdEdit" => "mdedit"
+  app "MdEdit.app"
+  binary "#{appdir}/MdEdit.app/Contents/MacOS/MdEdit", target: "mdedit"
+
+  postflight_steps do
+    run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{appdir}}/MdEdit.app"],
+                          writable_paths: ["MdEdit.app"], writable_base: :appdir
   end
 
-  def caveats
-    <<~EOS
-      MdEdit.app is in #{opt_prefix}. To have it in Applications, Spotlight and
-      Launchpad, and as the app that opens markdown files:
-        ln -sf #{opt_prefix}/MdEdit.app /Applications/MdEdit.app
-        open /Applications/MdEdit.app
-      The link follows upgrades.
-    EOS
-  end
-
-  test do
-    assert_match "Hi</h1>", pipe_output("#{bin}/mdedit --render", "# Hi\n")
-  end
+  zap trash: [
+    "~/Library/Application Support/MdEdit",
+    "~/Library/Preferences/com.mdedit.MdEdit.plist",
+    "~/Library/Saved Application State/com.mdedit.MdEdit.savedState",
+  ]
 end

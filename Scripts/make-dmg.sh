@@ -30,7 +30,7 @@ it the first time it opens ("Apple could not verify MdEdit…").
 Or, in Terminal:  xattr -dr com.apple.quarantine /Applications/MdEdit.app
 
 After that it opens like any other app. To skip this entirely, install with
-Homebrew, which builds MdEdit on your Mac:  brew install msk-mdi/tap/mdedit
+Homebrew instead:  brew install msk-mdi/tap/mdedit
 TEXT
 fi
 rm -f "$DMG"

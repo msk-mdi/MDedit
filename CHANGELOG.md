@@ -3,6 +3,12 @@
 Versions follow the milestones in [ROADMAP.md](ROADMAP.md). The release
 workflow publishes the section for a version as its release notes.
 
+## [Unreleased]
+
+### Changed
+- Homebrew installs MdEdit as a cask: the release's app goes into /Applications,
+  ready to open, with the `mdedit` command; no Xcode or build needed.
+
 ## [0.9.1] - 2026-10-09
 
 ### Fixed
