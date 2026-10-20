@@ -1,6 +1,10 @@
 import Testing
 @testable import MdEdit
 
+// On the main thread, where the editor pastes. Converting recurses once per
+// level of nesting, and 500 levels overflowed the half-megabyte stack of the
+// threads other tests run on, crashing the test process with a bus error.
+@MainActor
 @Suite("HTMLToMarkdown")
 struct HTMLToMarkdownTests {
     private func md(_ html: String) -> String? {
