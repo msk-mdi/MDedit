@@ -50,8 +50,10 @@ struct PathologicalInputTests {
     /// find its last line, even when the cell counts could not match.
     @Test("Delimiter rows that never match the line above")
     func unmatchedTableDelimiters() {
+        // 20,000 lines; with the rest of the suite running beside it, a
+        // debug build has taken over a second.
         let time = Self.seconds(String(repeating: "|-|\n|-|-|\n", count: 10_000))
-        #expect(time < 1, "\(time) s")
+        #expect(time < 2, "\(time) s")
         #expect(HTMLRenderer().render(markdown: "Intro\nline\na | b\n-|-\n1 | 2\n").hasPrefix("<p>Intro\nline</p>\n<table>"))
     }
 
