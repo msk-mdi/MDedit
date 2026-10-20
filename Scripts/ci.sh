@@ -67,8 +67,11 @@ case "${1:-}" in
 		status=${PIPESTATUS[0]}
 		annotate error '^[^ ].*:[0-9]+:[0-9]+: error: |recorded an issue at |Terminating app due to|Fatal error'
 		# A crash of the test process leaves no test to blame; macOS's crash
-		# report says where it was.
-		if [ "$status" -ne 0 ]; then crash_reports "$LOG"; fi
+		# report says where it was. It is written some seconds after the crash.
+		if [ "$status" -ne 0 ]; then
+			if grep -q 'exited with unexpected signal' "$LOG"; then sleep 20; fi
+			crash_reports "$LOG"
+		fi
 		exit "$status"
 		;;
 	*)
