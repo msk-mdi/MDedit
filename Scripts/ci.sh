@@ -63,14 +63,18 @@ case "${1:-}" in
 		exit "$status"
 		;;
 	test)
-		swift test 2>&1 | tee "$LOG"
+		# Crash reports are looked for from here: the log itself is written
+		# to until the tests end, after any crash.
+		started="$(mktemp)"
+		# A crash prints the crashed thread's Swift backtrace in the log.
+		SWIFT_BACKTRACE='enable=yes,interactive=no,threads=crashed' swift test 2>&1 | tee "$LOG"
 		status=${PIPESTATUS[0]}
 		annotate error '^[^ ].*:[0-9]+:[0-9]+: error: |recorded an issue at |Terminating app due to|Fatal error'
 		# A crash of the test process leaves no test to blame; macOS's crash
 		# report says where it was. It is written some seconds after the crash.
 		if [ "$status" -ne 0 ]; then
 			if grep -q 'exited with unexpected signal' "$LOG"; then sleep 20; fi
-			crash_reports "$LOG"
+			crash_reports "$started"
 		fi
 		exit "$status"
 		;;
