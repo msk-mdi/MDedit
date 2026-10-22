@@ -38,10 +38,10 @@ struct MathTests {
     func headScripts() {
         let renderer = HTMLRenderer()
         #expect(!renderer.renderDocument(markdown: "plain", title: "t", css: "").contains("katex"))
-        #expect(renderer.renderDocument(markdown: "$x$", title: "t", css: "").contains("katex@0.16.11"))
+        #expect(renderer.renderDocument(markdown: "$x$", title: "t", css: "").contains("katex@0.19.0"))
         let mermaid = renderer.renderDocument(markdown: "```mermaid\ngraph TD; A-->B\n```", title: "t", css: "")
         #expect(mermaid.contains("<pre class=\"mermaid\">graph TD; A--&gt;B\n</pre>"))
-        #expect(mermaid.contains("mermaid@11.4.1"))
+        #expect(mermaid.contains("mermaid@11.17.2"))
         #expect(!mermaid.contains("katex"))
     }
 }

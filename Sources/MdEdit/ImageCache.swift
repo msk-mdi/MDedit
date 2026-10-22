@@ -8,6 +8,7 @@ import ImageIO
 @MainActor
 final class ImageCache {
     static let shared = ImageCache()
+    private init() {}
     nonisolated static let didLoad = Notification.Name("MdEditImageCacheDidLoad")
 
     private enum Entry {
@@ -41,7 +42,7 @@ final class ImageCache {
             Task.detached(priority: .utility) {
                 let image = await Self.load(url)
                 await MainActor.run {
-                    ImageCache.shared.finish(url, image: image)
+                    self.finish(url, image: image)
                 }
             }
             return nil

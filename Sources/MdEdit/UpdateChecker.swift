@@ -82,10 +82,16 @@ enum UpdateChecker {
         return check(quietly: true) { defaults.set(now, forKey: lastCheckKey) }
     }
 
+    /// The check under way, so a second click on the menu item while GitHub
+    /// is still answering joins it rather than asking again.
+    private static var inFlight: Task<Void, Never>?
+
     /// App menu ▸ Check for Updates…: always answers.
     @discardableResult
     static func check(quietly: Bool = false, onSuccess: @escaping @MainActor () -> Void = {}) -> Task<Void, Never> {
-        Task {
+        if let inFlight { return inFlight }
+        let task = Task {
+            defer { inFlight = nil }
             do {
                 var request = URLRequest(url: latestRelease)
                 request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
@@ -96,6 +102,8 @@ enum UpdateChecker {
                 if !quietly { show(String(localized: "Couldn’t check for updates."), detail: error.localizedDescription) }
             }
         }
+        inFlight = task
+        return task
     }
 
     /// Says what the release means for this copy; false when there was news

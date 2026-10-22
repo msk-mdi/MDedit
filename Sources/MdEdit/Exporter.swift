@@ -787,6 +787,11 @@ enum Pandoc {
         return arguments
     }
 
+    /// Pandoc can exit without reading its input (an unknown writer, a
+    /// crash): writing on into the closed pipe must fail, not kill the app.
+    /// Process-wide, so set once.
+    private static let ignoresSIGPIPE: Void = { signal(SIGPIPE, SIG_IGN) }()
+
     /// The converted document's bytes.
     static func convert(
         markdown: String,
@@ -816,9 +821,7 @@ enum Pandoc {
                 continuation.finish()
             }
         }
-        // Pandoc can exit without reading its input (an unknown writer, a
-        // crash): writing on into the closed pipe must fail, not kill the app.
-        signal(SIGPIPE, SIG_IGN)
+        _ = Self.ignoresSIGPIPE
         try process.run()
         // Fed and drained off the main thread, so neither pipe can fill and stall.
         let writer = input.fileHandleForWriting

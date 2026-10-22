@@ -13,4 +13,5 @@ fastlane/test_output
 build/
 .swiftpm/
 .DS_Store
+.claude/settings.local.json
 Resources/vendor/

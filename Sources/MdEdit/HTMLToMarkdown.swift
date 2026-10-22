@@ -18,7 +18,7 @@ enum HTMLToMarkdown {
         // Parsing and converting both recurse once per level: markup nested
         // past any real page's depth overflowed the stack. It pastes as text.
         guard nestingDepth(of: html) <= maxNesting else { return nil }
-        guard let document = try? XMLDocument(xmlString: html, options: [.documentTidyHTML]),
+        guard let document = try? XMLDocument(xmlString: html, options: [.documentTidyHTML, .nodeLoadExternalEntitiesNever]),
               let root = document.rootElement()
         else { return nil }
         let body = root.elements(forName: "body").first ?? root

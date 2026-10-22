@@ -9,10 +9,10 @@
 # Usage: Scripts/fetch-vendor.sh
 set -euo pipefail
 
-KATEX=0.16.11
-MERMAID=11.4.1
-KATEX_SHA256=8c5494c5f7d8e8bf73ff3fe64d4bd09a340e4878b7eec9bbd9ef8d8f3e24193f
-MERMAID_SHA256=ec7b61b391aaa24bf666fd20e48d0a626eeb4a95b95bc6b3016a122d7f0bc2af
+KATEX=0.19.0
+MERMAID=11.17.2
+KATEX_SHA256=d8e49f2fea6eeed7cdae2cf4fd48e2f1d348758aa9e5740715e4533c2c96d1ee
+MERMAID_SHA256=6ad2f42c3fc26bbf9e45cbb6d11898972573ea52b33a5f4ff51952899f950ffd
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 VENDOR="$ROOT/Resources/vendor"
 TMP="$(mktemp -d)"

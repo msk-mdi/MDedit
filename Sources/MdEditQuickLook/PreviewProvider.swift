@@ -17,7 +17,11 @@ final class PreviewProvider: QLPreviewProvider, QLPreviewingController {
             let total = ByteCountFormatter.string(fromByteCount: Int64(data.count), countStyle: .file)
             markdown += "\n\n---\n\n*" + String(localized: "Preview of the first \(shown) of \(total).") + "*\n"
         }
-        let html = HTMLRenderer(baseURL: url).renderDocument(
+        var renderer = HTMLRenderer(baseURL: url)
+        // A preview shows a file it did not ask for: its raw HTML stays
+        // visible as markup but runs nothing and loads nothing but images.
+        renderer.contentSecurityPolicy = "default-src 'none'; style-src 'unsafe-inline'; img-src file: data:"
+        let html = renderer.renderDocument(
             markdown: markdown,
             title: url.deletingPathExtension().lastPathComponent,
             css: Self.stylesheet

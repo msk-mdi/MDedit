@@ -50,6 +50,7 @@ jobs:
           NOTARY_APPLE_ID: ${{ secrets.NOTARY_APPLE_ID }}
           NOTARY_TEAM_ID: ${{ secrets.NOTARY_TEAM_ID }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          SIGN_IDENTITY: ${{ secrets.DEVELOPER_ID_IDENTITY }}
         run: |
           keychain="$RUNNER_TEMP/signing.keychain-db"
           password="$(uuidgen)"
@@ -62,7 +63,7 @@ jobs:
           security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
           xcrun notarytool store-credentials mdedit-notary --apple-id "$NOTARY_APPLE_ID" \
             --team-id "$NOTARY_TEAM_ID" --password "$NOTARY_PASSWORD" --keychain "$keychain"
-          echo "MDEDIT_SIGN_IDENTITY=${{ secrets.DEVELOPER_ID_IDENTITY }}" >> "$GITHUB_ENV"
+          echo "MDEDIT_SIGN_IDENTITY=$SIGN_IDENTITY" >> "$GITHUB_ENV"
           echo "MDEDIT_NOTARY_PROFILE=mdedit-notary" >> "$GITHUB_ENV"
 
       - name: Build the app and the disk image

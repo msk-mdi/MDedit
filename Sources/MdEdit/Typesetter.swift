@@ -161,6 +161,11 @@ final class Typesetter: NSObject {
               width > 0, height > 0
         else { return .failed("Nothing to draw") }
         let descent = (box["descent"] as? NSNumber)?.doubleValue ?? 0
+        // A formula of thousands of characters, or a diagram of thousands of
+        // nodes, would be drawn into a bitmap of hundreds of megabytes.
+        guard width <= Self.maxDimension, height <= Self.maxDimension else {
+            return .failed(String(localized: "Too large to draw"))
+        }
 
         // The snapshot can only take what the view shows.
         let needed = NSSize(width: max(1200, ceil(x + width)), height: max(800, ceil(y + height)))
@@ -178,6 +183,9 @@ final class Typesetter: NSObject {
             return .failed(Self.message(of: error))
         }
     }
+
+    /// The widest or tallest image typeset, in points.
+    static let maxDimension: Double = 8192
 
     private static func message(of error: Error) -> String {
         let info = (error as NSError).userInfo
@@ -210,14 +218,23 @@ final class Typesetter: NSObject {
     /// them (`Scripts/fetch-vendor.sh`), from jsDelivr otherwise.
     private static func page() -> (html: String, baseURL: URL?)? {
         typealias CDN = HTMLRenderer.CDN
+        // The page runs whatever KaTeX and Mermaid make of a document's
+        // source, so it may reach nothing: no network, no navigation (the
+        // delegate refuses it too), and from the bundle not even an origin.
         var head: String
+        let policy: String
+        let baseURL: URL?
         if let scripts = Exporter.bundledScripts() {
+            policy = "default-src 'none'; script-src 'unsafe-inline'; style-src 'unsafe-inline'; font-src data:; img-src data: blob:; connect-src 'none'"
+            baseURL = nil
             head = """
             <style>\(scripts.katexCSS)</style>
             <script>\(scripts.katexJS)</script>
             <script>\(scripts.mermaidJS)</script>
             """
         } else {
+            policy = "default-src 'none'; script-src 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'unsafe-inline' https://cdn.jsdelivr.net; font-src data: https://cdn.jsdelivr.net; img-src data: blob:; connect-src 'none'"
+            baseURL = URL(string: "https://cdn.jsdelivr.net/")
             head = """
             <link rel="stylesheet" href="\(CDN.katexCSS.url)" integrity="\(CDN.katexCSS.integrity)" crossorigin="anonymous">
             <script src="\(CDN.katexJS.url)" integrity="\(CDN.katexJS.integrity)" crossorigin="anonymous"></script>
@@ -237,6 +254,7 @@ final class Typesetter: NSObject {
         let html = """
         <!doctype html>
         <html><head><meta charset="utf-8">
+        <meta http-equiv="Content-Security-Policy" content="\(policy)">
         \(head)
         </head><body><div id="stage"></div>
         <script>
@@ -300,7 +318,7 @@ final class Typesetter: NSObject {
         </script>
         </body></html>
         """
-        return (html, URL(string: "https://cdn.jsdelivr.net/"))
+        return (html, baseURL)
     }
 }
 

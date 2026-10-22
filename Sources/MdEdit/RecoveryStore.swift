@@ -58,8 +58,10 @@ struct RecoveryStore {
         Self.queue.async { try? write(snapshot) }
     }
 
+    /// Removes a snapshot, after any write of it still queued: the queue is
+    /// serial, so waiting here would only hold the main thread for that write.
     func remove(id: UUID) {
-        Self.queue.sync { try? FileManager.default.removeItem(at: file(for: id)) }
+        Self.queue.async { try? FileManager.default.removeItem(at: file(for: id)) }
     }
 
     /// Every snapshot on disk; unreadable files are skipped.

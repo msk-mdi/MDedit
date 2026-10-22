@@ -144,6 +144,9 @@ enum WorkspaceSearch {
     }
 
     static let matchLimit = 2_000
+    /// Files past this size are not searched: `.txt` is a note type, but
+    /// also a log's, and one of those read whole took the memory of many notes.
+    static let maxFileBytes = 8 * 1024 * 1024
 
     /// - Parameter overrides: text to search instead of the file on disk, for
     ///   documents open with unsaved changes.
@@ -158,6 +161,7 @@ enum WorkspaceSearch {
         var total = 0
         for url in files {
             if isCancelled() || total >= matchLimit { break }
+            if overrides[url] == nil, let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > maxFileBytes { continue }
             guard let text = overrides[url] ?? (try? String(contentsOf: url, encoding: .utf8)) else { continue }
             var matches: [Match] = []
             var lineNumber = 0

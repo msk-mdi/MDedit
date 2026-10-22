@@ -8,7 +8,7 @@ enum ImageImporter {
         case unsavedDocument
 
         var errorDescription: String? {
-            "Save this document first, so pasted images have a folder to go in."
+            String(localized: "Save this document first, so pasted images have a folder to go in.")
         }
     }
 

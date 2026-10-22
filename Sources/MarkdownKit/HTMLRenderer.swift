@@ -23,6 +23,11 @@ public struct HTMLRenderer {
     public var embeddedImagesOnly = false
     /// What a page loads to draw math and diagrams. Nil uses the CDN.
     public var scripts: ScriptAssets?
+    /// A `Content-Security-Policy` for the page, when the page is shown
+    /// somewhere that should not run what a document brings along, such as
+    /// a Quick Look preview. Nil writes none, as export must: an exported
+    /// page loads KaTeX and Mermaid and keeps whatever HTML the document had.
+    public var contentSecurityPolicy: String?
 
     /// KaTeX and Mermaid inlined into the page, so it works offline.
     public struct ScriptAssets: Sendable {
@@ -57,7 +62,7 @@ public struct HTMLRenderer {
         <head>
         <meta charset="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
-        <title>\(escape(title))</title>
+        \(contentSecurityPolicy.map { "<meta http-equiv=\"Content-Security-Policy\" content=\"\(escape($0))\" />\n" } ?? "")<title>\(escape(title))</title>
         \(css.isEmpty ? "" : "<style>\n\(css)\n</style>\n")\(headExtras(context))</head>
         <body>
         \(body)
@@ -401,20 +406,20 @@ public struct HTMLRenderer {
         }
 
         public static let katexCSS = File(
-            url: "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.css",
-            integrity: "sha384-nB0miv6/jRmo5UMMR1wu3Gz6NLsoTkbqJghGIsx//Rlm+ZU03BU6SQNC66uf4l5+"
+            url: "https://cdn.jsdelivr.net/npm/katex@0.19.0/dist/katex.min.css",
+            integrity: "sha384-3rdsX6e5mueWyoweR9NIVmtEsUkokpBT/0ALqKKIBMr9j4qhHkaIkAcGgsE6uVlp"
         )
         public static let katexJS = File(
-            url: "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/katex.min.js",
-            integrity: "sha384-7zkQWkzuo3B5mTepMUcHkMB5jZaolc2xDwL6VFqjFALcbeS9Ggm/Yr2r3Dy4lfFg"
+            url: "https://cdn.jsdelivr.net/npm/katex@0.19.0/dist/katex.min.js",
+            integrity: "sha384-QFFtAGzvvj+bfgCGxXJlNZZR1nXEZgvG8tDLCCY1F19xl20WlfTYgguB4VcNdxYk"
         )
         public static let autoRenderJS = File(
-            url: "https://cdn.jsdelivr.net/npm/katex@0.16.11/dist/contrib/auto-render.min.js",
-            integrity: "sha384-43gviWU0YVjaDtb/GhzOouOXtZMP/7XUzwPTstBeZFe/+rCMvRwr4yROQP43s0Xk"
+            url: "https://cdn.jsdelivr.net/npm/katex@0.19.0/dist/contrib/auto-render.min.js",
+            integrity: "sha384-bjyGPfbij8/NDKJhSGZNP/khQVgtHUE5exjm4Ydllo42FwIgYsdLO2lXGmRBf5Mz"
         )
         public static let mermaidJS = File(
-            url: "https://cdn.jsdelivr.net/npm/mermaid@11.4.1/dist/mermaid.min.js",
-            integrity: "sha384-rbtjAdnIQE/aQJGEgXrVUlMibdfTSa4PQju4HDhN3sR2PmaKFzhEafuePsl9H/9I"
+            url: "https://cdn.jsdelivr.net/npm/mermaid@11.17.2/dist/mermaid.min.js",
+            integrity: "sha384-EOXBFmc3gx5mb+vn0vPvvGqACToJD24hhacX5Yx+8NUUQrHIle/Qi5Bg9o3zKwW2"
         )
     }
 
