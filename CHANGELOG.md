@@ -5,6 +5,25 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.2.4] - 2026-10-22
+
+### Changed
+- KaTeX 0.19.0 and Mermaid 11.17.2, which fix the cross-site scripting
+  advisories published for the versions before (CVE-2025-23207,
+  CVE-2025-54880, CVE-2025-54881).
+- The hidden page that typesets math and diagrams, and Finder's Quick Look
+  preview, carry a Content Security Policy: nothing a document brings along
+  can reach the network or run there.
+
+### Fixed
+- Closing a tab no longer waits for a recovery snapshot still being written.
+- Check for Updates… asked GitHub once per click; clicks while it is still
+  answering now join the same check.
+- A formula or diagram too large to draw (past 8192 points) says so instead
+  of being drawn into an enormous image.
+- Find in Folder skips files larger than 8 MB rather than reading them whole.
+- Pasted HTML is parsed without ever loading external entities.
+
 ## [1.2.3] - 2026-10-20
 
 ### Fixed
