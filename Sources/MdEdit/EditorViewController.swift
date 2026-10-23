@@ -1,4 +1,5 @@
 import AppKit
+import MarkdownKit
 
 /// The editing canvas: one scroll view + text view per document.
 ///
@@ -174,8 +175,33 @@ final class EditorViewController: NSViewController {
         smartQuotes = settings.smartQuotes
         updateSubstitutions()
         textView.isContinuousSpellCheckingEnabled = settings.spellCheck
-        storage.extensions = settings.extensions
+        pendingExtensions = settings.extensions
+        if isOnScreen { applyPendingRestyles() }
         storage.numberHeadings = settings.numberHeadings
+    }
+
+    /// A theme and syntax extensions restyle the whole document, so for a
+    /// tab not on screen they wait until it shows: an appearance or settings
+    /// change restyled every open tab at once, seconds each for a large one.
+    private var pendingTheme: Theme?
+    private var pendingExtensions: SyntaxExtensions?
+
+    private var isOnScreen: Bool { isViewLoaded && view.window != nil }
+
+    private func applyPendingRestyles() {
+        if let extensions = pendingExtensions {
+            pendingExtensions = nil
+            storage.extensions = extensions
+        }
+        if let theme = pendingTheme {
+            pendingTheme = nil
+            storage.theme = theme
+        }
+    }
+
+    override func viewWillAppear() {
+        super.viewWillAppear()
+        applyPendingRestyles()
     }
 
     private var smartQuotes = false
@@ -200,6 +226,7 @@ final class EditorViewController: NSViewController {
 
     override func viewDidAppear() {
         super.viewDidAppear()
+        applyPendingRestyles()
         guard appearanceObservation == nil else { return }
         appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
             DispatchQueue.main.async {
@@ -237,7 +264,8 @@ final class EditorViewController: NSViewController {
             .foregroundColor: theme.text,
             .paragraphStyle: typingStyle.copy() as! NSParagraphStyle,
         ]
-        storage.theme = theme
+        pendingTheme = theme
+        if isOnScreen { applyPendingRestyles() }
         textView.selectedTextAttributes = [
             .backgroundColor: theme.accent.withAlphaComponent(0.25),
         ]

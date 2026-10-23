@@ -434,4 +434,54 @@ struct TypingTests {
         }
         #expect(storage.attribute(.mdLink, at: location, effectiveRange: nil) as? String == "https://x.dev")
     }
+
+    /// Typing a definition's destination changed it at every key, and each
+    /// key restyled every line containing its label: with a label like `1`,
+    /// nearly every line of the document.
+    @Test("Typing a definition's destination restyles only the links that use it, once")
+    func definitionTypingStaysLocal() async throws {
+        let storage = MarkdownTextStorage(theme: .light)
+        let filler = String(repeating: "Item 1 of a list with a 1 in it.\n\n", count: 1_000)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "See [it][1] here.\n\n" + filler + "[1]: https://x.dev\n")
+        try await Task.sleep(for: .milliseconds(500))
+
+        final class Processed: NSObject, NSTextStorageDelegate {
+            var lines = 0
+            func textStorage(
+                _ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                range editedRange: NSRange, changeInLength delta: Int
+            ) {
+                guard !editedMask.contains(.editedCharacters) else { return }
+                lines += (textStorage.string as NSString).substring(with: editedRange).components(separatedBy: "\n").count
+            }
+        }
+        let processed = Processed()
+        storage.delegate = processed
+        let end = storage.length - 1
+        for (offset, letter) in "/page".enumerated() {
+            storage.replaceCharacters(in: NSRange(location: end + offset, length: 0), with: String(letter))
+        }
+        for _ in 0..<100 where storage.attribute(.mdLink, at: 5, effectiveRange: nil) as? String != "https://x.dev/page" {
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(storage.attribute(.mdLink, at: 5, effectiveRange: nil) as? String == "https://x.dev/page")
+        #expect(processed.lines < 20, "\(processed.lines) lines restyled")
+    }
+
+    /// Finished formulas and diagrams were let go only past a thousand of
+    /// them, however large: diagrams are Retina bitmaps, so editing one for a
+    /// while could hold gigabytes.
+    @Test("Finished renderings are let go by weight as well as by number")
+    func typesetCacheWeight() {
+        let small = 64 << 10
+        #expect(Typesetter.oldestToDrop(Array(repeating: small, count: 900)) == 0)
+        #expect(Typesetter.oldestToDrop(Array(repeating: small, count: 1001)) == 1001 - 750)
+        // A few dozen large diagrams are over the limit long before a thousand.
+        let large = 8 << 20
+        let dropped = Typesetter.oldestToDrop(Array(repeating: large, count: 40))
+        #expect(dropped > 0)
+        #expect((40 - dropped) * large <= Typesetter.finishedByteLimit * 3 / 4)
+        // The newest stays, however much it weighs.
+        #expect(Typesetter.oldestToDrop([small, Typesetter.finishedByteLimit * 2]) == 1)
+    }
 }

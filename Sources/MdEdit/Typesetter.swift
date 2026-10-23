@@ -57,10 +57,14 @@ final class Typesetter: NSObject {
     }
 
     private var entries: [Request: Entry] = [:]
-    /// Finished entries, oldest first, so the oldest go once there are too
-    /// many: every source a block ever had while being typed stays otherwise.
-    private var finished: [Request] = []
-    private static let finishedLimit = 1000
+    /// Finished entries, oldest first, with what their images weigh, so the
+    /// oldest go once there are too many or they weigh too much: every
+    /// source a block ever had while being typed stays otherwise.
+    private var finished: [(request: Request, bytes: Int)] = []
+    static let finishedLimit = 1000
+    /// A diagram is a Retina bitmap up to `maxDimension` points a side:
+    /// counted alone, a thousand of them could hold gigabytes.
+    static let finishedByteLimit = 256 << 20
     private var queue: [Request] = []
     private var isWorking = false
     private var webView: WKWebView?
@@ -126,13 +130,38 @@ final class Typesetter: NSObject {
     }
 
     private func remember(_ request: Request) {
-        finished.append(request)
-        guard finished.count > Self.finishedLimit else { return }
+        var bytes = 0
+        if case let .done(rendering)? = entries[request] { bytes = Self.bytes(of: rendering.image) }
+        finished.append((request, bytes))
+        let count = Self.oldestToDrop(finished.map(\.bytes))
+        guard count > 0 else { return }
         // A text storage keeps the images it shows; one asking again later
         // has it typeset again.
-        let dropped = finished.prefix(finished.count - Self.finishedLimit * 3 / 4)
-        for old in dropped where !queue.contains(old) { entries[old] = nil }
-        finished.removeFirst(dropped.count)
+        let dropped = finished.prefix(count)
+        for old in dropped where !queue.contains(old.request) { entries[old.request] = nil }
+        finished.removeFirst(count)
+    }
+
+    /// How many of the oldest finished entries to let go, given what each
+    /// weighs, oldest first: none while under both limits, and once over
+    /// either, enough to come back under three quarters of both.
+    static func oldestToDrop(_ sizes: [Int]) -> Int {
+        var bytes = sizes.reduce(0, +)
+        guard sizes.count > finishedLimit || bytes > finishedByteLimit else { return 0 }
+        var count = 0
+        // The newest stays, whatever it weighs: it was just asked for.
+        while count < sizes.count - 1, sizes.count - count > finishedLimit * 3 / 4 || bytes > finishedByteLimit * 3 / 4 {
+            bytes -= sizes[count]
+            count += 1
+        }
+        return count
+    }
+
+    private static func bytes(of image: NSImage) -> Int {
+        let pixels = image.representations.map { $0.pixelsWide * $0.pixelsHigh }.max() ?? 0
+        // Snapshots are taken at the screen's scale; assume Retina when the
+        // image does not say.
+        return 4 * (pixels > 0 ? pixels : Int(image.size.width * image.size.height * 4))
     }
 
     private func typeset(_ request: Request, in webView: WKWebView) async -> Entry {

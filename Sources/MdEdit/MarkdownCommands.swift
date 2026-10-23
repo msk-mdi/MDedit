@@ -233,17 +233,15 @@ extension EditorViewController {
 
     /// Folds every heading's section, leaving the caret on a heading that shows.
     func foldAll() {
-        let headings = storage.structure.headings(in: storage.text)
-        let foldable = headings.filter { storage.foldableRange(forHeadingLine: $0.line) != nil }
+        let sections = storage.foldableRanges()
+        let foldable = storage.headings.map(\.line).filter { sections[$0] != nil }
         guard !foldable.isEmpty else { return NSSound.beep() }
         // The outermost section holding the caret is where it will end up.
         let line = caretLine
-        if let outer = foldable.first(where: { heading in
-            heading.line <= line && (storage.foldableRange(forHeadingLine: heading.line)?.contains(line) ?? false)
-        }) {
-            moveCaret(toHeading: outer.line)
+        if let outer = foldable.first(where: { $0 <= line && sections[$0]!.contains(line) }) {
+            moveCaret(toHeading: outer)
         }
-        for heading in foldable { storage.setFolded(true, headingLine: heading.line) }
+        storage.fold(headingLines: foldable)
     }
 
     func unfoldAll() {

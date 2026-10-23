@@ -72,6 +72,41 @@ struct WorkspaceTests {
         #expect(edited.isEmpty)
     }
 
+    /// A named pipe with a note's name was read like a file: the read waited
+    /// forever, holding a concurrency thread, and opening it hung the same way.
+    @Test("Find in Folder and opening skip a named pipe; opening refuses a huge file")
+    func unreadableFiles() async throws {
+        let root = try makeFolder(["note.md": "alpha\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pipe = root.appendingPathComponent("pipe.md")
+        #expect(mkfifo(pipe.path, 0o600) == 0)
+        let note = root.appendingPathComponent("note.md")
+        #expect(WorkspaceSearch.search("alpha", in: [pipe, note]).map(\.url) == [note])
+        await #expect(throws: CocoaError.self) { try await FileFormat.read(pipe) }
+
+        // Sparse: as large as it says without writing it.
+        let huge = root.appendingPathComponent("huge.md")
+        FileManager.default.createFile(atPath: huge.path, contents: nil)
+        let handle = try FileHandle(forWritingTo: huge)
+        try handle.truncate(atOffset: UInt64(FileFormat.maxBytes + 1))
+        try handle.close()
+        do {
+            _ = try await FileFormat.read(huge)
+            Issue.record("read a file past the limit")
+        } catch let error as CocoaError {
+            #expect(error.code == .fileReadTooLarge)
+        }
+        #expect(try await FileFormat.read(note).text == "alpha\n")
+    }
+
+    @MainActor
+    @Test("A result's tooltip is cut short on a very long line")
+    func longLineTooltip() {
+        #expect(SearchPaneView.tooltip("short") == "short")
+        let long = SearchPaneView.tooltip(String(repeating: "x", count: 1_000_000))
+        #expect(long.count == 501)
+    }
+
     /// Every row had a fresh cell built for it, constraints and all, and
     /// measured for its height: up to 2,000 of them on each query.
     @MainActor

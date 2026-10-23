@@ -219,7 +219,7 @@ extension SearchPaneView: NSOutlineViewDataSource, NSOutlineViewDelegate {
             label.attributedStringValue = text
         } else if let item = item as? MatchItem {
             label.attributedStringValue = snippet(item.match)
-            label.toolTip = item.match.lineText
+            label.toolTip = Self.tooltip(item.match.lineText)
         }
         return cell
     }
@@ -244,6 +244,11 @@ extension SearchPaneView: NSOutlineViewDataSource, NSOutlineViewDelegate {
         return cell
     }
 
+    /// The matched line, cut short when it runs on: a tooltip lays out all of it.
+    static func tooltip(_ line: String) -> String {
+        line.utf16.count > 500 ? line.prefix(500) + "…" : line
+    }
+
     /// The line around the match, trimmed so the match is visible, match in bold.
     private func snippet(_ match: WorkspaceSearch.Match) -> NSAttributedString {
         let line = match.lineText as NSString
@@ -251,7 +256,10 @@ extension SearchPaneView: NSOutlineViewDataSource, NSOutlineViewDelegate {
         var start = lead
         // Skip leading whitespace so indented lines still show their match.
         while start < match.range.location, CharacterSet.whitespaces.contains(Unicode.Scalar(line.character(at: start)) ?? " ") { start += 1 }
-        let shown = line.substring(from: start)
+        // A minified file's one line can run to megabytes; a row shows a few dozen characters.
+        let end = min(line.length, NSMaxRange(match.range) + 160)
+        let kept = line.rangeOfComposedCharacterSequences(for: NSRange(location: start, length: end - start))
+        let shown = line.substring(with: kept) + (NSMaxRange(kept) < line.length ? "…" : "")
         let text = NSMutableAttributedString(string: (lead > 0 ? "…" : "") + shown, attributes: [
             .font: NSFont.systemFont(ofSize: 12), .foregroundColor: theme.secondaryText,
         ])

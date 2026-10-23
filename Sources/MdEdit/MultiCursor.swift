@@ -18,6 +18,9 @@ extension MarkdownTextView {
 
     var hasMultipleTargets: Bool { editTargets.count > 1 }
 
+    /// Characters between targets past which they are edited apart.
+    static let editGap = 2_000
+
     /// Sorted, with overlapping ranges joined and repeated carets dropped.
     static func merged(_ ranges: [NSRange]) -> [NSRange] {
         var result: [NSRange] = []
@@ -40,9 +43,17 @@ extension MarkdownTextView {
         let strings = ranges.map(replacement)
         guard shouldChangeText(inRanges: ranges.map { NSValue(range: $0) }, replacementStrings: strings) else { return }
         isEditingAtCaretsScope {
-            storage.beginEditing()
+            // One edit for each run of nearby targets: the storage reprocesses
+            // an edit from its first change to its last, so carets at the top
+            // and bottom of a document in one edit restyled every line between.
+            var end = Int.max
             for (range, string) in zip(ranges, strings).reversed() {
+                if end - NSMaxRange(range) > Self.editGap {
+                    if end != Int.max { storage.endEditing() }
+                    storage.beginEditing()
+                }
                 storage.replaceCharacters(in: range, with: string)
+                end = range.location
             }
             storage.endEditing()
             didChangeText()

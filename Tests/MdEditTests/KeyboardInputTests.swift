@@ -242,6 +242,35 @@ struct KeyboardInputTests {
         #expect(harness.document.text == "ab\ncd\nef")
     }
 
+    /// Carets at the top and bottom of a document were edited as one
+    /// change, which the storage reprocessed from the first to the last.
+    @Test("Typing at far-apart carets restyles only around each one")
+    func farCaretsStayLocal() {
+        let harness = Harness("top\n" + String(repeating: "Some *text* here.\n\n", count: 2_000) + "bottom")
+        let view = harness.editor.textView
+        let length = harness.document.storage.length
+        view.setSelectedRange(NSRange(location: 3, length: 0))
+        view.additionalCarets = [length]
+        final class Processed: NSObject, NSTextStorageDelegate {
+            var ranges: [NSRange] = []
+            func textStorage(
+                _ textStorage: NSTextStorage, didProcessEditing editedMask: NSTextStorageEditActions,
+                range editedRange: NSRange, changeInLength delta: Int
+            ) {
+                ranges.append(editedRange)
+            }
+        }
+        let processed = Processed()
+        harness.document.storage.delegate = processed
+        view.insertText("!", replacementRange: NSRange(location: NSNotFound, length: 0))
+        #expect(harness.document.text.hasPrefix("top!\n"))
+        #expect(harness.document.text.hasSuffix("bottom!"))
+        #expect(processed.ranges.count == 2)
+        #expect(processed.ranges.allSatisfy { $0.length < 200 }, "\(processed.ranges)")
+        view.undoManager?.undo()
+        #expect(harness.document.text.hasPrefix("top\n") && harness.document.text.hasSuffix("bottom"))
+    }
+
     @Test("A line selected by triple-click is the only one a line command changes")
     func tripleClickedLine() {
         let harness = Harness("first\nsecond\n")

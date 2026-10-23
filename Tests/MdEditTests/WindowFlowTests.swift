@@ -582,4 +582,26 @@ struct WindowFlowTests {
         #expect(textView.string.utf16.count == 20_000 * 21 - 400_000)
         controller.window?.close()
     }
+
+    /// A theme change restyled every open tab at once, seconds each for a
+    /// large one; a tab not on screen now restyles when it shows.
+    @Test("A tab not on screen takes a new theme once it shows")
+    func hiddenTabRestylesWhenShown() {
+        let document = Document(text: "# Title\n\nSome *text*.\n", theme: .light)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        editor.applyTheme(.dark)
+        #expect(document.storage.theme == .light)
+        #expect(editor.theme == .dark)
+
+        // Shown as the window shows a tab: added to its view hierarchy.
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        window.orderFront(nil)
+        window.contentView?.addSubview(editor.view)
+        #expect(document.storage.theme == .dark)
+
+        // On screen, a change applies at once.
+        editor.applyTheme(.light)
+        #expect(document.storage.theme == .light)
+        window.orderOut(nil)
+    }
 }

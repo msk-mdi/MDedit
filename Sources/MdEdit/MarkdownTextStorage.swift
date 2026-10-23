@@ -132,10 +132,31 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         let headings = self.headings
         guard let index = headings.firstIndex(where: { $0.line == line }) else { return nil }
         let heading = headings[index]
+        let next = headings[(index + 1)...].first { $0.level <= heading.level }?.line ?? structure.lineCount
+        return section(ofHeadingLine: line, endingBefore: next)
+    }
+
+    /// Every heading's foldable section, in one pass over the headings.
+    /// Asked one heading at a time, each walked the headings after it, so
+    /// Fold All took time with the cube of their number.
+    func foldableRanges() -> [Int: ClosedRange<Int>] {
+        var sections: [Int: ClosedRange<Int>] = [:]
+        // The headings below, nearest last, each at a lower level than the
+        // one below it: the next of the same or a higher level is on top.
+        var below: [(line: Int, level: Int)] = []
+        for heading in headings.reversed() {
+            while let last = below.last, last.level > heading.level { below.removeLast() }
+            let next = below.last?.line ?? structure.lineCount
+            sections[heading.line] = section(ofHeadingLine: heading.line, endingBefore: next)
+            below.append((heading.line, heading.level))
+        }
+        return sections
+    }
+
+    private func section(ofHeadingLine line: Int, endingBefore next: Int) -> ClosedRange<Int>? {
         // A setext heading's underline stays with its title.
         let isSetext = structure.info(forLine: line).map { if case .atxHeading = $0.kind { false } else { true } } ?? false
         let first = line + (isSetext ? 2 : 1)
-        let next = headings[(index + 1)...].first { $0.level <= heading.level }?.line ?? structure.lineCount
         var last = next - 1
         // The blank lines before the next heading stay, so it keeps its space.
         while last >= first, structure.info(forLine: last)?.kind == .blank { last -= 1 }
@@ -168,6 +189,16 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         return true
     }
 
+    /// Folds several sections in one restyle, rather than one per heading.
+    func fold(headingLines lines: [Int]) {
+        let sections = foldableRanges()
+        let folding = lines.filter { !foldedHeadings.contains($0) && sections[$0] != nil }
+        let ranges = folding.compactMap { sections[$0] }
+        guard let lower = ranges.map(\.lowerBound).min(), let upper = ranges.map(\.upperBound).max() else { return }
+        foldedHeadings.formUnion(folding)
+        refreshFolds(restyling: lower...upper, sections: sections)
+    }
+
     func unfoldAll() {
         guard !foldedHeadings.isEmpty else { return }
         foldedHeadings.removeAll()
@@ -186,10 +217,11 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         }
     }
 
-    private func refreshFolds(restyling range: ClosedRange<Int>?) {
+    private func refreshFolds(restyling range: ClosedRange<Int>?, sections: [Int: ClosedRange<Int>]? = nil) {
+        let sections = sections ?? foldableRanges()
         var hidden = IndexSet()
         for heading in foldedHeadings {
-            if let section = foldableRange(forHeadingLine: heading) {
+            if let section = sections[heading] {
                 hidden.insert(integersIn: section)
             }
         }
@@ -212,8 +244,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     /// and the end of its section.
     private func foldExtents() -> [Int: (start: Int, end: Int)] {
         var extents: [Int: (Int, Int)] = [:]
+        let sections = foldableRanges()
         for heading in foldedHeadings {
-            guard let section = foldableRange(forHeadingLine: heading) else { continue }
+            guard let section = sections[heading] else { continue }
             extents[heading] = (structure.index.range(ofLine: heading).location, NSMaxRange(structure.index.range(ofLine: section.upperBound)))
         }
         return extents
@@ -233,8 +266,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 adjusted.insert(heading)
             }
         }
-        foldedHeadings = adjusted.filter { foldableRange(forHeadingLine: $0) != nil }
-        refreshFolds(restyling: nil)
+        let sections = foldableRanges()
+        foldedHeadings = adjusted.filter { sections[$0] != nil }
+        refreshFolds(restyling: nil, sections: sections)
     }
 
     /// The headings from before an edit, when it neither touched a heading
@@ -388,9 +422,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     private var isArrivalRestyleScheduled = false
     /// Images and formulas that arrived since the last restyle for them.
     private var arrivals: Set<AwaitedItem> = []
-    private var isReferenceRestyleScheduled = false
     /// Labels whose definition came, went or changed since the last restyle.
     private var pendingReferenceLabels: Set<String> = []
+    static let referenceRestyleDelay: TimeInterval = 0.3
 
     private static func labelsChanged(from old: LinkReferences, to new: LinkReferences) -> Set<String> {
         var labels = Set(old.links.keys).symmetricDifference(new.links.keys)
@@ -400,22 +434,31 @@ final class MarkdownTextStorage: MDBackedTextStorage {
 
     /// Restyles the lines that mention a label: a `[label]` with no
     /// definition is plain text, so no attribute marks where they are.
+    /// Searched with its bracket, as `[label` or `[^label`: a bare label as
+    /// short as `1` or `a` matched most lines of a document.
     @objc private func restyleForReferences() {
-        isReferenceRestyleScheduled = false
         let labels = pendingReferenceLabels
         pendingReferenceLabels = []
         let text = self.text
         var lines = IndexSet()
         for label in labels where !label.isEmpty {
-            var searched = NSRange(location: 0, length: text.length)
-            while searched.length > 0 {
-                let found = text.range(of: label, options: [.caseInsensitive, .literal], range: searched)
-                guard found.location != NSNotFound else { break }
-                lines.insert(line(at: found.location))
-                searched = NSRange(location: NSMaxRange(found), length: text.length - NSMaxRange(found))
+            for needle in label.hasPrefix("^") ? ["[" + label] : ["[" + label, "[^" + label] {
+                lines.formUnion(self.lines(mentioning: needle, in: text))
             }
         }
         restyle(lines: lines)
+    }
+
+    private func lines(mentioning needle: String, in text: NSString) -> IndexSet {
+        var lines = IndexSet()
+        var searched = NSRange(location: 0, length: text.length)
+        while searched.length > 0 {
+            let found = text.range(of: needle, options: [.caseInsensitive, .literal], range: searched)
+            guard found.location != NSNotFound else { break }
+            lines.insert(line(at: found.location))
+            searched = NSRange(location: NSMaxRange(found), length: text.length - NSMaxRange(found))
+        }
+        return lines
     }
 
     /// Restyles the lines that wait for what arrived, and only those: every
@@ -604,8 +647,14 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     /// during an edit, fixing through the storage widens the edited range,
     /// and the layout manager then moves a caret at the edit to its end,
     /// past whatever the fixing touched.
+    ///
+    /// Not `fixAttributes`, whose glyph-info pass looks for runs out to both
+    /// ends of the document: three quarters of each keystroke at 4.5 MB.
+    /// Styling never sets glyph info, as `MDBackedTextStorage` says.
     private func fixBackingAttributes(in range: NSRange) {
-        backing.fixAttributes(in: range)
+        backing.fixFontAttribute(in: range)
+        backing.fixParagraphStyleAttribute(in: range)
+        backing.fixAttachmentAttribute(in: range)
         restoreEmojiFonts(in: range)
     }
 
@@ -649,12 +698,12 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
                 // Links elsewhere that use a definition just added, changed or
                 // removed would keep the destination they had until edited.
+                // Typing a destination changes the definition at every key,
+                // so they are restyled once typing pauses.
                 if references != previous {
                     pendingReferenceLabels.formUnion(Self.labelsChanged(from: previous, to: references))
-                    if !isReferenceRestyleScheduled {
-                        isReferenceRestyleScheduled = true
-                        perform(#selector(restyleForReferences), with: nil, afterDelay: 0)
-                    }
+                    NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(restyleForReferences), object: nil)
+                    perform(#selector(restyleForReferences), with: nil, afterDelay: Self.referenceRestyleDelay)
                 }
             }
             headingNumberCache = nil

@@ -293,6 +293,17 @@ final class PreferencesWindowController: NSWindowController {
     }
 
     @objc private func settingChanged(_ sender: Any?) {
+        // Line height and spacing restyle every open document: while one is
+        // dragged its label follows, and the setting lands once it pauses,
+        // not at each of the dozens of steps it passes.
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(settingChanged(_:)), object: nil)
+        if let slider = sender as? NSSlider, slider === lineHeightSlider || slider === spacingSlider,
+           NSApp.currentEvent?.type == .leftMouseDragged {
+            updateLabels()
+            perform(#selector(settingChanged(_:)), with: nil, afterDelay: 0.25)
+            return
+        }
+
         // The stepper and the field mirror each other.
         if sender as? NSStepper === sizeStepper {
             sizeField.doubleValue = sizeStepper.doubleValue

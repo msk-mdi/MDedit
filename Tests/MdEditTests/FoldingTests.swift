@@ -30,6 +30,30 @@ struct FoldingTests {
         #expect(storage.enclosingHeading(ofLine: 7) == 6)
     }
 
+    /// Sections were found one heading at a time, each walking the headings
+    /// after it, and Fold All restyled once per heading.
+    @Test("Every section at once matches each found alone, and folding them all is quick")
+    func allSections() {
+        let levels = [1, 2, 3, 3, 2, 1, 2, 4, 3, 1]
+        let text = (0..<1_000).map { index in
+            String(repeating: "#", count: levels[index % levels.count]) + " Heading \(index)\n" + (index % 7 == 0 ? "" : "body\n\n")
+        }.joined() + "Setext\n===\ntail\n"
+        let (storage, _, _) = makeStorage(text)
+        let sections = storage.foldableRanges()
+        for heading in storage.headings {
+            #expect(sections[heading.line] == storage.foldableRange(forHeadingLine: heading.line))
+        }
+
+        let start = ContinuousClock.now
+        storage.fold(headingLines: storage.headings.map(\.line))
+        let elapsed = ContinuousClock.now - start
+        #expect(elapsed < .seconds(1), "\(elapsed)")
+        #expect(storage.foldedHeadings == Set(sections.compactMap { $0.value == nil ? nil : $0.key }))
+        let separately = makeStorage(text).0
+        for heading in sections.keys where sections[heading]! != nil { separately.setFolded(true, headingLine: heading) }
+        #expect((0..<storage.structure.lineCount).filter(storage.isHidden) == (0..<separately.structure.lineCount).filter(separately.isHidden))
+    }
+
     @Test("Folded lines take no room and draw nothing")
     func layout() {
         let (storage, layoutManager, container) = makeStorage(document)

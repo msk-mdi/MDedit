@@ -161,7 +161,10 @@ enum WorkspaceSearch {
         var total = 0
         for url in files {
             if isCancelled() || total >= matchLimit { break }
-            if overrides[url] == nil, let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize, size > maxFileBytes { continue }
+            // Not a named pipe, which a read waits on forever, holding one of
+            // the few threads Swift's concurrency runs everything on.
+            if overrides[url] == nil, let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+               values.isRegularFile == false || (values.fileSize ?? 0) > maxFileBytes { continue }
             guard let text = overrides[url] ?? (try? String(contentsOf: url, encoding: .utf8)) else { continue }
             var matches: [Match] = []
             var lineNumber = 0

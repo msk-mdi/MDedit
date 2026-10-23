@@ -55,7 +55,24 @@ struct FileFormat: Equatable {
         _ url: URL,
         using load: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }
     ) async throws -> (text: String, format: FileFormat) {
-        try await Task.detached(priority: .userInitiated) { try decode(load(url)) }.value
+        try await Task.detached(priority: .userInitiated) {
+            try checkReadable(url)
+            return try decode(load(url))
+        }.value
+    }
+
+    /// Past this, a file is not opened: read whole, copied as it is decoded
+    /// and styled on the main thread, a log of hundreds of megabytes hung the
+    /// app for minutes or ran it out of memory. 4.5 MB takes seconds.
+    static let maxBytes = 32 * 1024 * 1024
+
+    /// Refuses what reading would hang on or drown in: a named pipe blocks
+    /// until something writes to it, and a huge file is read whole.
+    static func checkReadable(_ url: URL) throws {
+        // A symlink's own values say it is a link; what it points to counts.
+        guard let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]) else { return }
+        if values.isRegularFile == false { throw CocoaError(.fileReadUnknown, userInfo: [NSFilePathErrorKey: url.path]) }
+        if let size = values.fileSize, size > maxBytes { throw CocoaError(.fileReadTooLarge, userInfo: [NSFilePathErrorKey: url.path]) }
     }
 
     /// Encodes editor text the way it was read. Throws rather than silently
