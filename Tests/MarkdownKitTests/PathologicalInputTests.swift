@@ -116,6 +116,30 @@ struct PathologicalInputTests {
     }
 
     /// A wide header over many one-cell rows filled every row in.
+    /// The editor's table model padded every row to the widest: one row of
+    /// 20,000 pipes under 5,000 rows made a hundred million empty cells.
+    @Test("A table editor table padded past its limit is left as text")
+    func editorTablePadding() {
+        let lines = ["| a | b |", "| - | - |"] + Array(repeating: "| 1 | 2 |", count: 5_000) + [String(repeating: "|", count: 20_000)]
+        var table: MarkdownTable?
+        let elapsed = ContinuousClock().measure { table = MarkdownTable(lines: lines) }
+        #expect(table == nil)
+        #expect(elapsed < .seconds(1), "\(elapsed)")
+        // A single wide row is still a table, and formats in time with its length.
+        let wide = MarkdownTable(lines: ["|" + String(repeating: " a |", count: 20_000), "|" + String(repeating: " - |", count: 20_000)])
+        let formatting = ContinuousClock().measure { _ = wide?.formatted() }
+        #expect(wide?.columnCount == 20_000)
+        #expect(formatting < .seconds(1), "\(formatting)")
+    }
+
+    /// Each image's alt holds the alt of the image inside it.
+    @Test("Nested images")
+    func nestedImages() {
+        let time = Self.seconds(String(repeating: "![a", count: 20_000) + String(repeating: "](b)", count: 20_000))
+        #expect(time < 1, "\(time) s")
+        #expect(HTMLRenderer().render(markdown: "![a ![b](c) d](e)") == "<p><img src=\"e\" alt=\"a b d\" /></p>\n")
+    }
+
     @Test("Table rows padded to a wide header")
     func tablePadding() {
         let markdown = "|" + String(repeating: " a |", count: 3_000) + "\n|" + String(repeating: " - |", count: 3_000) + "\n" + String(repeating: "a\n", count: 3_000)

@@ -46,6 +46,17 @@ public func plainText(_ characters: [UInt16], from low: Int, to high: Int) -> St
         .trimmingCharacters(in: .whitespaces)
 }
 
+/// An image's alt text, cut short when it runs on. Each image's alt holds
+/// the alt of any image inside it, so `![a![a![a…` copied lengths 1, 2, …, n:
+/// time and memory with the square of the line's length.
+func imageAlt(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
+    let alt = flattenInline(nodes, characters)
+    return alt.utf8.count > maxAltLength ? String(alt.prefix(maxAltLength)) : alt
+}
+
+/// Characters of alt text an image keeps.
+let maxAltLength = 1_000
+
 /// The text a reader sees in inline nodes, as in image alt text and outlines.
 func flattenInline(_ nodes: [InlineNode], _ characters: [UInt16]) -> String {
     var out = ""

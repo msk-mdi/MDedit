@@ -604,4 +604,56 @@ struct WindowFlowTests {
         #expect(document.storage.theme == .light)
         window.orderOut(nil)
     }
+
+    /// With another window of the app open, closing the last main window
+    /// left the app running, and the next command brought the closed window
+    /// back with its tabs.
+    @Test("A closed last window is not brought back by the next command")
+    func closedLastWindowStaysClosed() throws {
+        let delegate = AppDelegate()
+        delegate.newWindow(nil)
+        let closed = try #require(delegate.controllers.first)
+        closed.recovery = RecoveryStore(directory: scratch.appendingPathComponent("Recovery"))
+        closed.window?.close()
+        #expect(delegate.controllers.isEmpty)
+
+        delegate.newDocument(nil)
+        let fresh = try #require(delegate.controllers.first)
+        #expect(fresh !== closed)
+        #expect(delegate.controllers.count == 1)
+        fresh.window?.close()
+    }
+
+    /// The undo history moves with the document, but its entries were
+    /// recorded by the text view of the window it left.
+    @Test("Undo after moving a tab to a new window undoes in the new one")
+    func undoAfterTearOff() async throws {
+        let source = makeWindow()
+        source.newDocument()
+        source.openCopy(of: "first line\n", named: "Moving")
+        let document = try #require(source.activeDocument)
+        var textView = try #require(source.window?.firstResponder as? NSTextView)
+        textView.setSelectedRange(NSRange(location: 0, length: 0))
+        textView.insertText("typed ", replacementRange: textView.selectedRange())
+        #expect(document.text == "typed first line\n")
+        weak var oldTextView = textView
+
+        var target: MainWindowController?
+        source.onMoveToNewWindow = { moved in
+            let window = makeWindow()
+            window.adopt(moved)
+            target = window
+        }
+        source.moveTabToNewWindow(nil)
+        let destination = try #require(target)
+        textView = try #require(destination.window?.firstResponder as? NSTextView)
+        #expect(textView !== oldTextView)
+
+        textView.undoManager?.undo()
+        #expect(document.text == "first line\n")
+        textView.undoManager?.redo()
+        #expect(document.text == "typed first line\n")
+        source.window?.close()
+        destination.window?.close()
+    }
 }

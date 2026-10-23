@@ -456,11 +456,16 @@ final class MainWindowController: NSWindowController {
     private func updateStatus() {
         guard let document = activeDocument, let editor = currentEditor else { return }
         let statistics: TextStatistics
-        if !document.hasCurrentStatistics, let latest = document.latestStatistics {
+        if document.hasCurrentStatistics || (document.latestStatistics == nil && document.storage.length < Self.countInPlace) {
+            statistics = document.statistics()
+        } else if let latest = document.latestStatistics {
             statistics = latest
             scheduleStatisticsRefresh()
         } else {
-            statistics = document.statistics()
+            // A large document shown for the first time: counted straight
+            // away, but not on the main thread.
+            statistics = TextStatistics("")
+            scheduleStatisticsRefresh(after: 0)
         }
         let selection = selectionStatistics()
         let (line, column) = editor.caretPosition()
@@ -470,15 +475,23 @@ final class MainWindowController: NSWindowController {
         }
     }
 
-    private func scheduleStatisticsRefresh() {
+    /// UTF-16 units under which a document never yet counted is counted
+    /// at once, on the main thread: a few milliseconds at most.
+    private static let countInPlace = 200_000
+
+    /// Recounts once typing pauses, away from the main thread; an edit
+    /// during the count schedules another.
+    private func scheduleStatisticsRefresh(after delay: TimeInterval = 0.3) {
         pendingStatisticsRefresh?.cancel()
         let work = DispatchWorkItem { [weak self] in
             guard let self, let document = activeDocument else { return }
-            _ = document.statistics()
-            updateStatus()
+            Task { [weak self] in
+                guard await document.countStatistics() != nil, let self, activeDocument === document else { return }
+                updateStatus()
+            }
         }
         pendingStatisticsRefresh = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 
     /// Counts for the selected text, if any.

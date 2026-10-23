@@ -345,7 +345,7 @@ final class Document {
         if Self.linkCount(of: file) > 1 {
             try Self.writeInPlace(data, to: file)
         } else {
-            try data.write(to: file, options: .atomic)
+            try Self.replace(file, with: data)
         }
         diskStamp = FileStamp(of: file)
         let needsWatcher = url != destination || isMissingOnDisk
@@ -364,6 +364,30 @@ final class Document {
 
     private static func linkCount(of file: URL) -> Int {
         ((try? FileManager.default.attributesOfItem(atPath: file.path))?[.referenceCount] as? NSNumber)?.intValue ?? 0
+    }
+
+    /// Writes a new file into place with the old one's metadata: its Finder
+    /// tags, other extended attributes, creation date and permissions. An
+    /// atomic write renamed a new file over it, which had none of them.
+    private static func replace(_ file: URL, with data: Data) throws {
+        let manager = FileManager.default
+        guard let attributes = try? manager.attributesOfItem(atPath: file.path) else {
+            return try data.write(to: file, options: .atomic)
+        }
+        do {
+            let folder = try manager.url(for: .itemReplacementDirectory, in: .userDomainMask, appropriateFor: file, create: true)
+            defer { try? manager.removeItem(at: folder) }
+            let staged = folder.appendingPathComponent(file.lastPathComponent)
+            try data.write(to: staged)
+            if let permissions = attributes[.posixPermissions] {
+                try manager.setAttributes([.posixPermissions: permissions], ofItemAtPath: staged.path)
+            }
+            _ = try manager.replaceItemAt(file, withItemAt: staged)
+        } catch {
+            // Where a replacement cannot be staged, as on some network
+            // volumes, the file is still written whole or not at all.
+            try data.write(to: file, options: .atomic)
+        }
     }
 
     /// Writes over a file's own bytes. An atomic write renames a new file
@@ -408,6 +432,19 @@ final class Document {
         if let cached = cachedStatistics, cached.generation == storage.editGeneration { return cached.value }
         let value = TextStatistics(storage.string)
         cachedStatistics = (storage.editGeneration, value)
+        return value
+    }
+
+    /// Counts away from the main thread, from a copy of the text: the whole
+    /// document scanned after every pause in typing hitched a large one.
+    /// Kept, and returned, only if the text was not changed meanwhile.
+    func countStatistics() async -> TextStatistics? {
+        if let cached = cachedStatistics, cached.generation == storage.editGeneration { return cached.value }
+        let generation = storage.editGeneration
+        let text = storage.string
+        let value = await Task.detached(priority: .utility) { TextStatistics(text) }.value
+        guard storage.editGeneration == generation else { return nil }
+        cachedStatistics = (generation, value)
         return value
     }
 

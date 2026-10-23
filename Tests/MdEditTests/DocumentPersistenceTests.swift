@@ -279,6 +279,57 @@ struct FileOnDiskTests {
         return url
     }
 
+    /// The status bar's word count scanned the whole document on the main
+    /// thread after every pause in typing.
+    @Test("Counting words in the background keeps only a count of the current text")
+    func backgroundCount() async throws {
+        let document = Document(text: String(repeating: "one two three\n", count: 50_000), theme: .light)
+        let counted = await document.countStatistics()
+        #expect(counted?.words == 150_000)
+        #expect(document.hasCurrentStatistics)
+
+        document.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "four ")
+        let counting = Task { await document.countStatistics() }
+        await Task.yield()
+        // An edit while counting: the count is of text no longer there.
+        document.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "five ")
+        if await counting.value == nil {
+            #expect(!document.hasCurrentStatistics)
+            #expect(document.latestStatistics?.words == 150_000)
+        }
+        #expect(await document.countStatistics()?.words == 150_002)
+        #expect(document.statistics().words == 150_002)
+    }
+
+    /// An atomic save renamed a new file into place, which had none of the
+    /// old one's tags, extended attributes or creation date.
+    @Test("Saving keeps a file's Finder tags, extended attributes, creation date and permissions")
+    func saveKeepsMetadata() async throws {
+        let folder = try folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var file = folder.appendingPathComponent("tagged.md")
+        try "old\n".write(to: file, atomically: true, encoding: .utf8)
+        var values = URLResourceValues()
+        values.tagNames = ["Red", "Work"]
+        try file.setResourceValues(values)
+        #expect("kept".withCString { setxattr(file.path, "com.example.kept", $0, 4, 0, 0) } == 0)
+        let created = Date(timeIntervalSince1970: 1_000_000_000)
+        try FileManager.default.setAttributes([.creationDate: created, .posixPermissions: 0o640], ofItemAtPath: file.path)
+
+        let document = try await Document.open(contentsOf: file, theme: .light)
+        document.storage.replaceCharacters(in: NSRange(location: 0, length: 3), with: "new")
+        try document.save()
+
+        file.removeAllCachedResourceValues()
+        #expect(try String(contentsOf: file, encoding: .utf8) == "new\n")
+        #expect(try file.resourceValues(forKeys: [.tagNamesKey]).tagNames == ["Red", "Work"])
+        #expect(getxattr(file.path, "com.example.kept", nil, 0, 0, 0) == 4)
+        let attributes = try FileManager.default.attributesOfItem(atPath: file.path)
+        #expect(attributes[.creationDate] as? Date == created)
+        #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o640)
+        #expect(!document.isDirty)
+    }
+
     /// A save through a symlink renamed a new file over the link, so the
     /// note it pointed to was never updated.
     @Test("Saving a symlinked note writes the file it points to and keeps the link")

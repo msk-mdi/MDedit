@@ -4,7 +4,7 @@ import AppKit
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Every open window, oldest first.
-    private var controllers: [MainWindowController] = []
+    private(set) var controllers: [MainWindowController] = []
     /// Set once launch restoration is done, so early saves don't clobber the session.
     private var hasRestored = false
     /// Restyles open windows when a theme file is edited or added.
@@ -108,12 +108,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return controller
     }
 
-    /// Forgets a closed window. The last one stays in the session, because
-    /// closing it quits the app and it should come back next launch.
+    /// Forgets a closed window. The last one stays in the session, saved as
+    /// it closes, because closing it quits the app and it should come back
+    /// next launch. It does not stay in `controllers`: with Preferences open
+    /// the app goes on, and the next command brought the closed window back,
+    /// with tabs already answered "Don't Save" for and never asked about again.
     private func windowClosed(_ controller: MainWindowController) {
-        guard controllers.count > 1 else { return }
+        if controllers.count == 1 { saveSession() }
         controllers.removeAll { $0 === controller }
-        saveSession()
+        if !controllers.isEmpty { saveSession() }
     }
 
     /// Brings forward the window and tab holding a file, if any window has it.
@@ -183,7 +186,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func saveSession() {
-        guard hasRestored else { return }
+        // With no window open, the last one closed is the session to keep.
+        guard hasRestored, !controllers.isEmpty else { return }
         let session = Session(windows: controllers.map { $0.windowSession() })
         session.save()
         let open = session.windows.flatMap { $0.tabs.map(\.url) + [$0.workspace].compactMap { $0 } }

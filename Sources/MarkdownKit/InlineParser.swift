@@ -457,7 +457,7 @@ private struct Parser {
             marker(close, target.end - close),
         ]
         let node: InlineNode = bracket.isImage
-            ? .image(range: range, markers: markers, source: target.destination, alt: flattenInline(children, characters), title: target.title)
+            ? .image(range: range, markers: markers, source: target.destination, alt: imageAlt(children, characters), title: target.title)
             : .link(range: range, markers: markers, destination: target.destination, title: target.title, children: unlinked(children))
         pieces.removeSubrange(bracket.piece...)
         pieces.append(.node(node))

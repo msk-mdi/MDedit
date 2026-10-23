@@ -15,17 +15,24 @@ public struct MarkdownTable: Equatable, Sendable {
     }
 
     /// A header line, a delimiter line, then body lines. Nil when the second
-    /// line is not a delimiter row.
+    /// line is not a delimiter row, or when padding every row to the widest
+    /// would make the table absurdly large.
     public init?(lines: [String]) {
         guard lines.count >= 2 else { return nil }
         let delimiter = Array(lines[1].utf16)
         guard let alignments = tableDelimiter(delimiter, from: skipSpaces(delimiter, from: 0, limit: Int.max)) else { return nil }
-        self.init(
-            header: Self.cells(of: lines[0]),
-            alignments: alignments,
-            rows: lines.dropFirst(2).map(Self.cells(of:))
-        )
+        let header = Self.cells(of: lines[0])
+        let rows = lines.dropFirst(2).map(Self.cells(of:))
+        // One row of thousands of pipes under thousands of rows padded every
+        // row out to it: a gigabyte of empty cells at the next Tab. Such a
+        // table is left as text; cutting it down would lose cells.
+        let widest = max(1, header.count, alignments.count, rows.map(\.count).max() ?? 0)
+        guard widest * (rows.count + 1) <= Self.maxCells else { return nil }
+        self.init(header: header, alignments: alignments, rows: rows)
     }
+
+    /// Cells a table may have once every row is padded to the widest.
+    public static let maxCells = 1_000_000
 
     public var columnCount: Int { header.count }
 
@@ -128,6 +135,9 @@ public struct MarkdownTable: Equatable, Sendable {
 
         func line(_ cells: [String]) -> (String, [NSRange]) {
             var text = "|"
+            // Counted along: measuring the line so far for each cell took
+            // time with the square of a wide row's length.
+            var length = 1
             var ranges: [NSRange] = []
             for (column, cell) in cells.enumerated() {
                 let padding = widths[column] - displayWidth(cell)
@@ -136,9 +146,12 @@ public struct MarkdownTable: Equatable, Sendable {
                 case .center: (padding / 2, padding - padding / 2)
                 case .left, .none: (0, padding)
                 }
+                let cellLength = cell.utf16.count
                 text += " " + String(repeating: " ", count: left)
-                ranges.append(NSRange(location: (text as NSString).length, length: (cell as NSString).length))
+                length += 1 + left
+                ranges.append(NSRange(location: length, length: cellLength))
                 text += cell + String(repeating: " ", count: right) + " |"
+                length += cellLength + right + 2
             }
             return (text, ranges)
         }
