@@ -5,6 +5,39 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.2] - 2026-10-23
+
+### Changed
+- Typing in a large document is about five times faster: a keystroke in a
+  4.5 MB file takes 2 ms instead of 11. Typing a code block's language, a
+  link definition's destination, or at carets far apart no longer restyles
+  the rest of the document.
+- Fold All Sections is quick in documents with many headings.
+- Switching between light and dark, or changing a setting, restyles only the
+  tab on screen; the others catch up when shown. The line height and spacing
+  sliders restyle once they stop moving, not at every step of a drag.
+- The word count is worked out in the background.
+- Find in Folder and Quick Open list the folder once, and list it again only
+  when files change where they look: not for changes in `.git`,
+  `node_modules` or build folders.
+- Typeset formulas and diagrams are let go once they take too much memory,
+  not only past a thousand of them.
+
+### Fixed
+- A crash when deleting or typing over a very large selection just after
+  making it.
+- macOS could quit MdEdit while it was hidden without asking about unsaved
+  changes.
+- Saving keeps a file's Finder tags, other extended attributes, creation date
+  and permissions.
+- Closing the last window while Preferences was open, then opening a
+  document, brought the closed window back with its tabs.
+- Files over 32 MB, and named pipes, are refused instead of hanging MdEdit;
+  Find in Folder skips pipes too, and shows only part of a very long
+  matching line.
+- A line of thousands of `>`, thousands of nested images, or a table row of
+  thousands of `|` no longer stall MdEdit or run it out of memory.
+
 ## [1.3.1] - 2026-10-23
 
 ### Changed
