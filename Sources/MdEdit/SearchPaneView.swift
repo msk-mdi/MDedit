@@ -20,10 +20,8 @@ final class SearchPaneView: NSView {
     /// field, never shows its results late.
     private var searchGeneration = 0
     /// The workspace's markdown files, kept until its folder changes: every
-    /// pause in typing walked the whole folder again.
-    private var cachedFiles: (root: URL, files: [URL])?
-    /// Counts changes to the folder, so a list walked before one is not kept.
-    private var contentsGeneration = 0
+    /// pause in typing walked the whole folder again. Shared with Quick Open.
+    var fileList = WorkspaceFileList()
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
@@ -86,12 +84,6 @@ final class SearchPaneView: NSView {
         outline.reloadData()
     }
 
-    /// Files were added, removed or renamed in the workspace.
-    func workspaceContentsChanged() {
-        cachedFiles = nil
-        contentsGeneration += 1
-    }
-
     /// Runs the field's query in the background, replacing any search in flight.
     @objc func search() {
         searchTask?.cancel()
@@ -104,23 +96,11 @@ final class SearchPaneView: NSView {
         }
         workspace = scope.workspace
         status.stringValue = String(localized: "Searching…")
-        let cached = cachedFiles.flatMap { $0.root == scope.workspace?.root ? $0.files : nil }
-        let contents = contentsGeneration
+        let fileList = fileList
         searchTask = Task.detached(priority: .userInitiated) { [weak self] in
-            var files: [URL]
-            if let cached {
-                files = cached
-            } else {
-                files = scope.workspace?.markdownFiles { Task.isCancelled } ?? []
-                guard !Task.isCancelled else { return }
-                if let root = scope.workspace?.root {
-                    let listed = files
-                    await MainActor.run {
-                        guard let self, self.contentsGeneration == contents else { return }
-                        self.cachedFiles = (root, listed)
-                    }
-                }
-            }
+            var files: [URL] = []
+            if let workspace = scope.workspace { files = await fileList.files(of: workspace) }
+            guard !Task.isCancelled else { return }
             let known = Set(files.map(\.standardizedFileURL.path))
             files += scope.openFiles.filter { !known.contains($0.standardizedFileURL.path) }
             let found = WorkspaceSearch.search(query, in: files, overrides: scope.overrides) { Task.isCancelled }

@@ -77,6 +77,12 @@ struct HTMLToMarkdownTests {
         // Tags that never close do not count.
         #expect(HTMLToMarkdown.nestingDepth(of: String(repeating: "a<br>b<img src=x><hr/>", count: 5000)) == 0)
         #expect(HTMLToMarkdown.nestingDepth(of: "<ul><li><b>x</b></li><li>y</li></ul>") == 3)
+        #expect(HTMLToMarkdown.nestingDepth(of: "<b>a<br/>c<i x='1'>d</i></b><p/>") == 2)
+        // Opening tags with no `>` after them searched to the end each time.
+        let unclosed = String(repeating: "<a ", count: 200_000)
+        let start = ContinuousClock.now
+        #expect(HTMLToMarkdown.nestingDepth(of: unclosed) == 200_000)
+        #expect(ContinuousClock.now - start < .seconds(1))
     }
 
     @Test("Notion: one list per item joins up, to-dos keep their boxes")

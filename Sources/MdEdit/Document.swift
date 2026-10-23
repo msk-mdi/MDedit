@@ -315,7 +315,7 @@ final class Document {
     /// A document for a file whose contents have already been read.
     static func open(_ url: URL, read: (text: String, format: FileFormat), theme: Theme) -> Document {
         let (text, format) = read
-        FileAccess.remember(url)
+        FileAccess.rememberLater(url)
         let document = Document(url: url, text: text, theme: theme)
         document.format = format
         document.diskStamp = FileStamp(of: url.resolvingSymlinksInPath())

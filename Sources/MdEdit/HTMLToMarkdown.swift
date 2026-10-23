@@ -39,6 +39,10 @@ enum HTMLToMarkdown {
     static func nestingDepth(of html: String) -> Int {
         let bytes = Array(html.utf8)
         var depth = 0, deepest = 0, index = 0
+        // The first `>` at or after where the last search began. Searched
+        // afresh for every tag, a run of `<a` with none closed scanned to
+        // the end each time.
+        var nextClose = -1
         while index < bytes.count {
             defer { index += 1 }
             guard bytes[index] == UInt8(ascii: "<"), index + 1 < bytes.count else { continue }
@@ -54,8 +58,11 @@ enum HTMLToMarkdown {
             }
             let name = String(decoding: bytes[(index + 1)..<end], as: UTF8.self).lowercased()
             guard !voidTags.contains(name) else { continue }
-            var close = end
-            while close < bytes.count, bytes[close] != UInt8(ascii: ">") { close += 1 }
+            if nextClose < end {
+                nextClose = end
+                while nextClose < bytes.count, bytes[nextClose] != UInt8(ascii: ">") { nextClose += 1 }
+            }
+            let close = nextClose
             if close > 0, close < bytes.count, bytes[close - 1] == UInt8(ascii: "/") { continue }
             depth += 1
             deepest = max(deepest, depth)

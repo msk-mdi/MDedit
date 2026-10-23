@@ -28,6 +28,10 @@ enum FileAccess {
     /// Records a bookmark for a file or folder the app can reach right now.
     static func remember(_ url: URL, in defaults: UserDefaults = .standard) {
         guard url.isFileURL, let data = try? url.bookmarkData(options: options.create) else { return }
+        // The list is read, changed and written back whole: two at once
+        // would each drop the other's.
+        lock.lock()
+        defer { lock.unlock() }
         var bookmarks = load(from: defaults)
         bookmarks.removeAll { $0.path == url.standardizedFileURL.path }
         bookmarks.append(Entry(path: url.standardizedFileURL.path, data: data))
@@ -44,6 +48,16 @@ enum FileAccess {
         }
         save(bookmarks, to: defaults)
     }
+
+    /// Records a bookmark in the background, as opening a file does: making
+    /// one can wait on a network volume, and each rewrote the whole list on
+    /// the main thread, once per tab as a session was restored.
+    static func rememberLater(_ url: URL) {
+        queue.async { remember(url) }
+    }
+
+    private static let lock = NSLock()
+    private static let queue = DispatchQueue(label: "MdEdit.FileAccess", qos: .utility)
 
     /// Keeps the bookmarks of these files and folders, the open session's,
     /// however many others are remembered after them.

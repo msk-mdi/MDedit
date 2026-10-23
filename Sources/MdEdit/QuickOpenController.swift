@@ -14,13 +14,15 @@ final class QuickOpenController: NSObject {
     }
     private var shown: [Candidate] = []
     private var loadTask: Task<Void, Never>?
+    /// The workspace's files, shared with Find in Folder.
+    var fileList = WorkspaceFileList()
     /// Counts showings, so a load left over from an earlier one is ignored.
     private var loadGeneration = 0
     /// The last query and which candidates it matched: a query that only
     /// adds letters can match nothing outside them.
     private var lastFilter: (needle: [Character], matches: [Int])?
 
-    private struct Candidate {
+    private struct Candidate: Sendable {
         var url: URL
         /// What the query is matched against and shown under the name.
         var display: String
@@ -116,17 +118,21 @@ final class QuickOpenController: NSObject {
         if let workspace {
             let listed = seen
             let generation = loadGeneration
-            loadTask = Task.detached(priority: .userInitiated) { [weak self] in
-                let files = workspace.markdownFiles { Task.isCancelled }
-                    .filter { !listed.contains($0.standardizedFileURL.path) }
+            let fileList = fileList
+            loadTask = Task { [weak self] in
+                let files = await fileList.files(of: workspace)
                 guard !Task.isCancelled else { return }
-                await MainActor.run {
-                    // A load from an earlier showing, finishing after this
-                    // one began, would add its files a second time.
-                    guard let self, self.loadGeneration == generation else { return }
-                    self.candidates += files.map { Candidate(url: $0, display: workspace.relativePath(of: $0)) }
-                    self.filter()
-                }
+                // Preparing thousands of names for matching is done away
+                // from the main thread too.
+                let found = await Task.detached(priority: .userInitiated) {
+                    files.filter { !listed.contains($0.standardizedFileURL.path) }
+                        .map { Candidate(url: $0, display: workspace.relativePath(of: $0)) }
+                }.value
+                // A load from an earlier showing, finishing after this
+                // one began, would add its files a second time.
+                guard !Task.isCancelled, let self, self.loadGeneration == generation else { return }
+                self.candidates += found
+                self.filter()
             }
         }
 

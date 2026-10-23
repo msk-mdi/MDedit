@@ -36,8 +36,12 @@ final class MainWindowController: NSWindowController {
     private var pendingStatisticsRefresh: DispatchWorkItem?
     private(set) var workspace: Workspace?
     private var directoryWatcher: DirectoryWatcher?
+    /// The workspace's markdown files, for Find in Folder and Quick Open.
+    let workspaceFiles = WorkspaceFileList()
+
     private lazy var quickOpenPanel: QuickOpenController = {
         let controller = QuickOpenController()
+        controller.fileList = workspaceFiles
         controller.onOpen = { [weak self] url in self?.open(url: url) }
         return controller
     }()
@@ -170,6 +174,7 @@ final class MainWindowController: NSWindowController {
             self?.searchScope() ?? (nil, [], [:])
         }
         sidebar.search.onOpenMatch = { [weak self] url, match in self?.openMatch(url, match) }
+        sidebar.search.fileList = workspaceFiles
         NSLayoutConstraint.activate([
             statusBar.leadingAnchor.constraint(equalTo: canvas.leadingAnchor),
             statusBar.trailingAnchor.constraint(equalTo: canvas.trailingAnchor),
@@ -1022,6 +1027,7 @@ final class MainWindowController: NSWindowController {
 
     func setWorkspace(_ newWorkspace: Workspace?) {
         workspace = newWorkspace
+        workspaceFiles.invalidate()
         newWorkspace?.save()
         if let root = newWorkspace?.root { FileAccess.remember(root) }
         sidebar.files.setRoot(newWorkspace?.root)
@@ -1029,7 +1035,10 @@ final class MainWindowController: NSWindowController {
         directoryWatcher = newWorkspace.flatMap { workspace in
             DirectoryWatcher(url: workspace.root) { [weak self] change in
                 self?.sidebar.files.folderContentsChanged(change)
-                self?.sidebar.search.workspaceContentsChanged()
+                switch change {
+                case let .folders(folders) where !workspace.listingChanged(inFolders: folders): break
+                default: self?.workspaceFiles.invalidate()
+                }
             }
         }
         onSessionChange?()

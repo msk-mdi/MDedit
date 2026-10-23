@@ -72,6 +72,34 @@ struct WorkspaceTests {
         #expect(edited.isEmpty)
     }
 
+    /// Any change in the folder threw the file list away, `.git`'s at each
+    /// commit and a build folder's all through a build.
+    @Test("Only changes where the listing looks make the folder be listed again")
+    func listingChanges() {
+        let workspace = Workspace(root: URL(fileURLWithPath: "/tmp/Notes", isDirectory: true))
+        let root = workspace.root.resolvingSymlinksInPath().path
+        #expect(workspace.listingChanged(inFolders: [root]))
+        #expect(workspace.listingChanged(inFolders: [root + "/journal/2026"]))
+        #expect(!workspace.listingChanged(inFolders: [root + "/.git/objects/ab", root + "/node_modules/x", root + "/site/build"]))
+        #expect(workspace.listingChanged(inFolders: [root + "/.git", root + "/drafts"]))
+        // Outside the root: FSEvents lost its place; list again.
+        #expect(workspace.listingChanged(inFolders: ["/elsewhere"]))
+    }
+
+    @MainActor
+    @Test("The folder's file list is kept until it is invalidated")
+    func fileListCaches() async throws {
+        let root = try makeFolder(["a.md": "a\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = Workspace(root: root)
+        let list = WorkspaceFileList()
+        #expect(await list.files(of: workspace).map(\.lastPathComponent) == ["a.md"])
+        try "b\n".write(to: root.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+        #expect(await list.files(of: workspace).map(\.lastPathComponent) == ["a.md"])
+        list.invalidate()
+        #expect(await list.files(of: workspace).map(\.lastPathComponent) == ["a.md", "b.md"])
+    }
+
     /// A named pipe with a note's name was read like a file: the read waited
     /// forever, holding a concurrency thread, and opening it hung the same way.
     @Test("Find in Folder and opening skip a named pipe; opening refuses a huge file")

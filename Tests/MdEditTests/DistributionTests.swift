@@ -53,6 +53,28 @@ struct DistributionTests {
         #expect(FileAccess.resolve(renamed, in: defaults).standardizedFileURL.path == renamed.standardizedFileURL.path)
     }
 
+    /// Opening records bookmarks in the background, so several can be
+    /// recorded at once; each rewrites the whole list.
+    @Test("Bookmarks recorded at once are all kept")
+    func bookmarksAtOnce() throws {
+        let defaults = scratchDefaults()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditBookmarks-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: folder) }
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let files = try (0..<40).map { index -> URL in
+            let url = folder.appendingPathComponent("f\(index).md")
+            try "text".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        nonisolated(unsafe) let shared = defaults
+        DispatchQueue.concurrentPerform(iterations: files.count) { FileAccess.remember(files[$0], in: shared) }
+        let kept = (defaults.data(forKey: "fileBookmarks").flatMap { try? PropertyListSerialization.propertyList(from: $0, format: nil) } as? [Any])?.count
+        #expect(kept == files.count)
+        let renamed = folder.appendingPathComponent("moved.md")
+        try FileManager.default.moveItem(at: files[17], to: renamed)
+        #expect(FileAccess.resolve(files[17], in: defaults).standardizedFileURL.path == renamed.standardizedFileURL.path)
+    }
+
     @Test("The bookmark list keeps only the newest")
     func bookmarkLimit() throws {
         let defaults = scratchDefaults()

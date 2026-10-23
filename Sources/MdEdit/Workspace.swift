@@ -56,6 +56,20 @@ struct Workspace: Equatable, Sendable {
         return files.sorted { $0.path.localizedStandardCompare($1.path) == .orderedAscending }
     }
 
+    /// Whether a change in these folders can change what `markdownFiles`
+    /// finds: not one inside a hidden or skipped folder, which it never
+    /// enters — `.git` changes at every commit, a build folder all through
+    /// a build. Paths are as FSEvents reports them, symlinks resolved.
+    func listingChanged(inFolders folders: [String]) -> Bool {
+        let rootPath = root.resolvingSymlinksInPath().path
+        return folders.contains { folder in
+            let path = URL(fileURLWithPath: folder).resolvingSymlinksInPath().path
+            guard path.hasPrefix(rootPath + "/") else { return true }
+            let components = path.dropFirst(rootPath.count + 1).split(separator: "/")
+            return !components.contains { $0.hasPrefix(".") || Self.skippedFolders.contains(String($0)) }
+        }
+    }
+
     /// `notes/today.md` for a file below the root, else the full path.
     func relativePath(of url: URL) -> String {
         let rootPath = root.standardizedFileURL.path
@@ -125,6 +139,32 @@ enum FuzzyMatcher {
 
     private static func isBoundary(_ previous: Character, before current: Character) -> Bool {
         "/-_ .".contains(previous) || (previous.isLowercase && current.isUppercase)
+    }
+}
+
+/// A workspace's markdown files, listed once in the background and kept
+/// until a change where the listing looks: Find in Folder walked the whole
+/// folder again after any change at all, `.git`'s included, and Quick Open
+/// at every ⌘P. One list serves both.
+@MainActor
+final class WorkspaceFileList {
+    private var listed: (root: URL, files: [URL])?
+    /// Counts changes, so a list walked before one is not kept.
+    private var generation = 0
+
+    func invalidate() {
+        listed = nil
+        generation += 1
+    }
+
+    func files(of workspace: Workspace) async -> [URL] {
+        if let listed, listed.root == workspace.root { return listed.files }
+        let generation = generation
+        let walk = Task.detached(priority: .userInitiated) { workspace.markdownFiles { Task.isCancelled } }
+        let files = await withTaskCancellationHandler { await walk.value } onCancel: { walk.cancel() }
+        // A walk cut short is not the whole list.
+        if !Task.isCancelled, self.generation == generation { listed = (workspace.root, files) }
+        return files
     }
 }
 
