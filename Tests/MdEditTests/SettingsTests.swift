@@ -127,3 +127,21 @@ struct SettingsTests {
         #expect(old.sourceMode == nil)
     }
 }
+
+@Suite("Pinch to zoom")
+struct PinchZoomTests {
+    @Test("A pinch steps the zoom each time it spreads or closes far enough")
+    func steps() {
+        var pinch = PinchZoom()
+        // Small movements add up to a step, and the remainder carries on.
+        #expect(pinch.steps(for: 0.05) == 0)
+        #expect(pinch.steps(for: 0.05) == 0)
+        #expect(pinch.steps(for: 0.05) == 1)
+        #expect(pinch.steps(for: 0.3) == 2)
+        // Closing the fingers zooms out.
+        #expect(pinch.steps(for: -0.6) == -4)
+        // What is left over does not carry into the next pinch.
+        #expect(pinch.steps(for: 0.1, ending: true) == 0)
+        #expect(pinch.steps(for: 0.1) == 0)
+    }
+}

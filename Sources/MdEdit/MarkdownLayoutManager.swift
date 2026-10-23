@@ -23,6 +23,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         // Custom glyph generation and non-contiguous layout do not mix: the
         // layout manager throws filling glyph holes it never generated.
         allowsNonContiguousLayout = false
+        typesetter = TableTypesetter()
     }
 
     @available(*, unavailable)
@@ -39,7 +40,9 @@ final class MarkdownLayoutManager: NSLayoutManager {
         enumerateLineFragments(forGlyphRange: glyphsToShow) { rect, _, _, lineGlyphRange, _ in
             guard NSIntersectionRange(lineGlyphRange, focusGlyphs).length == 0 else { return }
             var dim = rect.offsetBy(dx: origin.x, dy: origin.y)
-            dim.size.width = container.size.width
+            // A wrapping table's cells sit side by side: each dims its own.
+            let isCell = self.wrappedRow(atCharacter: self.characterIndexForGlyph(at: lineGlyphRange.location)) != nil
+            if !isCell { dim.size.width = container.size.width }
             dim.fill(using: .sourceOver)
         }
     }
@@ -94,8 +97,10 @@ final class MarkdownLayoutManager: NSLayoutManager {
 
         let characterRange = self.characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)
 
-        // Each code block is filled once, as a whole, wherever its lines start.
+        // Each code block is filled once, as a whole, wherever its lines start,
+        // and so is each row of a wrapping table.
         var drawnCodeBlocks = Set<Int>()
+        var drawnRows = Set<Int>()
 
         enumerateLineFragments(forGlyphRange: glyphsToShow) { fragmentRect, usedRect, _, lineGlyphRange, _ in
             let lineCharacters = self.characterRange(forGlyphRange: lineGlyphRange, actualGlyphRange: nil)
@@ -146,7 +151,13 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 }
             }
 
-            if let grid = attributes[.mdTableRow] as? TableGrid {
+            if let grid = attributes[.mdTableRow] as? TableGrid, grid.wrapping != nil {
+                if let row = self.wrappedRow(atCharacter: lineCharacters.location), drawnRows.insert(row.line.location).inserted {
+                    let bounds = self.bounds(of: row)
+                    let left = origin.x + container.lineFragmentPadding + grid.indent
+                    self.drawTableRow(grid, in: NSRect(x: left, y: origin.y + bounds.minY, width: grid.edges.last ?? 0, height: bounds.height))
+                }
+            } else if let grid = attributes[.mdTableRow] as? TableGrid {
                 let left = origin.x + container.lineFragmentPadding + grid.indent
                 self.drawTableRow(grid, in: NSRect(x: left, y: origin.y + fragmentRect.minY, width: grid.edges.last ?? 0, height: grid.height))
             } else if attributes[.mdTableRow] != nil {
@@ -438,6 +449,151 @@ final class MarkdownLayoutManager: NSLayoutManager {
         else { return nil }
         substituteGlyphs[key] = glyph
         return glyph
+    }
+}
+
+// MARK: - Wrapping table rows
+
+/// `TableTypesetter` lays each cell of a wrapping table row out in its own
+/// column, so the row's line fragments go down each cell and back up for the
+/// next. TextKit searches fragments as if they only went down, so finding the
+/// glyphs in a rect, or under a point, is done here for those rows.
+extension MarkdownLayoutManager {
+    struct WrappedRow {
+        /// The row's line of markdown.
+        var line: NSRange
+        var grid: TableGrid
+        var wrapping: TableGrid.Wrapping
+        /// Its line fragments, a line of a cell each, in glyph order.
+        var fragments: [(rect: NSRect, glyphs: NSRange)]
+    }
+
+    /// The wrapping table row a character is in, laid out.
+    func wrappedRow(atCharacter index: Int) -> WrappedRow? {
+        guard let storage = textStorage, index >= 0, index < storage.length else { return nil }
+        let line = Self.text(of: storage).lineRange(for: NSRange(location: index, length: 0))
+        guard let grid = storage.attribute(.mdTableRow, at: line.location, effectiveRange: nil) as? TableGrid,
+              let wrapping = grid.wrapping
+        else { return nil }
+        let start = glyphIndexForCharacter(at: line.location)
+        let end = NSMaxRange(line) >= storage.length ? numberOfGlyphs : glyphIndexForCharacter(at: NSMaxRange(line))
+        var fragments: [(rect: NSRect, glyphs: NSRange)] = []
+        var glyph = start
+        while glyph < numberOfGlyphs, glyph < end || fragments.isEmpty {
+            var range = NSRange()
+            let rect = lineFragmentRect(forGlyphAt: glyph, effectiveRange: &range, withoutAdditionalLayout: true)
+            guard range.length > 0 else { break }
+            // The row's concealed leading pipe goes with the fragment before it.
+            if range.location >= start { fragments.append((rect, range)) }
+            glyph = NSMaxRange(range)
+        }
+        return fragments.isEmpty ? nil : WrappedRow(line: line, grid: grid, wrapping: wrapping, fragments: fragments)
+    }
+
+    /// The row's extent, from the top of its cells to the bottom of the deepest.
+    func bounds(of row: WrappedRow) -> NSRect {
+        let top = row.fragments.map(\.rect.minY).min() ?? 0
+        let bottom = row.fragments.map(\.rect.maxY).max() ?? 0
+        let left = row.fragments.map(\.rect.minX).min() ?? 0
+        let right = row.fragments.map(\.rect.maxX).max() ?? 0
+        return NSRect(x: left, y: top - row.wrapping.verticalPadding, width: right - left,
+                      height: bottom - top + 2 * row.wrapping.verticalPadding)
+    }
+
+    /// The wrapping rows near a glyph TextKit found: its own, and the rows on
+    /// either side, as the search can land a row off.
+    private func wrappedRows(around glyph: Int) -> [WrappedRow] {
+        guard let storage = textStorage, glyph < numberOfGlyphs else { return [] }
+        let text = Self.text(of: storage)
+        let character = characterIndexForGlyph(at: glyph)
+        let line = text.lineRange(for: NSRange(location: min(character, max(0, text.length - 1)), length: 0))
+        var rows: [WrappedRow] = []
+        if line.location > 0, let before = wrappedRow(atCharacter: line.location - 1) { rows.append(before) }
+        if let own = wrappedRow(atCharacter: line.location) { rows.append(own) }
+        if NSMaxRange(line) < text.length, let after = wrappedRow(atCharacter: NSMaxRange(line)) { rows.append(after) }
+        return rows
+    }
+
+    override func glyphRange(forBoundingRect bounds: NSRect, in container: NSTextContainer) -> NSRange {
+        widened(super.glyphRange(forBoundingRect: bounds, in: container), toRowsIn: bounds, of: container)
+    }
+
+    override func glyphRange(forBoundingRectWithoutAdditionalLayout bounds: NSRect, in container: NSTextContainer) -> NSRange {
+        widened(super.glyphRange(forBoundingRectWithoutAdditionalLayout: bounds, in: container), toRowsIn: bounds, of: container)
+    }
+
+    /// Widens a range to the whole of each wrapping row in the rect: the
+    /// search stops at the first fragment past it, where a row's next cell
+    /// goes back up, and finds nothing in a row's padding, where no line is.
+    private func widened(_ range: NSRange, toRowsIn bounds: NSRect, of container: NSTextContainer) -> NSRange {
+        guard textStorage?.length ?? 0 > 0, numberOfGlyphs > 0 else { return range }
+        var lower = range.location, upper = NSMaxRange(range)
+        var probes = range.length > 0 ? [range.location, NSMaxRange(range) - 1] : []
+        for y in [bounds.minY, bounds.maxY] {
+            probes.append(super.glyphIndex(for: NSPoint(x: bounds.minX, y: y), in: container, fractionOfDistanceThroughGlyph: nil))
+        }
+        if range.length == 0 { lower = numberOfGlyphs; upper = 0 }
+        for glyph in probes {
+            for row in wrappedRows(around: glyph) where self.bounds(of: row).intersects(bounds) {
+                lower = min(lower, row.fragments.first?.glyphs.location ?? lower)
+                upper = max(upper, row.fragments.last.map { NSMaxRange($0.glyphs) } ?? upper)
+            }
+        }
+        guard lower < upper else { return range }
+        return NSRange(location: lower, length: upper - lower)
+    }
+
+    override func glyphIndex(
+        for point: NSPoint, in container: NSTextContainer, fractionOfDistanceThroughGlyph fraction: UnsafeMutablePointer<CGFloat>?
+    ) -> Int {
+        let found = super.glyphIndex(for: point, in: container, fractionOfDistanceThroughGlyph: fraction)
+        guard let row = wrappedRows(around: found).first(where: { self.bounds(of: $0).insetBy(dx: -0.5, dy: 0).minY <= point.y && point.y < self.bounds(of: $0).maxY })
+        else { return found }
+        return glyphIndex(for: point, in: row, fraction: fraction)
+    }
+
+    override func characterIndex(
+        for point: NSPoint, in container: NSTextContainer, fractionOfDistanceBetweenInsertionPoints fraction: UnsafeMutablePointer<CGFloat>?
+    ) -> Int {
+        let found = super.characterIndex(for: point, in: container, fractionOfDistanceBetweenInsertionPoints: fraction)
+        let glyph = glyphIndexForCharacter(at: found)
+        guard let row = wrappedRows(around: glyph).first(where: { self.bounds(of: $0).minY <= point.y && point.y < self.bounds(of: $0).maxY })
+        else { return found }
+        var through: CGFloat = 0
+        let index = characterIndexForGlyph(at: glyphIndex(for: point, in: row, fraction: &through))
+        fraction?.pointee = through
+        return index
+    }
+
+    /// The glyph under a point in a wrapping row: the cell by the column the
+    /// point is in, then its line, then the glyph along it. Below a cell's
+    /// last line, the end of the cell.
+    private func glyphIndex(for point: NSPoint, in row: WrappedRow, fraction: UnsafeMutablePointer<CGFloat>?) -> Int {
+        let byColumn = Dictionary(grouping: row.fragments) { $0.rect.minX }
+        let column = byColumn.keys.min { abs(distance(point.x, $0, byColumn[$0]?.first?.rect.width ?? 0)) < abs(distance(point.x, $1, byColumn[$1]?.first?.rect.width ?? 0)) } ?? 0
+        let lines = (byColumn[column] ?? []).sorted { $0.rect.minY < $1.rect.minY }
+        guard let fragment = lines.first(where: { point.y < $0.rect.maxY }) ?? lines.last else { return 0 }
+        var best = fragment.glyphs.location
+        var bestFraction: CGFloat = 0
+        // The nearest glyph that is drawn: concealed ones take no room.
+        for glyph in fragment.glyphs.location..<NSMaxRange(fragment.glyphs) where !propertyForGlyph(at: glyph).contains(.null) {
+            let start = fragment.rect.minX + location(forGlyphAt: glyph).x
+            let next = glyph + 1 < NSMaxRange(fragment.glyphs) ? fragment.rect.minX + location(forGlyphAt: glyph + 1).x : start
+            let width = max(0, next - start)
+            best = glyph
+            if point.x < start + width || width == 0 && point.x < start {
+                bestFraction = width > 0 ? max(0, min(1, (point.x - start) / width)) : 0
+                break
+            }
+            bestFraction = 1
+        }
+        fraction?.pointee = bestFraction
+        return best
+    }
+
+    /// How far a point is from a column: 0 inside it.
+    private func distance(_ x: CGFloat, _ left: CGFloat, _ width: CGFloat) -> CGFloat {
+        x < left ? left - x : x > left + width ? x - left - width : 0
     }
 }
 

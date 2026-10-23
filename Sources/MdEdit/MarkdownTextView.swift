@@ -89,6 +89,86 @@ final class MarkdownTextView: NSTextView {
         return SpokenText.attributedString(of: textStorage, in: range)
     }
 
+    // MARK: - Wrapping table rows
+
+    /// In a table whose cells wrap, ↑ on a cell's first line and ↓ on its
+    /// last leave the row. TextKit looks for the line just above or below,
+    /// which is still inside the row, and would find the same cell again.
+    override func moveDown(_ sender: Any?) {
+        if !leaveWrappingRow(down: true, extending: false) { super.moveDown(sender) }
+    }
+
+    override func moveUp(_ sender: Any?) {
+        if !leaveWrappingRow(down: false, extending: false) { super.moveUp(sender) }
+    }
+
+    override func moveDownAndModifySelection(_ sender: Any?) {
+        if !leaveWrappingRow(down: true, extending: true) { super.moveDownAndModifySelection(sender) }
+    }
+
+    override func moveUpAndModifySelection(_ sender: Any?) {
+        if !leaveWrappingRow(down: false, extending: true) { super.moveUpAndModifySelection(sender) }
+    }
+
+    private func leaveWrappingRow(down: Bool, extending: Bool) -> Bool {
+        guard additionalCarets.isEmpty, let manager = layoutManager as? MarkdownLayoutManager else { return false }
+        let selection = selectedRange()
+        let caret = down ? NSMaxRange(selection) : selection.location
+        manager.ensureLayout(forCharacterRange: NSRange(location: caret, length: 0))
+        guard let row = manager.wrappedRow(atCharacter: caret) else { return false }
+        let glyph = manager.glyphIndexForCharacter(at: caret)
+        guard let fragment = row.fragments.first(where: { NSLocationInRange(glyph, $0.glyphs) }) else { return false }
+        let cell = row.fragments.filter { $0.rect.minX == fragment.rect.minX }
+        let isEdge = down
+            ? !cell.contains { $0.rect.minY > fragment.rect.minY }
+            : !cell.contains { $0.rect.minY < fragment.rect.minY }
+        guard isEdge else { return false }
+
+        let bounds = manager.bounds(of: row)
+        let x = fragment.rect.minX + manager.location(forGlyphAt: glyph).x
+        let y = down ? bounds.maxY + 1 : bounds.minY - 1
+        let target: Int = if y < 0 {
+            0
+        } else if y > manager.usedRect(for: textContainer!).maxY {
+            textStorage?.length ?? caret
+        } else {
+            characterIndexForInsertion(at: NSPoint(x: x + textContainerOrigin.x, y: y + textContainerOrigin.y))
+        }
+        if extending {
+            let anchor = down ? selection.location : NSMaxRange(selection)
+            setSelectedRange(NSRange(location: min(anchor, target), length: abs(target - anchor)))
+        } else {
+            setSelectedRange(NSRange(location: target, length: 0))
+        }
+        scrollRangeToVisible(NSRange(location: target, length: 0))
+        return true
+    }
+
+    // MARK: - Pinch to zoom
+
+    private var pinch = PinchZoom()
+
+    /// A trackpad pinch steps View ▸ Zoom In and Zoom Out, through the same
+    /// sizes as ⌘+ and ⌘-: each step restyles the whole document, so the
+    /// font snaps from size to size rather than following the fingers.
+    override func magnify(with event: NSEvent) {
+        let steps = pinch.steps(for: event.magnification, ending: event.phase.contains(.ended) || event.phase.contains(.cancelled))
+        // Pinching on past the largest or smallest size does nothing, rather
+        // than beeping on every step as the menu keys do.
+        let action = steps > 0 ? #selector(MainWindowController.zoomIn(_:)) : #selector(MainWindowController.zoomOut(_:))
+        for _ in 0..<abs(steps) {
+            let zoom = Settings().zoom
+            guard steps > 0 ? zoom < Settings.zoomRange.upperBound - 0.001 : zoom > Settings.zoomRange.lowerBound + 0.001
+            else { return }
+            NSApp.sendAction(action, to: nil, from: self)
+        }
+    }
+
+    /// A two-finger double tap goes back to Actual Size.
+    override func smartMagnify(with event: NSEvent) {
+        NSApp.sendAction(#selector(MainWindowController.resetZoom(_:)), to: nil, from: self)
+    }
+
     // MARK: - Paste and drop
 
     /// Images paste as markdown; a URL pasted over a selection makes a link.
@@ -285,5 +365,21 @@ extension NSTextView {
         breakUndoCoalescing()
         if let actionName { undoManager?.setActionName(actionName) }
         return true
+    }
+}
+
+/// Turns a pinch's running magnification into zoom steps: one each time the
+/// fingers spread or close by `threshold` since the last step.
+struct PinchZoom {
+    static let threshold: CGFloat = 0.12
+    private var pending: CGFloat = 0
+
+    /// The steps to take for one magnify event, positive to zoom in.
+    mutating func steps(for magnification: CGFloat, ending: Bool = false) -> Int {
+        defer { if ending { pending = 0 } }
+        pending += magnification
+        let steps = Int(pending / Self.threshold)
+        pending -= CGFloat(steps) * Self.threshold
+        return steps
     }
 }

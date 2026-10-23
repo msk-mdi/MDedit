@@ -1,9 +1,9 @@
 import Foundation
 import MarkdownKit
 
-/// Converts pasted HTML — from browsers, Google Docs, Notion and the like —
-/// into markdown, so formatted text pastes as formatting rather than as
-/// plain words or raw tags.
+/// Converts pasted HTML — from browsers, Google Docs, Notion, Coda and the
+/// like — into markdown, so formatted text pastes as formatting rather than
+/// as plain words or raw tags.
 enum HTMLToMarkdown {
     /// Tags whose presence makes HTML worth converting. Editors such as VS
     /// Code put coloured `<span>`s on the pasteboard for plain code; those
@@ -65,23 +65,48 @@ enum HTMLToMarkdown {
 
     private static func containsMeaningfulTag(_ element: XMLElement) -> Bool {
         if let name = element.name?.lowercased(), meaningfulTags.contains(name), !isPlainWrapper(element) { return true }
-        if hasFormattingStyle(element) { return true }
+        if hasFormattingStyle(element) || headingLevel(of: element) != nil { return true }
         return element.children?.contains { ($0 as? XMLElement).map(containsMeaningfulTag) ?? false } ?? false
     }
 
-    /// Bold, italic or struck-through by inline style, as Google Docs does it.
+    /// The element's inline style, lowercased and without spaces.
+    fileprivate static func style(of element: XMLElement) -> String {
+        element.attribute(forName: "style")?.stringValue?.lowercased().replacingOccurrences(of: " ", with: "") ?? ""
+    }
+
+    fileprivate static func isBold(_ style: String) -> Bool {
+        style.range(of: #"font-weight:(bold|bolder|[6-9]00)"#, options: .regularExpression) != nil
+    }
+
+    fileprivate static func isItalic(_ style: String) -> Bool {
+        style.contains("font-style:italic") || style.contains("font-style:oblique")
+    }
+
+    fileprivate static func isStruck(_ style: String) -> Bool {
+        style.contains("text-decoration:line-through") || style.contains("text-decoration-line:line-through")
+    }
+
+    /// Bold, italic or struck-through by inline style, as Google Docs and Coda do it.
     fileprivate static func hasFormattingStyle(_ element: XMLElement) -> Bool {
-        let style = element.attribute(forName: "style")?.stringValue?.lowercased().replacingOccurrences(of: " ", with: "") ?? ""
-        return style.contains("font-style:italic") || style.contains("font-weight:bold")
-            || style.contains("font-weight:700") || style.contains("font-weight:600")
-            || style.contains("line-through")
+        let style = style(of: element)
+        return isBold(style) || isItalic(style) || isStruck(style)
     }
 
     /// Google Docs wraps a whole paste in `<b style="font-weight:normal">`.
     fileprivate static func isPlainWrapper(_ element: XMLElement) -> Bool {
         guard let name = element.name?.lowercased(), name == "b" || name == "strong" else { return false }
-        let style = element.attribute(forName: "style")?.stringValue?.replacingOccurrences(of: " ", with: "") ?? ""
+        let style = style(of: element)
         return style.contains("font-weight:normal") || style.contains("font-weight:400")
+    }
+
+    /// An `<h1>`–`<h6>`, or anything marked up as a heading for assistive
+    /// technology, as some web editors do instead.
+    fileprivate static func headingLevel(of element: XMLElement) -> Int? {
+        guard let name = element.name?.lowercased() else { return nil }
+        if name.count == 2, name.first == "h", let level = Int(name.dropFirst()), (1...6).contains(level) { return level }
+        guard element.attribute(forName: "role")?.stringValue?.lowercased() == "heading" else { return nil }
+        let level = Int(element.attribute(forName: "aria-level")?.stringValue ?? "") ?? 2
+        return min(max(level, 1), 6)
     }
 }
 
@@ -89,6 +114,7 @@ private struct Converter {
     private static let blockTags: Set<String> = [
         "p", "div", "section", "article", "header", "footer", "main", "aside", "nav", "figure", "figcaption",
         "h1", "h2", "h3", "h4", "h5", "h6", "ul", "ol", "li", "blockquote", "pre", "table", "hr", "dl", "dt", "dd",
+        "details", "summary",
     ]
     /// Links that run code rather than go somewhere. Browsers ignore case,
     /// surrounding spaces and tabs or newlines inside the scheme, and so
@@ -103,6 +129,9 @@ private struct Converter {
 
     private static let skippedTags: Set<String> = ["script", "style", "head", "meta", "title", "noscript", "template"]
 
+    /// Stands for a `<br>` until whitespace has collapsed around it.
+    private static let lineBreak = "\u{1}"
+
     // MARK: - Blocks
 
     /// The markdown blocks of an element's children: runs of inline content
@@ -110,10 +139,16 @@ private struct Converter {
     func blocks(of element: XMLElement) -> [String] {
         var result: [String] = []
         var inline: [XMLNode] = []
+        // Notion puts each list item in a list of its own; side by side they
+        // are one list, not several separated by blank lines.
+        var lastList: String?
 
         func flush() {
-            let text = inlineText(inline).trimmingCharacters(in: .whitespaces)
-            if !text.isEmpty { result.append(text) }
+            let text = paragraph(inlineText(inline))
+            if !text.isEmpty {
+                result.append(text)
+                lastList = nil
+            }
             inline = []
         }
 
@@ -123,9 +158,32 @@ private struct Converter {
                 continue
             }
             if Self.skippedTags.contains(name) { continue }
-            if Self.blockTags.contains(name) || (isWrapper(name) && containsBlock(child)) {
+            if Self.blockTags.contains(name) || HTMLToMarkdown.headingLevel(of: child) != nil
+                || (isWrapper(name) && containsBlock(child)) {
                 flush()
-                result += block(child, name: name)
+                // Coda draws a to-do as a block led by a checkbox, not a list
+                // item, and tidying turns the list around them into a block too.
+                if let checked = leadingCheckbox(of: child) {
+                    var text = blocks(of: child).joined(separator: "\n")
+                    text = text.split(separator: "\n", omittingEmptySubsequences: false)
+                        .enumerated().map { $0.offset == 0 ? String($0.element) : (($0.element.isEmpty ? "" : "      ") + $0.element) }
+                        .joined(separator: "\n")
+                    let item = (checked ? "- [x] " : "- [ ] ") + text
+                    if lastList == "ul", let last = result.indices.last {
+                        result[last] += "\n" + item
+                    } else {
+                        result.append(item)
+                        lastList = "ul"
+                    }
+                    continue
+                }
+                let blocks = block(child, name: name)
+                if name == "ul" || name == "ol", let list = blocks.first, lastList == name, let last = result.indices.last {
+                    result[last] += "\n" + list
+                } else {
+                    result += blocks
+                    lastList = blocks.isEmpty ? lastList : (name == "ul" || name == "ol" ? name : nil)
+                }
             } else {
                 inline.append(child)
             }
@@ -134,8 +192,26 @@ private struct Converter {
         return result
     }
 
+    /// Whether a block starts with a checkbox, before any text: ticked or not.
+    private func leadingCheckbox(of element: XMLElement) -> Bool? {
+        guard !["ul", "ol", "li", "table", "pre"].contains(element.name?.lowercased() ?? "") else { return nil }
+        for node in element.children ?? [] {
+            if node.kind == .text {
+                guard (node.stringValue ?? "").allSatisfy(\.isWhitespace) else { return nil }
+                continue
+            }
+            guard let child = node as? XMLElement else { continue }
+            if child.name?.lowercased() == "input" {
+                guard child.attribute(forName: "type")?.stringValue?.lowercased() == "checkbox" else { return nil }
+                return child.attribute(forName: "checked") != nil
+            }
+            return nil
+        }
+        return nil
+    }
+
     private func isWrapper(_ name: String) -> Bool {
-        ["span", "b", "strong", "font", "body", "html"].contains(name)
+        ["span", "b", "strong", "font", "body", "html", "label"].contains(name)
     }
 
     private func containsBlock(_ element: XMLElement) -> Bool {
@@ -146,11 +222,18 @@ private struct Converter {
     }
 
     private func block(_ element: XMLElement, name: String) -> [String] {
-        switch name {
-        case "h1", "h2", "h3", "h4", "h5", "h6":
-            let level = Int(name.dropFirst()) ?? 1
-            let text = inlineText(element.children ?? []).trimmingCharacters(in: .whitespaces)
+        if let level = HTMLToMarkdown.headingLevel(of: element) {
+            var text = inlineText(element.children ?? [])
+                .replacingOccurrences(of: Self.lineBreak, with: " ")
+                .trimmingCharacters(in: .whitespaces)
+            // A heading is bold already: editors that bold its text as well
+            // would put `**` around the whole of it.
+            if text.count > 4, text.hasPrefix("**"), text.hasSuffix("**"), !text.dropFirst(2).dropLast(2).contains("**") {
+                text = String(text.dropFirst(2).dropLast(2))
+            }
             return text.isEmpty ? [] : [String(repeating: "#", count: level) + " " + text]
+        }
+        switch name {
         case "hr":
             return ["---"]
         case "ul", "ol":
@@ -176,16 +259,31 @@ private struct Converter {
         let start = Int(element.attribute(forName: "start")?.stringValue?.trimmingCharacters(in: .whitespaces) ?? "") ?? 1
         var number = min(max(start, 0), 999_999_999)
         var lines: [String] = []
-        for case let item as XMLElement in element.children ?? [] where item.name?.lowercased() == "li" {
+        var indent = ""
+        for case let child as XMLElement in element.children ?? [] {
+            let name = child.name?.lowercased()
+            // Google Docs nests a list straight inside its list, not inside an
+            // item, and tidying puts it in an unmarked item of its own: either
+            // way it belongs to the item before it.
+            if let nested = strayList(child) {
+                lines += list(nested, ordered: nested.name?.lowercased() == "ol")
+                    .split(separator: "\n", omittingEmptySubsequences: false)
+                    .map { $0.isEmpty ? "" : indent + $0 }
+                continue
+            }
+            guard name == "li" else { continue }
             let marker = ordered ? "\(number). " : "- "
             number += 1
-            let indent = String(repeating: " ", count: marker.count)
-            // A checkbox makes it a task item.
+            indent = String(repeating: " ", count: marker.count)
+            var content = blocks(of: child).joined(separator: "\n")
             var prefix = ""
-            if let box = item.elements(forName: "input").first, box.attribute(forName: "type")?.stringValue == "checkbox" {
-                prefix = box.attribute(forName: "checked") != nil ? "[x] " : "[ ] "
+            if let checked = taskState(of: child) {
+                prefix = checked ? "[x] " : "[ ] "
+            } else if let typed = ["\\[ \\] ": "[ ] ", "\\[x\\] ": "[x] ", "\\[X\\] ": "[x] "].first(where: { content.hasPrefix($0.key) }) {
+                // A to-do copied as text, its box typed out as brackets.
+                prefix = typed.value
+                content.removeFirst(typed.key.count)
             }
-            let content = blocks(of: item).joined(separator: "\n")
             let itemLines = (prefix + content).split(separator: "\n", omittingEmptySubsequences: false)
             for (index, line) in itemLines.enumerated() {
                 lines.append(index == 0 ? marker + line : (line.isEmpty ? "" : indent + line))
@@ -194,18 +292,70 @@ private struct Converter {
         return lines.joined(separator: "\n")
     }
 
+    /// A list in a list with no item of its own around it.
+    private func strayList(_ element: XMLElement) -> XMLElement? {
+        let name = element.name?.lowercased()
+        if name == "ul" || name == "ol" { return element }
+        guard name == "li", HTMLToMarkdown.style(of: element).contains("list-style:none") else { return nil }
+        let children = (element.children ?? []).filter {
+            !($0.kind == .text && ($0.stringValue ?? "").allSatisfy(\.isWhitespace))
+        }
+        guard children.count == 1, let only = children.first as? XMLElement,
+              ["ul", "ol"].contains(only.name?.lowercased() ?? "")
+        else { return nil }
+        return only
+    }
+
+    /// Whether a list item is a ticked or unticked to-do, however the page
+    /// draws its box: a checkbox input, `data-checked` as ProseMirror-based
+    /// editors write it, an ARIA checkbox, or Notion's `checkbox-on` class.
+    private func taskState(of item: XMLElement) -> Bool? {
+        if let checked = item.attribute(forName: "data-checked")?.stringValue?.lowercased() {
+            return checked == "true"
+        }
+        func search(_ element: XMLElement) -> Bool? {
+            for case let child as XMLElement in element.children ?? [] {
+                let name = child.name?.lowercased() ?? ""
+                if name == "ul" || name == "ol" { continue }  // a nested item's box is its own
+                if name == "input", child.attribute(forName: "type")?.stringValue?.lowercased() == "checkbox" {
+                    return child.attribute(forName: "checked") != nil
+                }
+                if child.attribute(forName: "role")?.stringValue?.lowercased() == "checkbox" {
+                    return child.attribute(forName: "aria-checked")?.stringValue?.lowercased() == "true"
+                }
+                let classes = (child.attribute(forName: "class")?.stringValue ?? "").split(separator: " ")
+                if classes.contains("checkbox-on") { return true }
+                if classes.contains("checkbox-off") { return false }
+                if let found = search(child) { return found }
+            }
+            return nil
+        }
+        return search(item)
+    }
+
     private func codeBlock(_ element: XMLElement) -> String {
         let code = element.elements(forName: "code").first
+        let named = [element, code].lazy.compactMap { $0?.attribute(forName: "data-language")?.stringValue }.first
         let classes = [element, code].compactMap { $0?.attribute(forName: "class")?.stringValue }.joined(separator: " ")
-        let language = classes.split(separator: " ")
+        let language = (named ?? classes.split(separator: " ")
             .first { $0.hasPrefix("language-") || $0.hasPrefix("lang-") }
-            .map { String($0.split(separator: "-", maxSplits: 1).last ?? "") } ?? ""
-        var text = (code ?? element).stringValue ?? ""
-        if text.hasSuffix("\n") { text.removeLast() }
+            .map { String($0.split(separator: "-", maxSplits: 1).last ?? "") } ?? "")
+            .lowercased().filter { !$0.isWhitespace && $0 != "`" }
+        var text = codeText(code ?? element)
+        while text.hasSuffix("\n") { text.removeLast() }
         // A fence longer than any backtick run inside keeps the code intact.
         let longestRun = text.split(whereSeparator: { $0 != "`" }).map(\.count).max() ?? 0
         let fence = String(repeating: "`", count: max(3, longestRun + 1))
         return "\(fence)\(language)\n\(text)\n\(fence)"
+    }
+
+    /// A code block's text. Some editors break its lines with `<br>` rather
+    /// than keeping the newlines, and indent with no-break spaces.
+    private func codeText(_ node: XMLNode) -> String {
+        guard let element = node as? XMLElement, let name = element.name?.lowercased() else {
+            return node.kind == .text ? (node.stringValue ?? "").replacingOccurrences(of: "\u{a0}", with: " ") : ""
+        }
+        return name == "br" ? "\n" : (element.children ?? []).map(codeText).joined()
     }
 
     private func table(_ element: XMLElement) -> String? {
@@ -213,9 +363,12 @@ private struct Converter {
             (row.children ?? []).compactMap { $0 as? XMLElement }
                 .filter { ["td", "th"].contains($0.name?.lowercased() ?? "") }
                 .map { cell in
-                    inlineText(cell.children ?? []).trimmingCharacters(in: .whitespaces)
-                        .replacingOccurrences(of: "\n", with: " ")
+                    // Notion and Coda put paragraphs in cells; a table row is
+                    // one line, so they run on.
+                    blocks(of: cell).joined(separator: " ")
+                        .replacingOccurrences(of: #"\\?\n"#, with: " ", options: .regularExpression)
                         .replacingOccurrences(of: "|", with: "\\|")
+                        .trimmingCharacters(in: .whitespaces)
                 }
         }.filter { !$0.isEmpty }
         guard let header = rows.first else { return nil }
@@ -233,24 +386,109 @@ private struct Converter {
         }
     }
 
+    /// A paragraph from inline text: line breaks at its ends dropped, as
+    /// editors leave them on empty lines, and lines kept from starting
+    /// markup they do not mean.
+    private func paragraph(_ text: String) -> String {
+        let trimmed = text.trimmingCharacters(in: CharacterSet(charactersIn: " " + Self.lineBreak))
+        guard !trimmed.isEmpty else { return "" }
+        return trimmed
+            // Two breaks in a row leave an empty line: a new paragraph.
+            .replacingOccurrences(of: Self.lineBreak + "{2,}", with: "\n\n", options: .regularExpression)
+            .replacingOccurrences(of: Self.lineBreak, with: "\\\n")
+            .split(separator: "\n", omittingEmptySubsequences: false)
+            .map { escapeLineStart(String($0)) }
+            .joined(separator: "\n")
+    }
+
+    /// Text at the start of a line that would make it a heading, quote,
+    /// list item or rule.
+    private func escapeLineStart(_ line: String) -> String {
+        guard let first = line.first else { return line }
+        let rest = line.dropFirst()
+        switch first {
+        case "#", ">":
+            return "\\" + line
+        case "-", "+", "=":
+            let isMarker = rest.first.map { $0 == " " } ?? true
+            return isMarker || line.allSatisfy({ $0 == first || $0 == " " }) ? "\\" + line : line
+        case "0"..."9":
+            let digits = line.prefix { $0.isASCII && $0.isNumber }
+            guard digits.count <= 9 else { return line }
+            let after = line.dropFirst(digits.count)
+            guard let delimiter = after.first, delimiter == "." || delimiter == ")",
+                  after.dropFirst().first.map({ $0 == " " }) ?? true
+            else { return line }
+            return String(digits) + "\\" + after
+        default:
+            return line
+        }
+    }
+
     // MARK: - Inlines
 
+    /// Inline content as one line of markdown, with `lineBreak` where `<br>`s were.
     func inlineText(_ nodes: [XMLNode]) -> String {
-        nodes.map(inline).joined()
+        inlines(nodes)
             // HTML whitespace collapses; a hard break survives as its own marker.
             .replacingOccurrences(of: #"[ \t\n\r]+"#, with: " ", options: .regularExpression)
-            .replacingOccurrences(of: "\u{1}", with: "\\\n")
+            .replacingOccurrences(of: " ?\(Self.lineBreak) ?", with: Self.lineBreak, options: .regularExpression)
+    }
+
+    /// The markdown for a run of inline nodes. Side-by-side elements with the
+    /// same formatting, as editors leave behind where a styled word was
+    /// edited, are formatted as one, since `**a****b**` is not bold.
+    private func inlines(_ nodes: [XMLNode]) -> String {
+        var out = ""
+        var index = nodes.startIndex
+        while index < nodes.endIndex {
+            guard let element = nodes[index] as? XMLElement, let key = formatting(of: element) else {
+                out += inline(nodes[index])
+                index += 1
+                continue
+            }
+            var children: [XMLNode] = []
+            while index < nodes.endIndex, let next = nodes[index] as? XMLElement, formatting(of: next) == key {
+                children += next.children ?? []
+                index += 1
+            }
+            out += inline(element, inner: inlines(children))
+        }
+        return out
+    }
+
+    /// What formatting an element adds, for telling when neighbours match.
+    private func formatting(of element: XMLElement) -> String? {
+        switch element.name?.lowercased() {
+        case "strong", "b": HTMLToMarkdown.isPlainWrapper(element) ? styleKey(element) : "**"
+        case "em", "i": "*"
+        case "del", "s", "strike": "~~"
+        case "mark": "=="
+        case "span", "font": styleKey(element)
+        default: nil
+        }
+    }
+
+    private func styleKey(_ element: XMLElement) -> String? {
+        let style = HTMLToMarkdown.style(of: element)
+        let key = (HTMLToMarkdown.isItalic(style) ? "*" : "") + (HTMLToMarkdown.isBold(style) ? "**" : "")
+            + (HTMLToMarkdown.isStruck(style) ? "~~" : "")
+        return key.isEmpty ? nil : key
     }
 
     private func inline(_ node: XMLNode) -> String {
-        guard let element = node as? XMLElement, let name = element.name?.lowercased() else {
-            return node.kind == .text ? escape(node.stringValue ?? "") : ""
+        guard let element = node as? XMLElement else {
+            return node.kind == .text ? escape((node.stringValue ?? "").replacingOccurrences(of: "\u{a0}", with: " ")) : ""
         }
+        return inline(element, inner: inlines(element.children ?? []))
+    }
+
+    private func inline(_ element: XMLElement, inner: @autoclosure () -> String) -> String {
+        guard let name = element.name?.lowercased() else { return "" }
         if Self.skippedTags.contains(name) { return "" }
-        let inner = { (element.children ?? []).map(inline).joined() }
         switch name {
         case "br":
-            return "\u{1}"  // a hard line break, swapped in after whitespace collapses
+            return Self.lineBreak  // a hard line break, swapped in after whitespace collapses
         case "strong", "b":
             return HTMLToMarkdown.isPlainWrapper(element) ? styled(element, inner()) : wrap(inner(), "**")
         case "em", "i":
@@ -260,7 +498,7 @@ private struct Converter {
         case "mark":
             return wrap(inner(), "==")
         case "code", "kbd", "samp", "tt":
-            let text = element.stringValue ?? ""
+            let text = (element.stringValue ?? "").replacingOccurrences(of: "\u{a0}", with: " ")
             let fence = text.contains("`") ? "``" : "`"
             return text.isEmpty ? "" : fence + (fence == "``" ? " \(text) " : text) + fence
         case "a":
@@ -283,37 +521,48 @@ private struct Converter {
 
     /// Google Docs and others mark bold and italic with inline styles.
     private func styled(_ element: XMLElement, _ text: String) -> String {
-        let style = element.attribute(forName: "style")?.stringValue?.lowercased().replacingOccurrences(of: " ", with: "") ?? ""
+        let style = HTMLToMarkdown.style(of: element)
         var result = text
-        if style.contains("font-style:italic") { result = wrap(result, "*") }
-        if style.contains("font-weight:bold") || style.contains("font-weight:700") || style.contains("font-weight:600") {
-            result = wrap(result, "**")
-        }
-        if style.contains("text-decoration:line-through") || style.contains("text-decoration-line:line-through") {
-            result = wrap(result, "~~")
-        }
+        if HTMLToMarkdown.isItalic(style) { result = wrap(result, "*") }
+        if HTMLToMarkdown.isBold(style) { result = wrap(result, "**") }
+        if HTMLToMarkdown.isStruck(style) { result = wrap(result, "~~") }
         return result
     }
 
-    /// Wraps text in a delimiter, keeping surrounding spaces outside it, since
-    /// `** bold**` is not bold.
+    /// Wraps text in a delimiter, keeping surrounding spaces and line breaks
+    /// outside it, since `** bold**` is not bold.
     private func wrap(_ text: String, _ delimiter: String) -> String {
-        let trimmed = text.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return text }
-        let leading = text.prefix { $0 == " " }
-        let trailing = String(text.reversed().prefix { $0 == " " })
-        return leading + delimiter + trimmed + delimiter + trailing
+        let outside: (Character) -> Bool = { $0 == " " || $0 == "\n" || $0 == "\t" || String($0) == Self.lineBreak }
+        guard let first = text.firstIndex(where: { !outside($0) }), let last = text.lastIndex(where: { !outside($0) })
+        else { return text }
+        return String(text[..<first]) + delimiter + text[first...last] + delimiter + text[text.index(after: last)...]
     }
 
     private func destination(_ url: String) -> String {
         url.contains(" ") || url.contains(")") ? "<\(url)>" : url
     }
 
-    /// Escapes characters that would otherwise start markup.
+    /// Escapes characters that would otherwise start markup: emphasis, code
+    /// and links, raw HTML, and the doubled `~~` and `==` of strikethrough and
+    /// highlight.
     private func escape(_ text: String) -> String {
+        let characters = Array(text)
         var out = ""
-        for character in text {
-            if "\\`*_[]".contains(character) { out.append("\\") }
+        for (index, character) in characters.enumerated() {
+            let next = index + 1 < characters.count ? characters[index + 1] : nil
+            let previous = index > 0 ? characters[index - 1] : nil
+            switch character {
+            case "`", "*", "_", "[", "]":
+                out.append("\\")
+            case "\\" where next.map({ $0.isASCII && ($0.isPunctuation || $0.isSymbol) }) ?? false:
+                out.append("\\")
+            case "<" where next.map({ $0.isLetter || $0 == "/" || $0 == "!" || $0 == "?" }) ?? false:
+                out.append("\\")
+            case "~" where next == "~" || previous == "~", "=" where next == "=" || previous == "=":
+                out.append("\\")
+            default:
+                break
+            }
             out.append(character)
         }
         return out

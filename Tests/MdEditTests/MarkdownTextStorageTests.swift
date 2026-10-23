@@ -289,7 +289,7 @@ struct MarkdownTextStorageTests {
         #expect(bare.cells == [NSRange(location: 0, length: 1), NSRange(location: 4, length: 1)])
     }
 
-    @Test("A table is drawn as a grid of shared columns, or as source when too wide or in source mode")
+    @Test("A table is drawn as a grid of shared columns, wrapping when too wide, or as source when far too wide or in source mode")
     func tableGrid() throws {
         let storage = storage("| A | Longer header |\n| --- | --- |\n| wide cell | x |\n")
         let header = try #require(storage.attribute(.mdTableRow, at: 0, effectiveRange: nil) as? TableGrid)
@@ -302,6 +302,22 @@ struct MarkdownTextStorageTests {
         #expect(storage.attribute(.mdConcealed, at: storage.structure.index.range(ofLine: 1).location, effectiveRange: nil) != nil)
         #expect(storage.attribute(.mdConcealed, at: 1, effectiveRange: nil) != nil)
 
+        // Too wide for the column, the cells wrap: a narrower grid, the same font.
+        let natural = header.indent + (header.edges.last ?? 0)
+        let fullSize = try #require(storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont).pointSize
+        storage.maxImageWidth = natural * 0.85
+        storage.restyleTablesChangingFit()
+        let wrapped = try #require(storage.attribute(.mdTableRow, at: 0, effectiveRange: nil) as? TableGrid)
+        #expect(wrapped.wrapping != nil)
+        #expect(wrapped.indent + (wrapped.edges.last ?? 0) <= natural * 0.85)
+        #expect(abs(wrapped.naturalWidth - natural) < 0.5)
+        #expect(try #require(storage.attribute(.font, at: 2, effectiveRange: nil) as? NSFont).pointSize == fullSize)
+        // Given room again, it stops wrapping.
+        storage.maxImageWidth = 720
+        storage.restyleTablesChangingFit()
+        #expect(try #require(storage.attribute(.mdTableRow, at: 0, effectiveRange: nil) as? TableGrid).wrapping == nil)
+
+        // Narrower than its longest word, it shows as source.
         storage.maxImageWidth = 40
         storage.restyleTablesChangingFit()
         #expect(storage.attribute(.mdTableRow, at: 0, effectiveRange: nil) is CGFloat)

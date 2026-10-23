@@ -213,4 +213,52 @@ struct LayoutTests {
         // Twenty times the lines: about the same time, not twenty times it.
         #expect(long.milliseconds < max(5, short.milliseconds * 4), "\(short.milliseconds) ms, then \(long.milliseconds) ms")
     }
+
+    /// A table too wide for the column wraps its cells side by side, each
+    /// cell's lines going down from the top of the row.
+    @Test("A wrapping table's cells sit side by side, and points and rects find them")
+    func wrappingTable() throws {
+        let storage = MarkdownTextStorage(theme: .light)
+        let long = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau"
+        let text = "Before\n\n| Ref | Finding | Remedy |\n| --- | --- | --- |\n| M-01 | \(long) | Fix it soon |\n| M-02 | short | \(long) |\n\nAfter\n"
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        storage.maxImageWidth = 400
+        storage.restyleTablesChangingFit()
+        let (manager, container) = layoutManager(contiguous: true, for: storage)
+        container.size = CGSize(width: 400 + 2 * container.lineFragmentPadding, height: .greatestFiniteMagnitude)
+        manager.ensureLayout(for: container)
+
+        let rowStart = (text as NSString).range(of: "| M-01").location
+        let row = try #require(manager.wrappedRow(atCharacter: rowStart + 3))
+        // The long cell takes several lines; every cell's first line is at the row's top.
+        let tops = Dictionary(grouping: row.fragments) { $0.rect.minX }.mapValues { $0.map(\.rect.minY).min() ?? 0 }
+        #expect(tops.count == 3)
+        #expect(Set(tops.values).count == 1)
+        #expect(row.fragments.count > 3)
+        let bounds = manager.bounds(of: row)
+        #expect(bounds.maxX <= 400 + container.lineFragmentPadding + 0.5)
+
+        // The next row starts below the deepest cell, and the text after below the table.
+        let next = try #require(manager.wrappedRow(atCharacter: (text as NSString).range(of: "| M-02").location + 3))
+        #expect(manager.bounds(of: next).minY >= bounds.maxY - 0.5)
+        let after = manager.lineFragmentRect(forGlyphAt: manager.glyphIndexForCharacter(at: (text as NSString).range(of: "After").location), effectiveRange: nil)
+        #expect(after.minY >= manager.bounds(of: next).maxY - 0.5)
+
+        // A point on the long cell's second line finds a word of it, not the next row.
+        let middle = Dictionary(grouping: row.fragments) { $0.rect.minX }.sorted { $0.key < $1.key }[1].value
+        let second = try #require(middle.sorted { $0.rect.minY < $1.rect.minY }.dropFirst().first)
+        let point = NSPoint(x: second.rect.minX + 20, y: second.rect.midY)
+        let character = manager.characterIndexForGlyph(at: manager.glyphIndex(for: point, in: container))
+        #expect(NSLocationInRange(character, NSRange(location: rowStart, length: 6 + (long as NSString).length + 10)))
+        #expect(NSLocationInRange(character, manager.characterRange(forGlyphRange: second.glyphs, actualGlyphRange: nil)))
+        // Below the short cells' text, a click lands at the end of that cell.
+        let third = Dictionary(grouping: row.fragments) { $0.rect.minX }.sorted { $0.key < $1.key }[2].value
+        let below = NSPoint(x: third[0].rect.minX + 4, y: bounds.maxY - 2)
+        let end = manager.characterIndexForGlyph(at: manager.glyphIndex(for: below, in: container))
+        #expect(NSLocationInRange(end, manager.characterRange(forGlyphRange: third.last!.glyphs, actualGlyphRange: nil)))
+
+        // A thin rect across the row's top finds every cell, not just the first.
+        let strip = manager.glyphRange(forBoundingRect: NSRect(x: 0, y: bounds.minY + 1, width: 500, height: 2), in: container)
+        for fragment in row.fragments { #expect(NSIntersectionRange(strip, fragment.glyphs).length > 0) }
+    }
 }

@@ -54,6 +54,37 @@ struct KeyboardInputTests {
         func backspace() { key(String(UnicodeScalar(NSDeleteCharacter)!), code: kVK_Delete) }
     }
 
+    @Test("↑ and ↓ leave a wrapping table row from a cell's first and last lines")
+    func arrowsInWrappingTable() throws {
+        let long = String(repeating: "alpha beta gamma delta ", count: 12)
+        let text = "Intro\n\n| Ref | Finding |\n| --- | --- |\n| M-01 | \(long)|\n| M-02 | next |\n\nEnd\n"
+        let harness = Harness(text)
+        let view = harness.editor.textView
+        harness.editor.view.setFrameSize(NSSize(width: 600, height: 400))
+        harness.editor.view.layoutSubtreeIfNeeded()
+        (view.textStorage as? MarkdownTextStorage)?.restyleTablesChangingFit()
+        view.layoutManager?.ensureLayout(for: view.textContainer!)
+        let ns = text as NSString
+        let first = ns.range(of: "| M-01").location, second = ns.range(of: "| M-02").location
+        let manager = try #require(view.layoutManager as? MarkdownLayoutManager)
+        #expect(manager.wrappedRow(atCharacter: first + 3) != nil)
+
+        // From the one-line Ref cell, ↓ goes to the next row, not back into this one.
+        view.setSelectedRange(NSRange(location: ns.range(of: "M-01").location + 2, length: 0))
+        view.moveDown(nil)
+        #expect(view.selectedRange().location >= second)
+
+        // From the long cell's first line, ↓ stays in the cell, on a later line.
+        let start = ns.range(of: "alpha").location + 2
+        view.setSelectedRange(NSRange(location: start, length: 0))
+        view.moveDown(nil)
+        #expect(view.selectedRange().location > start && view.selectedRange().location < second)
+        // And ↑ from the next row's cell comes back into this row.
+        view.setSelectedRange(NSRange(location: ns.range(of: "next").location + 1, length: 0))
+        view.moveUp(nil)
+        #expect(view.selectedRange().location > first && view.selectedRange().location < second)
+    }
+
     @Test("Typing a list and pressing Return continues it; Return on an empty item ends it")
     func listByKeyboard() {
         let harness = Harness()

@@ -5,6 +5,28 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+### Added
+- Pinch the trackpad to zoom in and out, through the same sizes as ⌘+ and
+  ⌘-; a two-finger double tap goes back to Actual Size.
+- Tables too wide for the text column stay a grid: their cells wrap onto
+  several lines, columns sharing the room by how much text each holds. ↑ and
+  ↓ move from line to line in a cell and on to the rows around it. Only a
+  table whose words cannot fit even then still shows as source.
+
+### Changed
+- Pasting from Notion, Coda, Google Docs and other web editors keeps more of
+  the formatting: Notion's one-list-per-item bullets paste as one list, to-dos
+  keep their boxes however the page draws them, lists Google Docs nests
+  straight inside lists stay nested, side-by-side runs of the same style
+  become one, headings marked up by role are headings, code broken with
+  `<br>` keeps its lines and language, and paragraphs in table cells stay in
+  their row.
+
+### Fixed
+- Pasted empty lines no longer leave a stray `\`, and pasted text that starts
+  with `#`, `-`, `1.` or `>`, or holds `<tag>`, `~~` or `==`, pastes as
+  written instead of turning into markup.
+
 ## [1.2.4] - 2026-10-22
 
 ### Changed

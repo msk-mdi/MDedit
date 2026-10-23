@@ -124,8 +124,30 @@ final class TableGrid: NSObject {
     /// The delimiter row, shown as source while the caret is on it: only the
     /// outer lines are drawn, as its dashes do not sit in the columns.
     let isDelimiter: Bool
+    /// How wide the grid would be with no cell wrapping.
+    let naturalWidth: CGFloat
+    /// Set when the table is too wide for the column and its cells wrap:
+    /// `TableTypesetter` then lays out the row, each cell in its column.
+    let wrapping: Wrapping?
 
-    init(edges: [CGFloat], indent: CGFloat, height: CGFloat, isHeader: Bool, isLast: Bool, isDelimiter: Bool) {
+    struct Wrapping: Equatable {
+        /// Where the cells' text is, from the start of the line.
+        var cells: [NSRange]
+        var padding: CGFloat
+        var verticalPadding: CGFloat
+        /// The height of each line of a cell, and where its baseline sits.
+        var lineHeight: CGFloat
+        var baseline: CGFloat
+        /// Each column's alignment: 0 left, 0.5 centred, 1 right.
+        var alignment: [CGFloat]
+    }
+
+    init(
+        edges: [CGFloat], indent: CGFloat, height: CGFloat, isHeader: Bool, isLast: Bool, isDelimiter: Bool,
+        naturalWidth: CGFloat? = nil, wrapping: Wrapping? = nil
+    ) {
+        self.naturalWidth = naturalWidth ?? indent + (edges.last ?? 0)
+        self.wrapping = wrapping
         self.edges = edges
         self.indent = indent
         self.height = height
@@ -139,6 +161,7 @@ final class TableGrid: NSObject {
         guard let other = object as? TableGrid else { return false }
         return edges == other.edges && indent == other.indent && height == other.height
             && isHeader == other.isHeader && isLast == other.isLast && isDelimiter == other.isDelimiter
+            && naturalWidth == other.naturalWidth && wrapping == other.wrapping
     }
 
     override var hash: Int {
