@@ -5,6 +5,8 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.0] - 2026-10-23
+
 ### Added
 - Pinch the trackpad to zoom in and out, through the same sizes as ⌘+ and
   ⌘-; a two-finger double tap goes back to Actual Size.
