@@ -243,6 +243,39 @@ struct BlockStructureTests {
         #expect(touched.count > 1)
         #expect(structure.lines[2].kind == .codeLine)
     }
+
+    /// Typing a language after an unclosed fence's backticks changes only
+    /// the opening line, until the name is one the highlighter knows.
+    @Test("Typing a fence's info string reparses only its line")
+    func fenceInfoIsLocal() {
+        var text = "```\n" + String(repeating: "code line\n", count: 500)
+        let structure = BlockStructure(text: text as NSString)
+        var touched: [Int] = []
+        for (offset, letter) in "rus".enumerated() {
+            let location = 3 + offset
+            text = (text as NSString).replacingCharacters(in: NSRange(location: location, length: 0), with: String(letter))
+            touched.append(structure.update(text: text as NSString, editedRange: NSRange(location: location, length: 1), changeInLength: 1).count)
+        }
+        #expect(touched == [1, 1, 1])
+        #expect(structure.lines == BlockStructure(text: text as NSString).lines)
+        if case let .fenceStart(language) = structure.lines[0].kind { #expect(language == "rus") } else { Issue.record("not a fence") }
+
+        // Naming a language the highlighter knows highlights the lines below.
+        text = (text as NSString).replacingCharacters(in: NSRange(location: 6, length: 0), with: "t")
+        let named = structure.update(text: text as NSString, editedRange: NSRange(location: 6, length: 1), changeInLength: 1)
+        #expect(named.count > 1)
+    }
+
+    /// A Mermaid block is drawn as a diagram: renaming it away from
+    /// `mermaid` must restyle its lines as code again.
+    @Test("A fence that stops naming Mermaid restyles its block")
+    func fenceLeavingMermaid() {
+        var text = "```mermaid\ngraph TD\nA --> B\n```\n\nafter\n"
+        let structure = BlockStructure(text: text as NSString)
+        text = (text as NSString).replacingCharacters(in: NSRange(location: 9, length: 1), with: "")
+        let touched = structure.update(text: text as NSString, editedRange: NSRange(location: 9, length: 0), changeInLength: -1)
+        #expect(touched == 0...2)
+    }
 }
 
 @Suite("Leaving lists")

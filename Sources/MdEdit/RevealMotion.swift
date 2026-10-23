@@ -133,7 +133,7 @@ extension MarkdownLayoutManager {
 
     private func spots(in range: NSRange, progress: CGFloat) -> [Spot] {
         guard let storage = textStorage else { return [] }
-        let text = storage.string as NSString
+        let text = storage.mutableString
         return (range.location..<NSMaxRange(range)).map { character in
             let glyph = glyphIndexForCharacter(at: character)
             guard glyph < numberOfGlyphs else { return Spot(x: 0, lineY: 0, visible: false) }

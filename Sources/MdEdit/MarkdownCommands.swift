@@ -15,7 +15,7 @@ extension EditorViewController {
         case "`": String(localized: "Inline Code")
         default: String(localized: "Format")
         }
-        let text = storage.string as NSString
+        let text = storage.text
         var range = textView.selectedRange()
         if range.length == 0 {
             range = wordRange(around: range.location)
@@ -97,7 +97,7 @@ extension EditorViewController {
 
     /// Wraps the selection in a fenced code block.
     func insertCodeBlock() {
-        let text = storage.string as NSString
+        let text = storage.text
         let range = lineRange(for: textView.selectedRange())
         let body = text.substring(with: range)
         let trimmed = body.hasSuffix("\n") ? String(body.dropLast()) : body
@@ -108,7 +108,7 @@ extension EditorViewController {
     /// Wraps the selection as a link, using a URL from the clipboard if there
     /// is one, and leaving the caret where the destination goes otherwise.
     func insertLink() {
-        let text = storage.string as NSString
+        let text = storage.text
         var range = textView.selectedRange()
         if range.length == 0 {
             range = wordRange(around: range.location)
@@ -142,7 +142,7 @@ extension EditorViewController {
     /// The word around a location, so a command with no selection still has
     /// something to act on.
     func wordRange(around location: Int) -> NSRange {
-        let text = storage.string as NSString
+        let text = storage.text
         guard text.length > 0 else { return NSRange(location: location, length: 0) }
         let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*_`[]()#>"))
 
@@ -172,7 +172,7 @@ extension EditorViewController {
         let selection = textView.selectedRange()
         let first = storage.line(at: selection.location)
         let last = storage.lastLine(of: selection)
-        let text = storage.string as NSString
+        let text = storage.text
 
         var rewritten: [String] = []
         for line in first...last {
@@ -206,7 +206,7 @@ extension EditorViewController {
 
     /// Puts the caret at the end of a heading's line, out of the way of its fold.
     private func moveCaret(toHeading line: Int) {
-        let content = storage.structure.index.contentRange(ofLine: line, in: storage.string as NSString)
+        let content = storage.structure.index.contentRange(ofLine: line, in: storage.text)
         textView.setSelectedRange(NSRange(location: NSMaxRange(content), length: 0))
     }
 
@@ -233,7 +233,7 @@ extension EditorViewController {
 
     /// Folds every heading's section, leaving the caret on a heading that shows.
     func foldAll() {
-        let headings = storage.structure.headings(in: storage.string as NSString)
+        let headings = storage.structure.headings(in: storage.text)
         let foldable = headings.filter { storage.foldableRange(forHeadingLine: $0.line) != nil }
         guard !foldable.isEmpty else { return NSSound.beep() }
         // The outermost section holding the caret is where it will end up.
@@ -273,7 +273,7 @@ extension EditorViewController {
     /// Inserts a linked list of the document's headings at the caret, set off
     /// by blank lines.
     func insertTableOfContents() {
-        let text = storage.string as NSString
+        let text = storage.text
         let headings = storage.structure.headings(in: text)
         guard !headings.isEmpty else { return NSSound.beep() }
         let list = tableOfContentsMarkdown(headings, bullet: Settings().bulletMarker)

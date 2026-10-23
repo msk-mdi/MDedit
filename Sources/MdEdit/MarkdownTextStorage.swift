@@ -578,30 +578,17 @@ final class MarkdownTextStorage: MDBackedTextStorage {
 
     // MARK: - NSTextStorage
 
-    /// Bridging the backing's mutable string to `String` copies the whole
-    /// document, and AppKit asks for `string` constantly during layout — once
-    /// per line break — so the copy is kept until the next edit.
-    private var cachedString: String?
-
     /// Counts edits to the characters, so callers can cache what they derive.
     private(set) var editGeneration = 0
 
-    override var string: String {
-        if let cachedString { return cachedString }
-        let copy = backing.string
-        cachedString = copy
-        return copy
-    }
-
-    /// The text without the copy `string` makes: live, so read it and let
-    /// it go before the next edit.
+    /// The text without the copy that bridging `string` to Swift makes:
+    /// live, so read it and let it go before the next edit.
     var text: NSString { backing.mutableString }
 
-    // Length and attribute access, which TextKit calls run by run, are
-    // answered by `MDBackedTextStorage` without crossing into Swift.
+    // Length, the string and attribute access, which TextKit calls run by
+    // run, are answered by `MDBackedTextStorage` without crossing into Swift.
 
     override func replaceCharacters(in range: NSRange, with str: String) {
-        cachedString = nil
         editGeneration += 1
         super.replaceCharacters(in: range, with: str)
     }

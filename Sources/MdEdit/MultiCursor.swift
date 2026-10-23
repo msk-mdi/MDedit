@@ -115,7 +115,7 @@ extension MarkdownTextView {
     }
 
     private func deleteAtTargets(forward: Bool) {
-        let text = string as NSString
+        let text: NSString = textStorage?.mutableString ?? ""
         let ranges: [NSRange] = editTargets.compactMap { target in
             if target.length > 0 { return target }
             if forward {
@@ -153,7 +153,7 @@ extension MarkdownTextView {
         // A column counts UTF-16 units: one can fall inside an emoji or an
         // accented letter, and typing there would split it.
         if location < NSMaxRange(content) {
-            location = (storage.string as NSString).rangeOfComposedCharacterSequence(at: location).location
+            location = storage.mutableString.rangeOfComposedCharacterSequence(at: location).location
         }
         additionalCarets = Array(Set(additionalCarets + [location]).subtracting([selectedRange().location])).sorted()
         scrollRangeToVisible(NSRange(location: location, length: 0))
@@ -162,7 +162,7 @@ extension MarkdownTextView {
     /// Selects the next match of the last selection, adding it to the others.
     /// With nothing selected, selects the word at the caret first.
     func addNextOccurrence(wordRange: (Int) -> NSRange) {
-        let text = string as NSString
+        let text: NSString = textStorage?.mutableString ?? ""
         let ranges = selectedRanges.map(\.rangeValue)
         guard let last = ranges.last, text.length > 0 else { return }
         if ranges.count == 1, last.length == 0 {
@@ -193,7 +193,7 @@ extension MarkdownTextView {
     /// Beeps, leaving the selection alone, when there are too many: a part
     /// of them would edit some matches and leave the rest unseen.
     func selectAllOccurrences(wordRange: (Int) -> NSRange) {
-        let text = string as NSString
+        let text: NSString = textStorage?.mutableString ?? ""
         var needleRange = selectedRange()
         if needleRange.length == 0 { needleRange = wordRange(needleRange.location) }
         guard needleRange.length > 0 else { return NSSound.beep() }

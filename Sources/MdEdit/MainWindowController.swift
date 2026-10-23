@@ -488,6 +488,10 @@ final class MainWindowController: NSWindowController {
     /// being extended the last count stands until the selection settles.
     private func selectionStatistics() -> TextStatistics? {
         guard let editor = currentEditor, let document = activeDocument else { return nil }
+        // A count waiting for an older selection would read ranges that an
+        // edit since may have left past the end of the text.
+        pendingSelectionCount?.cancel()
+        pendingSelectionCount = nil
         let ranges = editor.textView.selectedRanges.map(\.rangeValue).filter { $0.length > 0 }
         guard !ranges.isEmpty else { return nil }
         let generation = editor.storage.editGeneration
@@ -497,9 +501,8 @@ final class MainWindowController: NSWindowController {
 
         let length = ranges.reduce(0) { $0 + $1.length }
         if length > Self.largeSelection, let stale = cached?.value {
-            pendingSelectionCount?.cancel()
             let work = DispatchWorkItem { [weak self] in
-                guard let self, currentEditor === editor else { return }
+                guard let self, currentEditor === editor, editor.storage.editGeneration == generation else { return }
                 selectionCount = (ObjectIdentifier(editor), ranges, generation, countSelection(ranges, in: editor))
                 updateStatus()
             }
@@ -865,7 +868,7 @@ final class MainWindowController: NSWindowController {
     }
 
     private func jumpToHeading(slug: String, in document: Document) {
-        let text = document.storage.string as NSString
+        let text = document.storage.text
         let wanted = (slug.removingPercentEncoding ?? slug).lowercased()
         guard let heading = document.storage.structure.headings(in: text).first(where: { $0.slug == wanted }) else {
             NSSound.beep()
@@ -1029,7 +1032,7 @@ final class MainWindowController: NSWindowController {
         if !isSidebarVisible { setSidebarVisible(true) }
         // Seed the query with the selection, as Find does.
         if let editor = currentEditor, editor.textView.selectedRange().length > 0 {
-            let selected = (editor.storage.string as NSString).substring(with: editor.textView.selectedRange())
+            let selected = (editor.storage.text).substring(with: editor.textView.selectedRange())
             if !selected.contains("\n") {
                 sidebar.search.field.stringValue = selected
                 sidebar.search.search()

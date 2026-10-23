@@ -52,7 +52,7 @@ struct TableEditor {
         var last = delimiter
         while structure.info(forLine: last + 1)?.kind == .tableRow { last += 1 }
 
-        let text = storage.string as NSString
+        let text = storage.text
         let lineTexts = (header...last).map { line in
             text.substring(with: structure.index.contentRange(ofLine: line, in: text))
         }
@@ -147,7 +147,7 @@ struct TableEditor {
     private func exitTable(_ position: Position) {
         let formatted = position.table.formatted()
         let replacement = formatted.text + "\n\n"
-        let text = storage.string as NSString
+        let text = storage.text
         // Swallow the newline that ended the table, if any, so lines don't pile up.
         var range = position.range
         if NSMaxRange(range) < text.length { range.length += 1 }
@@ -217,7 +217,7 @@ struct TableEditor {
             rows: [["", "", ""]]
         )
         let formatted = table.formatted()
-        let text = storage.string as NSString
+        let text = storage.text
         let selection = textView.selectedRange()
         let caretLine = storage.line(at: selection.location)
         let lineRange = storage.structure.index.contentRange(ofLine: caretLine, in: text)
@@ -252,7 +252,7 @@ struct TableEditor {
     ) {
         let formatted = table.formatted()
         let replacement = formatted.text
-        let current = (storage.string as NSString).substring(with: position.range)
+        let current = storage.text.substring(with: position.range)
         if replacement != current {
             guard textView.replaceAsUndoStep(position.range, with: replacement, actionName: actionName) else { return }
         }

@@ -13,6 +13,13 @@
     return _backing.length;
 }
 
+// The backing's own string, live, as NSConcreteTextStorage answers: AppKit
+// asks during layout, once per line break. A Swift override answered with a
+// bridged copy of the whole document, made again after every edit.
+- (NSString *)string {
+    return _backing.string;
+}
+
 - (NSDictionary<NSAttributedStringKey, id> *)attributesAtIndex:(NSUInteger)location effectiveRange:(NSRangePointer)range {
     if (_backing.length == 0) {
         if (range) *range = NSMakeRange(0, 0);

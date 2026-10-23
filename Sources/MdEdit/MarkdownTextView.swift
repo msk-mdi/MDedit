@@ -251,7 +251,7 @@ final class MarkdownTextView: NSTextView {
               ["http", "https", "mailto"].contains(scheme),
               let storage = textStorage
         else { return false }
-        let selected = (storage.string as NSString).substring(with: selection)
+        let selected = storage.mutableString.substring(with: selection)
         guard !selected.contains("\n") else { return false }
         let link = "[\(selected)](\(pasted))"
         if replaceAsUndoStep(selection, with: link, actionName: String(localized: "Paste Link")) {

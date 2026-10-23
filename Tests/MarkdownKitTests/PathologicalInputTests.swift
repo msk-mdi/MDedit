@@ -92,6 +92,22 @@ struct PathologicalInputTests {
         _ = InlineParser.parse(Array((String(repeating: "*a ", count: 50_000) + String(repeating: " a*", count: 50_000)).utf16))
     }
 
+    /// The editor parses lines with its own block parser, which counted each
+    /// `>`'s column from the start of the line, with no depth limit.
+    @Test("A line of nested quotes in the editor's parser")
+    func deepQuotesInEditor() {
+        let line = Array((String(repeating: ">", count: 50_000) + " a").utf16)
+        var info: LineInfo?
+        let elapsed = ContinuousClock().measure { info = BlockParser.parse(line: line, carry: .start) }
+        let time = Double(elapsed.components.seconds) + Double(elapsed.components.attoseconds) / 1e18
+        #expect(time < 1, "\(time) s")
+        #expect(info?.quoteDepth == BlockParser.maxQuoteDepth)
+        // Short of the limit, tabs and spaces between `>`s still count as before.
+        #expect(BlockParser.parse(line: Array("> >\t> a".utf16), carry: .start).quoteDepth == 3)
+        #expect(BlockParser.parse(line: Array(">\t\t> a".utf16), carry: .start).quoteDepth == 1)
+        #expect(BlockParser.parse(line: Array(">  > > a".utf16), carry: .start).quoteDepth == 3)
+    }
+
     /// Each open list rescanned the line's indentation.
     @Test("Lines indented under many nested lists")
     func indentedNestedLists() {

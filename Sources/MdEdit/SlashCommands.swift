@@ -423,7 +423,7 @@ extension EditorViewController {
     /// A `/` opens the menu where a word could start: at the start of a
     /// line or after a space, and never in code.
     func canStartSlashCommand(at location: Int) -> Bool {
-        let text = storage.string as NSString
+        let text = storage.text
         if location > 0 {
             guard let previous = Unicode.Scalar(text.character(at: location - 1)),
                   CharacterSet.whitespacesAndNewlines.contains(previous) else { return false }
@@ -437,7 +437,7 @@ extension EditorViewController {
     /// What follows the `/` up to the caret, while it still reads as a
     /// command being typed: a few short words, with the caret at their end.
     private func slashQuery(from start: Int) -> String? {
-        let text = storage.string as NSString
+        let text = storage.text
         let selection = textView.selectedRange()
         guard selection.length == 0, !textView.hasMultipleTargets,
               start < text.length, text.character(at: start) == 0x2F,
@@ -571,16 +571,16 @@ extension EditorViewController {
     private func keepingCaretFromLineEnd(_ body: () -> Void) {
         let caret = textView.selectedRange().location
         let line = storage.line(at: caret)
-        let fromEnd = NSMaxRange(storage.structure.index.contentRange(ofLine: line, in: storage.string as NSString)) - caret
+        let fromEnd = NSMaxRange(storage.structure.index.contentRange(ofLine: line, in: storage.text)) - caret
         body()
-        let content = storage.structure.index.contentRange(ofLine: line, in: storage.string as NSString)
+        let content = storage.structure.index.contentRange(ofLine: line, in: storage.text)
         textView.setSelectedRange(NSRange(location: max(content.location, NSMaxRange(content) - fromEnd), length: 0))
     }
 
     /// Puts a block on the caret's line when it is empty, or after it, with
     /// blank lines around it so it does not join the text beside it.
     func insertBlock(_ block: String, caret offset: Int, actionName: String) {
-        let text = storage.string as NSString
+        let text = storage.text
         let line = storage.line(at: textView.selectedRange().location)
         let lineRange = storage.structure.index.contentRange(ofLine: line, in: text)
         let info = storage.structure.info(forLine: line)

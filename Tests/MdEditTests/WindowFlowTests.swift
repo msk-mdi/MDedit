@@ -561,4 +561,25 @@ struct WindowFlowTests {
         controller.reportUnreopened([recovered])
         #expect(told.count == 1)
     }
+
+    /// A large selection is counted once it settles. Deleting it before
+    /// then left the delayed count reading ranges past the end of the text.
+    @Test("Deleting a large selection before its count settles does not count the old ranges")
+    func largeSelectionDeleted() async throws {
+        let controller = makeWindow()
+        controller.openCopy(of: String(repeating: "some words on a line\n", count: 20_000), named: "Large")
+        let textView = try #require(controller.window?.firstResponder as? NSTextView)
+        textView.setSelectedRange(NSRange(location: 0, length: 150_000))
+        controller.refreshStatus()
+        try await Task.sleep(for: .milliseconds(50))
+        // Extending it past the threshold defers the count.
+        textView.setSelectedRange(NSRange(location: 0, length: 400_000))
+        controller.refreshStatus()
+        try await Task.sleep(for: .milliseconds(50))
+        textView.insertText("", replacementRange: textView.selectedRange())
+        controller.refreshStatus()
+        try await Task.sleep(for: .milliseconds(400))
+        #expect(textView.string.utf16.count == 20_000 * 21 - 400_000)
+        controller.window?.close()
+    }
 }

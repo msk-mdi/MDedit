@@ -12,7 +12,7 @@ import MarkdownKit
 enum SpokenText {
     static func attributedString(of storage: NSAttributedString, in range: NSRange) -> NSAttributedString {
         let range = NSIntersectionRange(range, NSRange(location: 0, length: storage.length))
-        let text = storage.string as NSString
+        let text = (storage as? NSMutableAttributedString)?.mutableString ?? storage.string as NSString
         let result = NSMutableAttributedString()
 
         func append(_ string: String, _ attributes: [NSAttributedString.Key: Any]) {

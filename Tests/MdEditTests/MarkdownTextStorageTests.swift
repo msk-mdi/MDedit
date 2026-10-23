@@ -12,6 +12,21 @@ struct MarkdownTextStorageTests {
         return storage
     }
 
+    /// AppKit asks for `string` during layout. A Swift override answered it
+    /// with a bridged copy of the whole document after every keystroke: 10 MB
+    /// copied per key in a 5 MB file.
+    @Test("AppKit reads the live text, not a copy made after each edit")
+    func stringIsNotCopied() throws {
+        let storage = storage("Some *text* here.\n")
+        let getter = #selector(getter: NSAttributedString.string)
+        let before = try #require(storage.perform(getter)?.takeUnretainedValue() as? NSString)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "More ")
+        let after = try #require(storage.perform(getter)?.takeUnretainedValue() as? NSString)
+        #expect(before === after)
+        #expect(after as String == "More Some *text* here.\n")
+        #expect(storage.string == "More Some *text* here.\n")
+    }
+
     /// Restyles of far-apart lines were reported as one edit, merged from
     /// the first to the last, so a caret jumping from the top of a long
     /// document to its bottom had every line between refixed and laid out.

@@ -47,7 +47,12 @@ func column(_ line: [UInt16], at index: Int) -> Int {
 /// skipped: a tab before `>` or a closing fence is four columns, not one,
 /// so the line is not a quote, or does not close the fence.
 func skipIndent(_ line: [UInt16], from index: Int, columns limit: Int) -> Int {
-    let start = column(line, at: index)
+    skipIndent(line, from: index, column: column(line, at: index), columns: limit).index
+}
+
+/// `skipIndent` from an index whose column is already known, without
+/// counting it from the start of the line; returns the column reached too.
+func skipIndent(_ line: [UInt16], from index: Int, column start: Int, columns limit: Int) -> (index: Int, column: Int) {
     var current = start
     var cursor = index
     while cursor < line.count, isSpaceOrTab(line[cursor]) {
@@ -56,7 +61,7 @@ func skipIndent(_ line: [UInt16], from index: Int, columns limit: Int) -> Int {
         current = next
         cursor += 1
     }
-    return cursor
+    return (cursor, current)
 }
 
 /// Indentation width from `index`, in columns, counting tab stops.

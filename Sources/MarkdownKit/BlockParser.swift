@@ -89,6 +89,18 @@ public struct Fence: Equatable, Sendable {
     public var info: String
     /// The language the info string names, if the highlighter knows it.
     public var language: Language?
+
+    /// A Mermaid block, which the editor draws as a diagram.
+    var isDiagram: Bool { info.lowercased() == "mermaid" }
+
+    /// The lines inside a fence depend on what closes it, how it is
+    /// highlighted and whether it is drawn, not on the info string itself.
+    /// Compared whole, each letter typed after an unclosed fence's backticks
+    /// reparsed and restyled every line below it.
+    public static func == (lhs: Fence, rhs: Fence) -> Bool {
+        lhs.character == rhs.character && lhs.count == rhs.count
+            && lhs.language == rhs.language && lhs.isDiagram == rhs.isDiagram
+    }
 }
 
 public struct ListLevel: Equatable, Sendable {
@@ -161,6 +173,9 @@ public struct LineInfo: Equatable, Sendable {
 }
 
 public enum BlockParser {
+    /// How deep quotes nest, as export allows: past it, `>` is text.
+    static let maxQuoteDepth = 100
+
     /// Parses one line's worth of characters, given the state left by the line
     /// above it.
     public static func parse(line: [UInt16], carry: CarryState) -> LineInfo {
@@ -191,11 +206,18 @@ public enum BlockParser {
 
         // 1. Blockquote prefixes come off first; they nest around everything.
         var quoteDepth = 0
-        while true {
-            let afterSpaces = skipIndent(line, from: cursor, columns: 3)
+        // The column is carried along: counted from the line's start for
+        // each `>`, a line of them took time with the square of its length.
+        var cursorColumn = 0
+        while quoteDepth < maxQuoteDepth {
+            let (afterSpaces, spacesColumn) = skipIndent(line, from: cursor, column: cursorColumn, columns: 3)
             guard afterSpaces < line.count, line[afterSpaces] == UInt16(ascii: ">") else { break }
             var end = afterSpaces + 1
-            if end < line.count, line[end] == UInt16(ascii: " ") { end += 1 }
+            cursorColumn = spacesColumn + 1
+            if end < line.count, line[end] == UInt16(ascii: " ") {
+                end += 1
+                cursorColumn += 1
+            }
             markers.append(Marker(range: NSRange(location: cursor, length: end - cursor), kind: .quote))
             cursor = end
             quoteDepth += 1

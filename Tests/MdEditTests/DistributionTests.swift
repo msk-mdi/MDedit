@@ -148,6 +148,16 @@ struct DistributionTests {
         #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent("Resources/\(handler["CFBundleTypeIconFile"] as! String).icns").path))
     }
 
+    /// Documents are not NSDocuments, so AppKit cannot tell when edits are
+    /// unsaved: macOS could quit a hidden app without asking about them.
+    @Test("Info.plist does not let macOS quit the app on its own")
+    func noAutomaticTermination() throws {
+        let data = try Data(contentsOf: root.appendingPathComponent("Resources/Info.plist"))
+        let plist = try #require(PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any])
+        #expect(plist["NSSupportsAutomaticTermination"] as? Bool != true)
+        #expect(plist["NSSupportsSuddenTermination"] as? Bool != true)
+    }
+
     @Test("The help pages are well-formed markdown with a title")
     func helpPages() throws {
         for name in ["Welcome", "CheatSheet"] {
