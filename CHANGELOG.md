@@ -5,6 +5,8 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.1] - 2026-10-23
+
 ### Changed
 - Showing or hiding the sidebar slides the text along with it, on the
   sidebar's own curve, instead of jumping it to its new place.
