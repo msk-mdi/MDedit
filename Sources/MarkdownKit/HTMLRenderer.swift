@@ -170,10 +170,68 @@ public struct HTMLRenderer {
 
     // MARK: - Blocks
 
+    /// Recursive for nested blocks, so only containers are handled here:
+    /// leaves are rendered apart, keeping this frame small enough for the
+    /// deepest nesting the parser allows on a secondary thread's stack.
     private func render(_ block: Block, into writer: inout Writer, _ context: Context) {
         switch block.kind {
         case .document:
             renderChildren(block, into: &writer, context)
+
+        case .blockQuote:
+            writer.cr()
+            writer.write("<blockquote>")
+            writer.cr()
+            renderChildren(block, into: &writer, context)
+            writer.cr()
+            writer.write("</blockquote>")
+            writer.cr()
+
+        case let .list(data):
+            let tag = listTag(data)
+            writer.cr()
+            writer.write(tag.open)
+            writer.cr()
+            renderChildren(block, into: &writer, context)
+            writer.cr()
+            writer.write(tag.close)
+            writer.cr()
+
+        case .item:
+            writer.write("<li>")
+            renderChildren(block, into: &writer, context)
+            writer.write("</li>")
+            writer.cr()
+
+        case let .footnote(label):
+            // Collected now, written in a section at the end.
+            renderFootnote(block, label: label, context)
+
+        default:
+            renderLeaf(block, into: &writer, context)
+        }
+    }
+
+    private func listTag(_ data: Block.ListData) -> (open: String, close: String) {
+        let tag = data.ordered ? "ol" : "ul"
+        let start = data.ordered && data.start != 1 ? " start=\"\(data.start)\"" : ""
+        return ("<\(tag)\(start)>", "</\(tag)>")
+    }
+
+    @inline(never)
+    private func renderFootnote(_ block: Block, label: String, _ context: Context) {
+        let key = normalizeLabel(label)
+        guard context.footnoteBodies[key] == nil else { return }
+        var body = Writer()
+        renderChildren(block, into: &body, context)
+        context.footnoteBodies[key] = body.out
+    }
+
+    @inline(never)
+    private func renderLeaf(_ block: Block, into writer: inout Writer, _ context: Context) {
+        switch block.kind {
+        case .document, .blockQuote, .list, .item, .footnote:
+            render(block, into: &writer, context)
 
         case .paragraph:
             let tight = block.parent.map(isInTightList) ?? false
@@ -258,40 +316,6 @@ public struct HTMLRenderer {
             writer.write("<div class=\"math display\">\\[\n\(escape(block.content))\\]</div>")
             writer.cr()
             context.usesMath = true
-
-        case .blockQuote:
-            writer.cr()
-            writer.write("<blockquote>")
-            writer.cr()
-            renderChildren(block, into: &writer, context)
-            writer.cr()
-            writer.write("</blockquote>")
-            writer.cr()
-
-        case let .list(data):
-            let tag = data.ordered ? "ol" : "ul"
-            let start = data.ordered && data.start != 1 ? " start=\"\(data.start)\"" : ""
-            writer.cr()
-            writer.write("<\(tag)\(start)>")
-            writer.cr()
-            renderChildren(block, into: &writer, context)
-            writer.cr()
-            writer.write("</\(tag)>")
-            writer.cr()
-
-        case .item:
-            writer.write("<li>")
-            renderChildren(block, into: &writer, context)
-            writer.write("</li>")
-            writer.cr()
-
-        case let .footnote(label):
-            // Collected now, written in a section at the end.
-            let key = normalizeLabel(label)
-            guard context.footnoteBodies[key] == nil else { break }
-            var body = Writer()
-            renderChildren(block, into: &body, context)
-            context.footnoteBodies[key] = body.out
 
         case let .table(alignments):
             writer.cr()
