@@ -908,6 +908,8 @@ final class MainWindowController: NSWindowController {
         if visible { sidebar.isHidden = false }
         let animated = window?.isVisible == true && Motion.isEnabled
         canvas.layoutSubtreeIfNeeded()
+        let editor = currentEditor
+        let before = editor.map { (x: $0.view.frame.minX, inset: $0.textView.textContainerInset.width) }
         sidebarLeading.constant = visible ? 0 : -Metrics.sidebarWidth
         if animated {
             Motion.animate(Motion.slow) {
@@ -918,11 +920,34 @@ final class MainWindowController: NSWindowController {
                 guard let self, !isSidebarVisible else { return }
                 sidebar.isHidden = true
             }
+            if let editor, let before { slide(editor, from: before.x, inset: before.inset) }
         } else {
             sidebar.alphaValue = visible ? 1 : 0
             sidebar.isHidden = !visible
         }
         refreshSidebar()
+    }
+
+    /// The editor keeps pace with the sliding sidebar. A scroll view takes its
+    /// new frame at once rather than animating to it, and its text column
+    /// re-centres in one step, so both are drawn gliding to where they now are
+    /// from where they were, on the sidebar's curve.
+    private func slide(_ editor: EditorViewController, from x: CGFloat, inset: CGFloat) {
+        editor.view.layoutSubtreeIfNeeded()
+        let shifts = [
+            (editor.view, x - editor.view.frame.minX),
+            // The column moves half as far as the editor's edge: it is centred.
+            (editor.textView as NSView, inset - editor.textView.textContainerInset.width),
+        ]
+        for (view, shift) in shifts where abs(shift) > 0.5 {
+            let glide = CABasicAnimation(keyPath: "transform.translation.x")
+            glide.fromValue = shift
+            glide.toValue = 0
+            glide.isAdditive = true
+            glide.duration = Motion.slow
+            glide.timingFunction = Motion.curve
+            view.layer?.add(glide, forKey: "sidebarGlide")
+        }
     }
 
     private func sidebarPaneChanged(_ pane: SidebarView.Pane) {
