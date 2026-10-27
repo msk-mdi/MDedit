@@ -32,10 +32,17 @@ cask "mdedit" do
   end
 
   zap trash: [
+    "~/Library/Application Scripts/com.mdedit.MdEdit",
+    "~/Library/Application Scripts/com.mdedit.MdEdit.QuickLook",
     "~/Library/Application Support/MdEdit",
+    "~/Library/Caches/com.mdedit.MdEdit",
+    "~/Library/Caches/MdEdit",
     "~/Library/Containers/com.mdedit.MdEdit",
     "~/Library/Containers/com.mdedit.MdEdit.QuickLook",
+    "~/Library/HTTPStorages/com.mdedit.MdEdit",
+    "~/Library/HTTPStorages/MdEdit",
     "~/Library/Preferences/com.mdedit.MdEdit.plist",
     "~/Library/Saved Application State/com.mdedit.MdEdit.savedState",
+    "~/Library/WebKit/com.mdedit.MdEdit",
   ]
 end
