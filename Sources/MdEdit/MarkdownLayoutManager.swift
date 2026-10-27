@@ -92,7 +92,9 @@ final class MarkdownLayoutManager: NSLayoutManager {
     }
 
     private func drawDecoratedBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
-        super.drawBackground(forGlyphRange: glyphsToShow, at: origin)
+        // The selection and highlights go over the decoration, not under it:
+        // a code card drawn after them hid what was selected in it.
+        defer { super.drawBackground(forGlyphRange: glyphsToShow, at: origin) }
         guard let storage = textStorage, let container = textContainers.first else { return }
 
         let characterRange = self.characterRange(forGlyphRange: glyphsToShow, actualGlyphRange: nil)

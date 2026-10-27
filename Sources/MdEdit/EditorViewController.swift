@@ -287,7 +287,13 @@ final class EditorViewController: NSViewController {
         }
         // The opening fence's newline is never concealed, so its glyph sits
         // on the fence's own line fragment.
-        let lineRange = storage.structure.index.range(ofLine: block.openLine)
+        var lineRange = storage.structure.index.range(ofLine: block.openLine)
+        // A concealed fence sits above the card, which starts at the code:
+        // pinned to the fence, the bar would stick out over the card's top.
+        if !block.isIndented, lineRange.length > 0, block.openLine + 1 < (block.closeLine ?? storage.structure.lineCount),
+           layoutManager.propertyForGlyph(at: layoutManager.glyphIndexForCharacter(at: lineRange.location)).contains(.null) {
+            lineRange = storage.structure.index.range(ofLine: block.openLine + 1)
+        }
         let anchor = max(lineRange.location, NSMaxRange(lineRange) - 1)
         guard anchor < storage.length else {
             codeAccessory.isHidden = true
@@ -307,14 +313,46 @@ final class EditorViewController: NSViewController {
         codeAccessory.isHidden = false
     }
 
-    private func setCodeLanguage(_ name: String) {
+    func setCodeLanguage(_ name: String) {
         guard let block = currentCodeBlock else { return }
         let selection = textView.selectedRange()
+        if block.isIndented {
+            fenceIndentedBlock(block, language: name, selection: selection)
+            return
+        }
         guard textView.replaceAsUndoStep(block.infoRange, with: name, actionName: String(localized: "Set Language")) else { return }
         // Keep the caret where it was, shifted by however much the fence line changed.
         let delta = (name as NSString).length - block.infoRange.length
         let location = selection.location >= NSMaxRange(block.infoRange) ? selection.location + delta : selection.location
         textView.setSelectedRange(NSRange(location: max(0, location), length: selection.length))
+        updateCodeAccessory()
+    }
+
+    /// An indented block has nowhere to name its language, so choosing one
+    /// fences it: its lines lose their indentation and sit between fences.
+    private func fenceIndentedBlock(_ block: CodeBlock, language: String, selection: NSRange) {
+        guard !language.isEmpty, let closeLine = block.closeLine else { return }
+        let structure = storage.structure
+        let text = storage.text
+        let start = structure.index.range(ofLine: block.openLine).location
+        let end = NSMaxRange(structure.index.contentRange(ofLine: closeLine, in: text))
+        let opening = "```" + language + "\n"
+        var code: [String] = []
+        // Where the caret goes: the same place in its line, less the indentation.
+        var caret = selection.location
+        var offset = (opening as NSString).length
+        for line in block.openLine...closeLine {
+            let content = structure.index.contentRange(ofLine: line, in: text)
+            let (dedented, removed) = CodeBlock.dedented(Substring(text.substring(with: content)))
+            if selection.location >= content.location, selection.location <= NSMaxRange(content) {
+                caret = start + offset + max(0, selection.location - content.location - removed)
+            }
+            code.append(String(dedented))
+            offset += (String(dedented) as NSString).length + 1
+        }
+        let fenced = opening + code.joined(separator: "\n") + "\n```"
+        guard textView.replaceAsUndoStep(NSRange(location: start, length: end - start), with: fenced, actionName: String(localized: "Set Language")) else { return }
+        textView.setSelectedRange(NSRange(location: caret, length: 0))
         updateCodeAccessory()
     }
 

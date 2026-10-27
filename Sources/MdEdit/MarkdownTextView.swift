@@ -173,11 +173,65 @@ final class MarkdownTextView: NSTextView {
 
     /// Images paste as markdown; a URL pasted over a selection makes a link.
     override func paste(_ sender: Any?) {
-        let pasteboard = NSPasteboard.general
-        if insertImages(from: pasteboard, at: selectedRange()) { return }
-        if pasteLinkOverSelection(from: pasteboard) { return }
-        if pasteHTMLAsMarkdown(from: pasteboard) { return }
+        if pasteAsMarkdown(from: .general) { return }
         super.paste(sender)
+    }
+
+    /// Pastes what needs more than the plain text; false leaves it to that.
+    func pasteAsMarkdown(from pasteboard: NSPasteboard) -> Bool {
+        insertImages(from: pasteboard, at: selectedRange())
+            || pasteLinkOverSelection(from: pasteboard)
+            || pasteHTMLAsMarkdown(from: pasteboard)
+            || pasteIndentedCodeAsFence(from: pasteboard)
+    }
+
+    /// Code copied as plain text, from a terminal or a chat, comes indented,
+    /// which markdown reads as an indented code block: one with no fences,
+    /// so no language. Pasted on a line of its own, it is fenced instead.
+    private func pasteIndentedCodeAsFence(from pasteboard: NSPasteboard) -> Bool {
+        guard let storage = textStorage as? MarkdownTextStorage, !isInCodeBlock(),
+              let text = pasteboard.string(forType: .string),
+              let fenced = Self.fencedCode(fromIndented: text)
+        else { return false }
+        let range = selectedRange()
+        let line = storage.line(at: range.location)
+        guard let info = storage.structure.info(forLine: line), info.quoteDepth == 0, info.listDepth == 0 else { return false }
+        // Only where the paste fills its lines: inside a paragraph, or a
+        // list item's continuation, the indentation is not code.
+        let lineText = storage.structure.index.contentRange(ofLine: line, in: storage.text)
+        let lastLine = storage.line(at: NSMaxRange(range))
+        let lastText = storage.structure.index.contentRange(ofLine: lastLine, in: storage.text)
+        let before = storage.text.substring(with: NSRange(location: lineText.location, length: range.location - lineText.location))
+        let after = NSMaxRange(range) <= NSMaxRange(lastText)
+            ? storage.text.substring(with: NSRange(location: NSMaxRange(range), length: NSMaxRange(lastText) - NSMaxRange(range)))
+            : ""
+        guard before.allSatisfy(\.isWhitespace), after.allSatisfy(\.isWhitespace) else { return false }
+        if replaceAsUndoStep(range, with: fenced, actionName: String(localized: "Paste")) {
+            setSelectedRange(NSRange(location: range.location + (fenced as NSString).length, length: 0))
+        }
+        return true
+    }
+
+    /// Text whose every line is indented four columns or more, as a fenced
+    /// block of the same code; nil for anything else.
+    static func fencedCode(fromIndented text: String) -> String? {
+        var lines = text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: false)
+        let endsWithNewline = lines.count > 1 && lines.last?.isEmpty == true
+        while let last = lines.last, last.allSatisfy(\.isWhitespace) { lines.removeLast() }
+        while let first = lines.first, first.allSatisfy(\.isWhitespace) { lines.removeFirst() }
+        guard !lines.isEmpty else { return nil }
+        var code: [Substring] = []
+        for line in lines {
+            let (dedented, removed) = CodeBlock.dedented(line)
+            let isBlank = line.allSatisfy(\.isWhitespace)
+            // Four columns: a tab counts as one stop.
+            guard isBlank || removed > 0 && (line.prefix(removed).contains("\t") || removed >= 4) else { return nil }
+            code.append(isBlank ? "" : dedented)
+        }
+        // A fence longer than any run of backticks opening a line inside.
+        let longest = code.map { $0.prefix { $0 == "`" }.count }.max() ?? 0
+        let fence = String(repeating: "`", count: max(3, longest + 1))
+        return fence + "\n" + code.joined(separator: "\n") + "\n" + fence + (endsWithNewline ? "\n" : "")
     }
 
     /// Formatted text from a browser or document pastes as markdown. Inside a

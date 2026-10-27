@@ -10,6 +10,15 @@ import AppKit
 /// row's `TableGrid`; every other paragraph is laid out as usual.
 final class TableTypesetter: NSATSTypesetter {
     override func layoutParagraph(at lineFragmentOrigin: UnsafeMutablePointer<NSPoint>) -> Int {
+        // A code card reaches its padding above its first line, and drawing
+        // is clipped to the text container: a block opening the document
+        // would lose the top of its card, rounded corners and all. TextKit
+        // drops space before the first paragraph, so the line moves down here.
+        if paragraphCharacterRange.location == 0, lineFragmentOrigin.pointee.y == 0,
+           let storage = layoutManager?.textStorage, storage.length > 0,
+           storage.attribute(.mdCodeBlock, at: 0, effectiveRange: nil) != nil {
+            lineFragmentOrigin.pointee.y = Metrics.codeCardPadding
+        }
         guard let layoutManager, let storage = layoutManager.textStorage, let container = currentTextContainer,
               paragraphGlyphRange.length + paragraphSeparatorGlyphRange.length > 0
         else { return super.layoutParagraph(at: lineFragmentOrigin) }

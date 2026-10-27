@@ -1056,6 +1056,11 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         let isListItem = if case .listItem = info.kind { true } else { false }
         // Space after a block goes on its last line: the one before a blank.
         let endsBlock = !isCode && info.kind != .blank && structure.info(forLine: line + 1)?.kind == .blank
+        // An indented block above the empty line that ends the document has
+        // no blank line to hold its card's padding: the caret there would sit
+        // inside the card, so the block's last line makes the room itself.
+        let clearsCodeCard = info.kind == .indentedCode && line + 2 == structure.lineCount
+            && structure.index.range(ofLine: line + 1).length == 0
 
         var attributes: [NSAttributedString.Key: Any] = [
             .font: baseFont,
@@ -1069,6 +1074,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 isListItem: isListItem,
                 hangingIndent: hangingIndent,
                 endsBlock: endsBlock,
+                clearsCodeCard: clearsCodeCard,
                 theme: theme
             ),
         ]

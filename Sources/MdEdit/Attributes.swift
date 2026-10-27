@@ -46,6 +46,7 @@ struct ParagraphStyleCache {
         var isListItem: Bool
         var hangingIndent: CGFloat
         var endsBlock: Bool
+        var clearsCodeCard: Bool
     }
 
     mutating func style(
@@ -56,6 +57,7 @@ struct ParagraphStyleCache {
         isListItem: Bool = false,
         hangingIndent: CGFloat,
         endsBlock: Bool = false,
+        clearsCodeCard: Bool = false,
         theme: Theme
     ) -> NSParagraphStyle {
         let key = Key(
@@ -65,7 +67,8 @@ struct ParagraphStyleCache {
             isHeading: isHeading,
             isListItem: isListItem,
             hangingIndent: hangingIndent,
-            endsBlock: endsBlock
+            endsBlock: endsBlock,
+            clearsCodeCard: clearsCodeCard
         )
         if let cached = styles[key] { return cached }
 
@@ -82,6 +85,8 @@ struct ParagraphStyleCache {
         // while `## ` is concealed and adds it once the marker shows, so the
         // page would drop a few points each time the caret reached a heading.
         style.paragraphSpacing = endsBlock ? theme.paragraphSpacing : 0
+        // The card's padding, and as much again between it and the caret.
+        if clearsCodeCard { style.paragraphSpacing = 2 * Metrics.codeCardPadding }
         style.paragraphSpacingBefore = 0
         style.tighteningFactorForTruncation = 0
 
