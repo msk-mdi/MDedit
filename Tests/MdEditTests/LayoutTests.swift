@@ -214,6 +214,41 @@ struct LayoutTests {
         #expect(long.milliseconds < max(5, short.milliseconds * 4), "\(short.milliseconds) ms, then \(long.milliseconds) ms")
     }
 
+    /// Two fenced blocks one blank line apart were filled as one card, the
+    /// blank line between them inside it, while one of their fences showed.
+    @Test("Code blocks a blank line apart get a card each; an indented block's blank lines stay in its card")
+    func codeCardsStopAtBlankLines() throws {
+        func blankLineIsCard(_ text: String, revealing revealed: ClosedRange<Int>?, blankLine: Int) throws -> Bool {
+            let storage = MarkdownTextStorage(theme: .light)
+            storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+            storage.revealedLines = revealed
+            let (manager, container) = layoutManager(contiguous: true, for: storage)
+            manager.ensureLayout(for: container)
+            let used = manager.usedRect(for: container)
+            let rep = try #require(NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 600, pixelsHigh: Int(used.maxY) + 20, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            manager.drawBackground(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs), at: .zero)
+            NSGraphicsContext.restoreGraphicsState()
+            let glyph = manager.glyphIndexForCharacter(at: storage.characterRange(forLines: blankLine...blankLine).location)
+            let line = manager.lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil)
+            // Drawn unflipped, so the rows run from the bottom.
+            let pixel = try #require(rep.colorAt(x: 300, y: rep.pixelsHigh - 1 - Int(line.midY))?.usingColorSpace(.deviceRGB))
+            let card = try #require(storage.theme.codeBackground.usingColorSpace(.deviceRGB))
+            return pixel.alphaComponent > 0.5 && abs(pixel.redComponent - card.redComponent) < 0.03
+                && abs(pixel.greenComponent - card.greenComponent) < 0.03 && abs(pixel.blueComponent - card.blueComponent) < 0.03
+        }
+
+        let fenced = "```\na\nb\n```\n\n```bash\ntest\n```\n"
+        for revealed in [nil, 0...0, 3...3, 5...5, 6...6] as [ClosedRange<Int>?] {
+            #expect(try !blankLineIsCard(fenced, revealing: revealed, blankLine: 4), "revealing \(String(describing: revealed))")
+        }
+        #expect(try blankLineIsCard("Intro.\n\n    a\n\n    b\n\nAfter.\n", revealing: nil, blankLine: 3))
+    }
+
     /// A table too wide for the column wraps its cells side by side, each
     /// cell's lines going down from the top of the row.
     @Test("A wrapping table's cells sit side by side, and points and rects find them")

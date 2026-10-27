@@ -770,12 +770,20 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     private var pendingInvalidation: NSRange?
 
     private func flushPendingInvalidation() {
-        guard let range = pendingInvalidation else { return }
+        guard let restyled = pendingInvalidation else { return }
         pendingInvalidation = nil
+        // A code card's padding reaches into the lines either side of its
+        // block: a fence shown or hidden, or a block opened or closed, left
+        // the old card's edge there, or the new one missing, until something
+        // else redrew them. Those lines are laid out again with the rest:
+        // only redrawing them made AppKit generate glyphs mid-edit.
+        let lines = max(0, line(at: restyled.location) - 1)...(lastLine(of: restyled) + 1)
+        let range = NSUnionRange(restyled, characterRange(forLines: lines))
         for manager in layoutManagers {
             manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil)
             manager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             manager.invalidateDisplay(forCharacterRange: range)
+            (manager as? MarkdownLayoutManager)?.invalidateMargins(forCharacterRange: range)
         }
     }
 

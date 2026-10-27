@@ -91,6 +91,33 @@ final class MarkdownLayoutManager: NSLayoutManager {
         super.processEditing(for: textStorage, edited: editMask, range: newCharRange, changeInLength: delta, invalidatedRange: invalidatedCharRange)
     }
 
+    /// Redraws the margins above the first line and below the last when a
+    /// restyle reaches them: a code card's padding lies there, outside every
+    /// line, so a card at either end of the document left its old edge
+    /// behind when a fence hid or the block went. Asks for no layout, which
+    /// would generate glyphs while the storage is still editing.
+    func invalidateMargins(forCharacterRange range: NSRange) {
+        guard let storage = textStorage else { return }
+        let atStart = range.location == 0
+        let atEnd = NSMaxRange(range) >= storage.length
+        guard atStart || atEnd else { return }
+        let reach = Metrics.codeCardPadding + 2 * Metrics.codeCardRadius
+        for container in textContainers {
+            guard let textView = container.textView else { continue }
+            let origin = textView.textContainerOrigin
+            let bounds = textView.bounds
+            if atStart {
+                textView.setNeedsDisplay(NSRect(x: bounds.minX, y: bounds.minY, width: bounds.width, height: origin.y + reach), avoidAdditionalLayout: true)
+            }
+            if atEnd {
+                // Where the text ended before this change; the card's old
+                // bottom edge sat just under it.
+                let top = max(bounds.minY, origin.y + usedRect(for: container).maxY - reach)
+                textView.setNeedsDisplay(NSRect(x: bounds.minX, y: top, width: bounds.width, height: max(0, bounds.maxY - top)), avoidAdditionalLayout: true)
+            }
+        }
+    }
+
     private func drawDecoratedBackground(forGlyphRange glyphsToShow: NSRange, at origin: NSPoint) {
         // The selection and highlights go over the decoration, not under it:
         // a code card drawn after them hid what was selected in it.
@@ -222,6 +249,17 @@ final class MarkdownLayoutManager: NSLayoutManager {
         index >= 0 && index < storage.length && storage.attribute(.mdCodeBlock, at: index, effectiveRange: nil) != nil
     }
 
+    /// Whether a bare line break between code lines is a blank line inside
+    /// one indented block, the only kind left unstyled. Between a fence and
+    /// another block it separates two cards: bridged, a fenced block one
+    /// blank line above another merged with it into a single card.
+    private func isBlankInsideBlock(at index: Int, in storage: NSTextStorage) -> Bool {
+        guard let markdown = storage as? MarkdownTextStorage else { return true }
+        let line = markdown.line(at: index)
+        return markdown.structure.info(forLine: line - 1)?.kind == .indentedCode
+            && markdown.structure.info(forLine: line + 1)?.kind == .indentedCode
+    }
+
     /// The part of a code block being drawn.
     private struct CodeBlockPart {
         var range: NSRange
@@ -251,29 +289,33 @@ final class MarkdownLayoutManager: NSLayoutManager {
         end = NSMaxRange(range)
         var continuesBefore = false
         var continuesAfter = false
+        func bridgesBefore(_ start: Int) -> Bool {
+            start >= 2 && text.character(at: start - 1) == 0x0A && isCode(at: start - 2, in: storage)
+                && isBlankInsideBlock(at: start - 1, in: storage)
+        }
+        func bridgesAfter(_ end: Int) -> Bool {
+            end < storage.length - 1 && text.character(at: end) == 0x0A && isCode(at: end + 1, in: storage)
+                && isBlankInsideBlock(at: end, in: storage)
+        }
         while true {
-            if start <= window.location,
-               isCode(at: start - 1, in: storage)
-                || (start >= 2 && text.character(at: start - 1) == 0x0A && isCode(at: start - 2, in: storage)) {
+            if start <= window.location, isCode(at: start - 1, in: storage) || bridgesBefore(start) {
                 continuesBefore = true
                 break
             }
             if isCode(at: start - 1, in: storage) {
                 start = effective(start - 1).location
-            } else if start >= 2, text.character(at: start - 1) == 0x0A, isCode(at: start - 2, in: storage) {
+            } else if bridgesBefore(start) {
                 start = effective(start - 2).location
             } else { break }
         }
         while true {
-            if end >= NSMaxRange(window),
-               isCode(at: end, in: storage)
-                || (end < storage.length - 1 && text.character(at: end) == 0x0A && isCode(at: end + 1, in: storage)) {
+            if end >= NSMaxRange(window), isCode(at: end, in: storage) || bridgesAfter(end) {
                 continuesAfter = true
                 break
             }
             if isCode(at: end, in: storage) {
                 end = NSMaxRange(effective(end))
-            } else if end < storage.length - 1, text.character(at: end) == 0x0A, isCode(at: end + 1, in: storage) {
+            } else if bridgesAfter(end) {
                 end = NSMaxRange(effective(end + 1))
             } else { break }
         }
