@@ -176,7 +176,9 @@ func pushListLevel(_ lists: inout [ListLevel], indent: Int, ordered: Bool) {
         lists.removeLast()
     }
     if let top = lists.last, indent == top.indent {
-        lists[lists.count - 1].ordered = ordered
+        // Written only when it changes: the array is shared with the line
+        // above, and writing copied it for every item of every list.
+        if top.ordered != ordered { lists[lists.count - 1].ordered = ordered }
     } else {
         lists.append(ListLevel(indent: indent, ordered: ordered))
     }

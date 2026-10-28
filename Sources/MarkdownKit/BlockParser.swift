@@ -57,7 +57,9 @@ public enum BlockKind: Equatable, Sendable {
     /// A line of a raw HTML block, passed through to export untouched.
     case htmlBlock
     /// `[label]: destination "title"` — defines a link, renders as nothing.
-    case linkReferenceDefinition(label: String, definition: LinkDefinition)
+    /// Boxed: its three strings, kept inline, made every line's kind 49
+    /// bytes rather than 17.
+    indirect case linkReferenceDefinition(label: String, definition: LinkDefinition)
     /// `[^label]: text` — the text of a footnote.
     case footnoteDefinition(label: String)
     /// A `$$` line opening or closing a display math block.
@@ -103,6 +105,19 @@ public struct Fence: Equatable, Sendable {
     }
 }
 
+/// A fence, shared by the states of the lines inside it.
+private final class FenceBox: Equatable, Sendable {
+    let fence: Fence
+
+    init(_ fence: Fence) {
+        self.fence = fence
+    }
+
+    static func == (lhs: FenceBox, rhs: FenceBox) -> Bool {
+        lhs === rhs || lhs.fence == rhs.fence
+    }
+}
+
 public struct ListLevel: Equatable, Sendable {
     public var indent: Int
     public var ordered: Bool
@@ -113,7 +128,14 @@ public struct ListLevel: Equatable, Sendable {
 /// Equality is the incremental parser's stopping condition: once a reparsed
 /// line produces the state the old parse recorded, nothing further can change.
 public struct CarryState: Equatable, Sendable {
-    public var fence: Fence?
+    /// The open fence. Every line keeps a state, and a fence held inline,
+    /// its language table and all, took 158 of each line's 344 bytes: boxed,
+    /// the lines inside one share it.
+    public var fence: Fence? {
+        get { fenceBox?.fence }
+        set { fenceBox = newValue.map(FenceBox.init) }
+    }
+    private var fenceBox: FenceBox?
     public var lists: [ListLevel]
     public var previousWasParagraph: Bool
     /// How many cells the line above has, when it is paragraph text: a
@@ -138,7 +160,7 @@ public struct CarryState: Equatable, Sendable {
     public var extensions: SyntaxExtensions = .all
 
     public static let start = CarryState(
-        fence: nil,
+        fenceBox: nil,
         lists: [],
         previousWasParagraph: false,
         previousWasBlank: true,
