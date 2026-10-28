@@ -160,6 +160,29 @@ struct DocumentTests {
         #expect(try Data(contentsOf: url) == Data("recovered\r\n".utf8))
     }
 
+    @Test("Recovered text replaces only what differs", arguments: [
+        ("abc", "abc"), ("abc", "abXc"), ("abc", "ac"), ("", "new"), ("old", ""),
+        ("aaa", "aaaa"), ("x😀y", "x😃y"), ("😀", "😀😀"), ("a\nb\nc\n", "a\nB\nc\n"),
+    ])
+    func recoveredDifference(old: String, new: String) {
+        guard let change = Document.difference(from: old, to: new) else {
+            #expect(old == new)
+            return
+        }
+        let patched = (old as NSString).replacingCharacters(in: change.range, with: change.replacement)
+        #expect(patched == new)
+    }
+
+    @Test("A recovered edit in a long document restyles only around it")
+    func recoveredEditIsLocal() {
+        let saved = String(repeating: "A line of prose, the same all the way down.\n", count: 10_000)
+        var edited = saved
+        edited.insert(contentsOf: "edit ", at: edited.index(edited.startIndex, offsetBy: 200_000))
+        let change = Document.difference(from: saved, to: edited)
+        #expect(change?.range == NSRange(location: 200_000, length: 0))
+        #expect(change?.replacement == "edit ")
+    }
+
     /// Files were read on the main thread, so one still downloading from
     /// iCloud, or on a slow volume, froze the app until it arrived.
     @Test("A file is read off the main thread, which stays free meanwhile")
