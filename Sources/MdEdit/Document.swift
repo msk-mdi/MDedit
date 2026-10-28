@@ -272,9 +272,28 @@ final class Document {
     /// Replaces the editor contents without touching what counts as saved,
     /// so recovered text shows as unsaved changes.
     func restoreUnsavedText(_ text: String) {
-        guard text != storage.string else { return }
-        storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
+        guard let change = Self.difference(from: storage.string, to: text) else { return }
+        storage.replaceCharacters(in: change.range, with: change.replacement)
         undoManager.removeAllActions()
+    }
+
+    /// The one range that differs between two texts, in UTF-16, and what
+    /// replaces it; nil when they are the same. Replacing the whole text
+    /// styled all of it again: two seconds at 4.5 MB, on top of opening it,
+    /// for recovered edits that are usually a few lines.
+    static func difference(from old: String, to new: String) -> (range: NSRange, replacement: String)? {
+        let old = Array(old.utf16), new = Array(new.utf16)
+        var prefix = 0
+        while prefix < old.count, prefix < new.count, old[prefix] == new[prefix] { prefix += 1 }
+        if prefix == old.count, prefix == new.count { return nil }
+        var suffix = 0
+        while suffix < old.count - prefix, suffix < new.count - prefix,
+              old[old.count - 1 - suffix] == new[new.count - 1 - suffix] { suffix += 1 }
+        // Never between the halves of a surrogate pair.
+        if prefix > 0, UTF16.isLeadSurrogate(old[prefix - 1]) { prefix -= 1 }
+        if suffix > 0, UTF16.isTrailSurrogate(old[old.count - suffix]) { suffix -= 1 }
+        let replacement = String(decoding: new[prefix..<(new.count - suffix)], as: UTF16.self)
+        return (NSRange(location: prefix, length: old.count - prefix - suffix), replacement)
     }
 
     /// Takes the file as it now is for the one these edits are meant to
