@@ -5,6 +5,13 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.5] - 2026-10-28
+
+### Fixed
+- With scroll bars that take room, as with a mouse attached, zooming a
+  large document past the window no longer wraps it again.
+- 1.3.4 was not published; its changes are in this release.
+
 ## [1.3.4] - 2026-10-28
 
 ### Changed
