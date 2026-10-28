@@ -655,10 +655,12 @@ extension MarkdownLayoutManager {
         var end = location
         // Markers are short; this bounds the walk on a malformed line.
         let limit = min(storage.length, location + 16)
+        // Asked one attribute at a time: this runs for every line fragment
+        // laid out, and all of a character's attributes bridged to a Swift
+        // dictionary each time were a few percent of laying out a document.
         while end < limit {
-            let attributes = storage.attributes(at: end, effectiveRange: nil)
-            guard let kind = attributes[.mdMarker] as? Int, Self.hangingKinds.contains(kind),
-                  attributes[.mdConcealed] == nil, text.character(at: end) != 0x0A
+            guard let kind = storage.attribute(.mdMarker, at: end, effectiveRange: nil) as? Int, Self.hangingKinds.contains(kind),
+                  storage.attribute(.mdConcealed, at: end, effectiveRange: nil) == nil, text.character(at: end) != 0x0A
             else { break }
             end += 1
         }
