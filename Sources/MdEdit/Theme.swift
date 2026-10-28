@@ -222,13 +222,13 @@ struct Theme: Equatable {
     static var darkAppearance: NSAppearance { NSAppearance(named: .darkAqua)! }
 
     /// The chosen theme in the variant matching an appearance, with the
-    /// code palette, fonts, spacing and zoom from Settings applied.
+    /// code palette, fonts and spacing from Settings applied. Zoom is not
+    /// one: it magnifies the editor's scroll view instead.
     @MainActor
     static func current(
         for appearance: NSAppearance,
         settings: Settings = Settings(),
-        themeName: String? = nil,
-        zoomed: Bool = true
+        themeName: String? = nil
     ) -> Theme {
         let isDark = appearance.bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
         let family = ThemeCatalog.family(named: themeName ?? settings.themeName)
@@ -238,10 +238,9 @@ struct Theme: Equatable {
         }
         theme.bodyFontName = settings.fontName
         theme.monoFontName = settings.monoFontName
-        let zoom = zoomed ? settings.zoom : 1
-        let size = settings.fontSize * zoom
+        let size = settings.fontSize
         theme.bodyFontSize = size
-        theme.monoFontSize = max(6, (settings.fontSize - 2) * zoom)
+        theme.monoFontSize = max(6, settings.fontSize - 2)
         theme.lineHeight = settings.lineHeight
         theme.paragraphSpacing = settings.paragraphSpacing * size
         return theme

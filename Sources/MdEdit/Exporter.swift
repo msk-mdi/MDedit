@@ -112,8 +112,8 @@ enum Exporter {
     /// colours with the chosen code palette, at the unzoomed font size.
     static func variants(themeName: String?, settings: Settings = Settings()) -> (light: Theme, dark: Theme) {
         (
-            Theme.current(for: Theme.lightAppearance, settings: settings, themeName: themeName, zoomed: false),
-            Theme.current(for: Theme.darkAppearance, settings: settings, themeName: themeName, zoomed: false)
+            Theme.current(for: Theme.lightAppearance, settings: settings, themeName: themeName),
+            Theme.current(for: Theme.darkAppearance, settings: settings, themeName: themeName)
         )
     }
 
