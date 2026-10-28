@@ -368,6 +368,9 @@ struct LayoutTests {
         #expect(document.storage.length > EditorViewController.rewrapLimit)
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
         let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        // Scroll bars that take room, as with a mouse attached: the column
+        // must not change as they come and go.
+        editor.scrollView.scrollerStyle = .legacy
         window.contentViewController = editor
         window.setContentSize(NSSize(width: 600, height: 400))
         editor.view.layoutSubtreeIfNeeded()

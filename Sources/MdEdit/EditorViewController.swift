@@ -198,7 +198,13 @@ final class EditorViewController: NSViewController {
         // document.
         guard clip.bounds.width > 2 * Metrics.chromeInset else { return }
         let wrapsToZoom = storage.length <= Self.rewrapLimit
-        let available = wrapsToZoom ? clip.bounds.width : clip.frame.width
+        // A large document's column is what the window fits at Actual Size,
+        // beside the vertical scroller it always has: the horizontal one
+        // coming and going as it zooms must not wrap it again.
+        let available = wrapsToZoom ? clip.bounds.width : NSScrollView.contentSize(
+            forFrameSize: scrollView.frame.size, horizontalScrollerClass: nil, verticalScrollerClass: NSScroller.self,
+            borderType: scrollView.borderType, controlSize: .regular, scrollerStyle: scrollView.scrollerStyle
+        ).width
         let width = max(clip.bounds.width, available)
         if abs(textView.frame.width - width) > 0.5 {
             textView.setFrameSize(NSSize(width: width, height: textView.frame.height))
