@@ -250,6 +250,10 @@ final class MainWindowController: NSWindowController {
             self?.followCaretInOutline()
         }
         editor.textView.documentURL = { [weak document] in document?.url }
+        editor.onPinchZoom = { zoom in
+            Settings().zoom = zoom
+            Settings.notifyChanged()
+        }
         editor.textView.onOpenFiles = { [weak self] urls in urls.forEach { self?.open(url: $0) } }
         editor.onOpenLink = { [weak self, weak document] destination in
             guard let self, let document else { return }

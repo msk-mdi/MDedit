@@ -296,4 +296,107 @@ struct LayoutTests {
         let strip = manager.glyphRange(forBoundingRect: NSRect(x: 0, y: bounds.minY + 1, width: 500, height: 2), in: container)
         for fragment in row.fragments { #expect(NSIntersectionRange(strip, fragment.glyphs).length > 0) }
     }
+
+    @Test("Zooming keeps the column centred, the page never scrolled sideways")
+    func zoomKeepsColumnCentred() {
+        let document = Document(text: PerformanceTests.document(lines: 40), theme: .light)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        window.contentViewController = editor
+        window.setContentSize(NSSize(width: 600, height: 400))
+        editor.view.layoutSubtreeIfNeeded()
+        // About a point to the right, as a pinch there would.
+        for zoom in [2.5, 1.5, 0.6] {
+            editor.scrollView.setMagnification(zoom, centeredAt: NSPoint(x: 400, y: 100))
+            editor.view.layoutSubtreeIfNeeded()
+            let clip = editor.scrollView.contentView.bounds
+            let textView = editor.textView
+            #expect(clip.minX == 0)
+            #expect(abs(textView.frame.width - clip.width) < 1)
+            let left = textView.textContainerInset.width
+            let right = textView.frame.width - left - textView.textContainer!.size.width
+            #expect(abs(left - right) < 1, "zoom \(zoom): \(left) | \(right)")
+        }
+        withExtendedLifetime(window) {}
+    }
+
+    @Test("A pinch magnifies the text as it is laid out, and wraps it once the fingers lift")
+    func pinchWrapsOnLift() throws {
+        let document = Document(text: PerformanceTests.document(lines: 400), theme: .light)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled], backing: .buffered, defer: true)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        window.contentViewController = editor
+        window.setContentSize(NSSize(width: 900, height: 600))
+        editor.view.layoutSubtreeIfNeeded()
+        let textView = editor.textView
+        let container = try #require(textView.textContainer)
+        let clip = editor.scrollView.contentView
+        clip.scroll(to: NSPoint(x: 0, y: 3_000))
+        let column = container.size.width
+
+        // The line under the fingers, and where it shows.
+        let fingers = clip.bounds.minY + 200
+        let anchor = textView.characterIndexForInsertion(at: NSPoint(x: clip.bounds.midX, y: fingers))
+        func shown() -> CGFloat {
+            let manager = textView.layoutManager!
+            let glyphs = manager.glyphRange(forCharacterRange: NSRange(location: anchor, length: 1), actualCharacterRange: nil)
+            let top = manager.boundingRect(forGlyphRange: glyphs, in: container).minY + textView.textContainerOrigin.y
+            return (top - clip.bounds.minY) * editor.scrollView.magnification
+        }
+        for _ in 0..<8 {
+            editor.pinch(by: 0.1, at: NSPoint(x: clip.bounds.midX, y: fingers), ending: false)
+            editor.view.layoutSubtreeIfNeeded()
+            #expect(container.size.width == column)
+            #expect(clip.bounds.minX == 0)
+            let left = textView.textContainerInset.width
+            let right = textView.frame.width - left - container.size.width
+            #expect(abs(left - right) < 1)
+        }
+        // Lifting the fingers wraps the text; the line under them stays put.
+        let before = shown()
+        editor.pinch(by: 0, at: NSPoint(x: clip.bounds.midX, y: fingers), ending: true)
+        editor.view.layoutSubtreeIfNeeded()
+        #expect(container.size.width < column)
+        #expect(container.size.width <= clip.bounds.width)
+        #expect(abs(shown() - before) < 2, "\(before) → \(shown())")
+        withExtendedLifetime(window) {}
+    }
+
+    @Test("A large document keeps its column when zoomed, and scrolls sideways once wider than the window")
+    func largeDocumentKeepsColumn() throws {
+        let document = Document(text: PerformanceTests.document(lines: 25_000), theme: .light)
+        #expect(document.storage.length > EditorViewController.rewrapLimit)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled], backing: .buffered, defer: true)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        window.contentViewController = editor
+        window.setContentSize(NSSize(width: 600, height: 400))
+        editor.view.layoutSubtreeIfNeeded()
+        let textView = editor.textView
+        let container = try #require(textView.textContainer)
+        let clip = editor.scrollView.contentView
+        let column = container.size.width
+
+        // ⌘+ shows where the lines start.
+        let suite = "MdEditZoomTest-\(UUID().uuidString)"
+        let settings = Settings(defaults: try #require(UserDefaults(suiteName: suite)))
+        defer { settings.defaults.removePersistentDomain(forName: suite) }
+        settings.zoom = 2
+        editor.applySettings(settings)
+        editor.view.layoutSubtreeIfNeeded()
+        #expect(container.size.width == column)
+        #expect(textView.frame.width > clip.bounds.width)
+        #expect(abs(clip.bounds.minX - (textView.textContainerOrigin.x - Metrics.chromeInset)) < 1)
+        clip.scroll(to: NSPoint(x: 10_000, y: 0))
+        editor.view.layoutSubtreeIfNeeded()
+        #expect(clip.bounds.maxX == textView.frame.width)
+
+        editor.scrollView.setMagnification(0.6, centeredAt: NSPoint(x: clip.bounds.midX, y: 0))
+        editor.view.layoutSubtreeIfNeeded()
+        #expect(container.size.width == column)
+        #expect(clip.bounds.minX == 0)
+        let left = textView.textContainerInset.width
+        let right = textView.frame.width - left - container.size.width
+        #expect(abs(left - right) < 1)
+        withExtendedLifetime(window) {}
+    }
 }

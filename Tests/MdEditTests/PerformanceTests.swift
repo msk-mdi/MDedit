@@ -214,6 +214,61 @@ struct PerformanceTests {
         withExtendedLifetime(window) {}
     }
 
+    /// Zoom magnifies the page rather than restyling it at a larger size,
+    /// which took seconds a step at 4.5 MB. What is left is wrapping the
+    /// text to the column, which narrows in the page's own units as the
+    /// zoom grows past what the window has room for.
+    @Test("Zooming does not restyle the document")
+    func zoomIsCheap() {
+        let document = Document(text: Self.document(lines: 20_000), theme: .current(for: NSApplication.shared.effectiveAppearance))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        window.contentViewController = editor
+        // The editor's view comes without a size, and the window takes it.
+        window.setContentSize(NSSize(width: 600, height: 700))
+        editor.view.layoutSubtreeIfNeeded()
+        window.displayIfNeeded()
+        #expect(document.storage.length <= EditorViewController.rewrapLimit)
+        let column = editor.textView.textContainer!.size.width
+        let zoom = Self.milliseconds {
+            for step in 1...10 {
+                editor.scrollView.setMagnification(1 + 0.2 * CGFloat(step), centeredAt: .zero)
+                editor.view.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+            }
+        }
+        print("benchmark zoom", String(format: "%.0f ms", zoom))
+        #expect(editor.textView.textContainer!.size.width < column / 2)
+        #expect(zoom < 1_500, "\(zoom) ms")
+        withExtendedLifetime(window) {}
+    }
+
+    /// Each step of a pinch only magnifies: wrapping the text afresh laid
+    /// the document out again from the top at every step.
+    @Test("Pinching deep in a long document stays cheap")
+    func pinchIsCheap() {
+        let document = Document(text: Self.document(lines: 30_000), theme: .current(for: NSApplication.shared.effectiveAppearance))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: true)
+        let editor = EditorViewController(textStorage: document.storage, undoManager: document.undoManager)
+        window.contentViewController = editor
+        window.setContentSize(NSSize(width: 900, height: 700))
+        editor.view.layoutSubtreeIfNeeded()
+        let middle = NSRange(location: document.storage.length / 2, length: 0)
+        editor.textView.scrollRangeToVisible(middle)
+        window.displayIfNeeded()
+        let fingers = NSPoint(x: editor.scrollView.contentView.bounds.midX, y: editor.scrollView.contentView.bounds.midY)
+        let pinch = Self.milliseconds {
+            for _ in 0..<20 {
+                editor.pinch(by: 0.05, at: fingers, ending: false)
+                editor.view.layoutSubtreeIfNeeded()
+                window.displayIfNeeded()
+            }
+        }
+        print("benchmark pinch", String(format: "%.0f ms", pinch))
+        #expect(pinch < 300, "\(pinch) ms")
+        withExtendedLifetime(window) {}
+    }
+
     @Test("5 MB, 100k lines", .enabled(if: ProcessInfo.processInfo.environment["MDEDIT_BENCHMARKS"] == "1"))
     func largeFile() {
         let timings = Self.measure(lines: 100_000)

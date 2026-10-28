@@ -34,7 +34,7 @@ struct SettingsTests {
         }
     }
 
-    @Test("The theme follows settings: family, code palette, fonts and zoom")
+    @Test("The theme follows settings: family, code palette and fonts, but not zoom")
     func currentTheme() throws {
         try withDefaults { settings in
             settings.themeName = "Solarized"
@@ -45,8 +45,8 @@ struct SettingsTests {
             let dark = Theme.current(for: NSAppearance(named: .darkAqua)!, settings: settings)
             #expect(dark.canvas.cssValue == "#002b36")
             #expect(dark.syntax.keyword.cssValue == "#f92672")
-            #expect(dark.bodyFontSize == 24)
-            #expect(dark.monoFontSize == 21)
+            #expect(dark.bodyFontSize == 16)
+            #expect(dark.monoFontSize == 14)
             #expect(dark.lineHeight == 1.6)
             let light = Theme.current(for: NSAppearance(named: .aqua)!, settings: settings)
             #expect(light.canvas.cssValue == "#fdf6e3")
@@ -125,23 +125,5 @@ struct SettingsTests {
         #expect(try JSONDecoder().decode(Session.Tab.self, from: data) == tab)
         let old = try JSONDecoder().decode(Session.Tab.self, from: Data(#"{"url":"file:///tmp/a.md","selectedLocation":3}"#.utf8))
         #expect(old.sourceMode == nil)
-    }
-}
-
-@Suite("Pinch to zoom")
-struct PinchZoomTests {
-    @Test("A pinch steps the zoom each time it spreads or closes far enough")
-    func steps() {
-        var pinch = PinchZoom()
-        // Small movements add up to a step, and the remainder carries on.
-        #expect(pinch.steps(for: 0.05) == 0)
-        #expect(pinch.steps(for: 0.05) == 0)
-        #expect(pinch.steps(for: 0.05) == 1)
-        #expect(pinch.steps(for: 0.3) == 2)
-        // Closing the fingers zooms out.
-        #expect(pinch.steps(for: -0.6) == -4)
-        // What is left over does not carry into the next pinch.
-        #expect(pinch.steps(for: 0.1, ending: true) == 0)
-        #expect(pinch.steps(for: 0.1) == 0)
     }
 }

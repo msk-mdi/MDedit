@@ -21,6 +21,7 @@ final class EditorViewController: NSViewController {
     /// The commands typing `/` offers.
     let slashMenu = SlashMenu()
     private var scrollObserver: NSObjectProtocol?
+    private var resizeObserver: NSObjectProtocol?
 
     private(set) var theme: Theme = .current(for: NSApp.effectiveAppearance)
 
@@ -28,6 +29,8 @@ final class EditorViewController: NSViewController {
     /// one in tests, which the system's is shared with every other process.
     var pasteboard: NSPasteboard = .general
 
+    /// Called with the zoom a pinch ends at, so every editor can take it.
+    var onPinchZoom: ((CGFloat) -> Void)?
     /// Called when the caret moves, so the window can refresh the status pill.
     var onSelectionChange: (() -> Void)?
     /// Called after every edit, so the window can refresh tab dirty state.
@@ -62,7 +65,9 @@ final class EditorViewController: NSViewController {
         textContainer = NSTextContainer(size: CGSize(width: 0, height: CGFloat.greatestFiniteMagnitude))
 
         layoutManager.addTextContainer(textContainer)
-        textContainer.widthTracksTextView = true
+        // Sized to the column in `layoutColumn`, so zooming, which resizes
+        // the text view, lays the text out again only if the column changes.
+        textContainer.widthTracksTextView = false
         textContainer.heightTracksTextView = false
 
         textView = MarkdownTextView(frame: .zero, textContainer: textContainer)
@@ -93,16 +98,29 @@ final class EditorViewController: NSViewController {
         // The menu follows the `/` when the text scrolls under it.
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: .main
+            forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
+                self?.layoutColumn()
                 self?.slashMenuDidScroll()
             }
         }
+        // The text view is sized as soon as the scroll view is, as
+        // autoresizing would, not at the next layout pass.
+        scrollView.contentView.postsFrameChangedNotifications = true
+        resizeObserver = NotificationCenter.default.addObserver(
+            forName: NSView.frameDidChangeNotification, object: scrollView.contentView, queue: nil
+        ) { [weak self] _ in
+            MainActor.assumeIsolated {
+                self?.layoutColumn()
+            }
+        }
+        textView.onPinch = { [weak self] event in self?.pinch(event) }
     }
 
     isolated deinit {
         if let scrollObserver { NotificationCenter.default.removeObserver(scrollObserver) }
+        if let resizeObserver { NotificationCenter.default.removeObserver(resizeObserver) }
         slashMenu.close()
     }
 
@@ -111,11 +129,17 @@ final class EditorViewController: NSViewController {
 
     override func loadView() {
         scrollView.hasVerticalScroller = true
-        scrollView.hasHorizontalScroller = false
+        // Only a large document, zoomed in past the window, scrolls sideways.
+        scrollView.hasHorizontalScroller = true
         scrollView.drawsBackground = true
         scrollView.autohidesScrollers = true
         // The editor starts below the titlebar, so there is nothing to inset for.
         scrollView.automaticallyAdjustsContentInsets = false
+        // View ▸ Zoom magnifies the page, margins and all, and a pinch
+        // follows the fingers rather than stepping through font sizes.
+        scrollView.allowsMagnification = true
+        scrollView.minMagnification = Settings.zoomRange.lowerBound
+        scrollView.maxMagnification = Settings.zoomRange.upperBound
         view = scrollView
         applyTheme(theme)
     }
@@ -131,7 +155,6 @@ final class EditorViewController: NSViewController {
         // there and stop scrolling short of the end of a long document.
         textView.minSize = .zero
         textView.maxSize = NSSize(width: CGFloat.greatestFiniteMagnitude, height: CGFloat.greatestFiniteMagnitude)
-        textView.autoresizingMask = [.width]
         textView.textContainerInset = CGSize(width: 0, height: 28)
         textView.drawsBackground = true
 
@@ -151,21 +174,135 @@ final class EditorViewController: NSViewController {
 
     override func viewDidLayout() {
         super.viewDidLayout()
+        if let zoom = pendingZoom, scrollView.contentView.frame.width > 0 {
+            pendingZoom = nil
+            magnify(to: zoom)
+        }
+        layoutColumn()
+    }
+
+    /// Above this many characters, zooming leaves the text wrapped as it is.
+    /// Wrapping it to a new width lays the document out again from the top:
+    /// seconds, deep in one of several megabytes.
+    static let rewrapLimit = 1_000_000
+
+    /// Fits the text view to what the scroll view shows, in the page's own
+    /// units, which shrink as the zoom grows; sized here rather than by
+    /// autoresizing, which would hold it to the clip view's frame. A large
+    /// document keeps the column it has at Actual Size, and zoomed in past
+    /// the window it scrolls sideways instead.
+    private func layoutColumn() {
+        let clip = scrollView.contentView
+        // Not sized yet: a column a point wide would put every character on
+        // a line of its own, and laying that out takes seconds for a long
+        // document.
+        guard clip.bounds.width > 2 * Metrics.chromeInset else { return }
+        let wrapsToZoom = storage.length <= Self.rewrapLimit
+        let available = wrapsToZoom ? clip.bounds.width : clip.frame.width
+        let width = max(clip.bounds.width, available)
+        if abs(textView.frame.width - width) > 0.5 {
+            textView.setFrameSize(NSSize(width: width, height: textView.frame.height))
+        }
+        // The page scrolls sideways only as far as it is wider than what
+        // shows: magnifying about a point off its left edge would otherwise
+        // leave it shifted, the column off centre.
+        let x = min(max(0, clip.bounds.minX), width - clip.bounds.width)
+        if clip.bounds.minX != x {
+            clip.scroll(to: NSPoint(x: x, y: clip.bounds.minY))
+            scrollView.reflectScrolledClipView(clip)
+        }
+        // Mid-pinch, the text keeps its lines and is only magnified, centred:
+        // wrapping it afresh at each step lays the document out again from
+        // the top, and moves every line under the fingers. It wraps to the
+        // new column once they lift.
+        if isPinching, wrapsToZoom {
+            let inset = (width - textContainer.size.width) / 2
+            if abs(textView.textContainerInset.width - inset) > 0.5 {
+                textView.textContainerInset = CGSize(width: inset, height: textView.textContainerInset.height)
+            }
+            return
+        }
         // Centre the text column by padding the container, not the text view,
         // so clicks either side of the column still place the caret.
-        let available = scrollView.contentSize.width
         let column = min(lineWidth, available - 2 * Metrics.chromeInset)
-        let inset = max(Metrics.chromeInset, (available - column) / 2)
+        let inset = max(Metrics.chromeInset, (width - column) / 2)
         if abs(textView.textContainerInset.width - inset) > 0.5 {
             textView.textContainerInset = CGSize(width: inset, height: textView.textContainerInset.height)
+        }
+        if abs(textContainer.size.width - column) > 0.5 {
+            textContainer.size = CGSize(width: column, height: CGFloat.greatestFiniteMagnitude)
         }
         storage.maxImageWidth = column - 2 * textContainer.lineFragmentPadding
         updateCodeAccessory()
     }
 
+    /// A zoom set before the scroll view has a size: magnifying it then
+    /// scales nothing, and the page comes out at the wrong size.
+    private var pendingZoom: CGFloat?
+
+    private func setZoom(_ zoom: CGFloat) {
+        guard scrollView.contentView.frame.width > 0 else {
+            pendingZoom = zoom
+            view.needsLayout = true
+            return
+        }
+        pendingZoom = nil
+        magnify(to: zoom)
+    }
+
+    /// Magnifies from the top of what shows, rather than from the middle,
+    /// which would scroll the first lines out of view.
+    /// A page wider than the window then shows its column: centred if it
+    /// fits, from where its lines start if not.
+    private func magnify(to zoom: CGFloat) {
+        guard abs(scrollView.magnification - zoom) > 0.001 else { return }
+        let clip = scrollView.contentView
+        scrollView.setMagnification(zoom, centeredAt: NSPoint(x: clip.bounds.midX, y: clip.bounds.minY))
+        layoutColumn()
+        guard textView.frame.width > clip.bounds.width else { return }
+        let column = textView.textContainerOrigin.x
+        let x = textContainer.size.width + 2 * Metrics.chromeInset <= clip.bounds.width
+            ? column + textContainer.size.width / 2 - clip.bounds.width / 2
+            : column - Metrics.chromeInset
+        clip.scroll(to: NSPoint(x: min(max(0, x), textView.frame.width - clip.bounds.width), y: clip.bounds.minY))
+        scrollView.reflectScrolledClipView(clip)
+    }
+
+    private var isPinching = false
+
+    private func pinch(_ event: NSEvent) {
+        let fingers = textView.convert(event.locationInWindow, from: nil)
+        pinch(by: event.magnification, at: fingers, ending: event.phase.contains(.ended) || event.phase.contains(.cancelled))
+    }
+
+    /// A pinch magnifies about the fingers; a page that fits the window keeps
+    /// its column centred. Once they lift, the text wraps to the new column,
+    /// the character they were over kept where it was on screen.
+    func pinch(by magnification: CGFloat, at fingers: NSPoint, ending: Bool) {
+        isPinching = true
+        scrollView.setMagnification(scrollView.magnification * (1 + magnification), centeredAt: fingers)
+        guard ending else { return }
+        isPinching = false
+
+        let clip = scrollView.contentView
+        let anchor = textView.characterIndexForInsertion(at: NSPoint(x: clip.bounds.midX, y: fingers.y))
+        let lineTop = { [self] in
+            let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: anchor, length: 1), actualCharacterRange: nil)
+            return layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer).minY + textView.textContainerOrigin.y
+        }
+        let shown = anchor < storage.length ? lineTop() - clip.bounds.minY : nil
+        layoutColumn()
+        if let shown {
+            clip.scroll(to: NSPoint(x: clip.bounds.minX, y: max(0, lineTop() - shown)))
+            scrollView.reflectScrolledClipView(clip)
+        }
+        onPinchZoom?(scrollView.magnification)
+    }
+
     /// Everything but colours and fonts, which come with the theme.
     func applySettings(_ settings: Settings) {
         lineWidth = settings.lineWidth
+        setZoom(settings.zoom)
         let padding = settings.padding
         if abs(textView.textContainerInset.height - padding) > 0.5 {
             textView.textContainerInset = CGSize(width: textView.textContainerInset.width, height: padding)

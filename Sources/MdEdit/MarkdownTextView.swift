@@ -146,22 +146,13 @@ final class MarkdownTextView: NSTextView {
 
     // MARK: - Pinch to zoom
 
-    private var pinch = PinchZoom()
+    /// Zooms for a pinch, which the editor anchors itself: left to the
+    /// scroll view, it would also slide the page sideways with the fingers.
+    var onPinch: ((NSEvent) -> Void)?
 
-    /// A trackpad pinch steps View ▸ Zoom In and Zoom Out, through the same
-    /// sizes as ⌘+ and ⌘-: each step restyles the whole document, so the
-    /// font snaps from size to size rather than following the fingers.
     override func magnify(with event: NSEvent) {
-        let steps = pinch.steps(for: event.magnification, ending: event.phase.contains(.ended) || event.phase.contains(.cancelled))
-        // Pinching on past the largest or smallest size does nothing, rather
-        // than beeping on every step as the menu keys do.
-        let action = steps > 0 ? #selector(MainWindowController.zoomIn(_:)) : #selector(MainWindowController.zoomOut(_:))
-        for _ in 0..<abs(steps) {
-            let zoom = Settings().zoom
-            guard steps > 0 ? zoom < Settings.zoomRange.upperBound - 0.001 : zoom > Settings.zoomRange.lowerBound + 0.001
-            else { return }
-            NSApp.sendAction(action, to: nil, from: self)
-        }
+        guard let onPinch else { return super.magnify(with: event) }
+        onPinch(event)
     }
 
     /// A two-finger double tap goes back to Actual Size.
@@ -419,21 +410,5 @@ extension NSTextView {
         breakUndoCoalescing()
         if let actionName { undoManager?.setActionName(actionName) }
         return true
-    }
-}
-
-/// Turns a pinch's running magnification into zoom steps: one each time the
-/// fingers spread or close by `threshold` since the last step.
-struct PinchZoom {
-    static let threshold: CGFloat = 0.12
-    private var pending: CGFloat = 0
-
-    /// The steps to take for one magnify event, positive to zoom in.
-    mutating func steps(for magnification: CGFloat, ending: Bool = false) -> Int {
-        defer { if ending { pending = 0 } }
-        pending += magnification
-        let steps = Int(pending / Self.threshold)
-        pending -= CGFloat(steps) * Self.threshold
-        return steps
     }
 }
