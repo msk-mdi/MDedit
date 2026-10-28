@@ -5,10 +5,26 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.3] - 2026-10-28
+
+### Added
+- Code pasted on a line of its own with a four-space indent, as copied from
+  a terminal or a chat, becomes a fenced block. An indented code block has
+  the language menu too; choosing a language fences it.
+
+### Changed
+- A large document takes less memory: a 4.5 MB file's text takes 88 MB
+  rather than 151, and laying it out is a little quicker.
+
 ### Fixed
 - MdEdit runs on Intel Macs. Each release has an Intel disk image,
   `MdEdit-<version>-intel.dmg`, beside the Apple silicon one.
 - MdEdit builds with Xcode 26.3.
+- Two fenced blocks one blank line apart showed as a single code card.
+- Showing or hiding a fence could leave a code card's old edge drawn, or its
+  new one missing, until something else redrew it.
+- A code card opening the document lost the top of its padding and its
+  rounded corners.
 
 ## [1.3.2] - 2026-10-23
 
