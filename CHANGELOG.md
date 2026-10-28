@@ -5,6 +5,21 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.4] - 2026-10-28
+
+### Changed
+- Zoom magnifies the whole page, margins included, rather than enlarging
+  the font, and changing it no longer restyles the document. A pinch
+  follows the fingers smoothly instead of stepping between sizes; the text
+  wraps to the new width once they lift, keeping the line under them in
+  place.
+- A document over a million characters keeps its line width at any zoom,
+  so zooming it is instant; zoomed in past the window, it scrolls sideways.
+- Opening a large document is about three times faster: a 4.5 MB file
+  with tables is styled in 2 s instead of 5.7, and switching between light
+  and dark restyles it in 2 s instead of 6.
+- Unsaved edits recovered at launch restyle only the lines they change.
+
 ## [1.3.3] - 2026-10-28
 
 ### Added
