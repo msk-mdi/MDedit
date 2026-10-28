@@ -105,7 +105,7 @@ final class SearchPaneView: NSView {
             files += scope.openFiles.filter { !known.contains($0.standardizedFileURL.path) }
             let found = WorkspaceSearch.search(query, in: files, overrides: scope.overrides) { Task.isCancelled }
             guard !Task.isCancelled else { return }
-            await MainActor.run {
+            await MainActor.run { [weak self] in
                 guard let self, self.searchGeneration == generation else { return }
                 self.show(found, query: query)
             }

@@ -70,6 +70,9 @@ jobs:
         run: |
           Scripts/make-app.sh release --sandbox
           Scripts/make-dmg.sh | tee build/checksum.txt
+          # The runner is Apple silicon; this builds the Intel one.
+          MDEDIT_SWIFT_FLAGS="--arch x86_64" Scripts/make-app.sh release --sandbox
+          Scripts/make-dmg.sh | tee -a build/checksum.txt
 
       - name: Publish the release
         env:
@@ -86,11 +89,11 @@ jobs:
           With Homebrew, which puts MdEdit in Applications ready to open, with no warning:
           `brew install msk-mdi/tap/mdedit`
 
-          Or download the DMG below and drag MdEdit to Applications. It is not notarized
+          Or download the DMG below (the `-intel` one on an Intel Mac) and drag MdEdit to Applications. It is not notarized
           by Apple, so the first time it opens macOS stops it: click Done, then open
           System Settings ▸ Privacy & Security and click **Open Anyway** next to MdEdit.
           (Or run `xattr -dr com.apple.quarantine /Applications/MdEdit.app` once.)
           NOTES
           fi
-          gh release create "$GITHUB_REF_NAME" "build/MdEdit-$version.dmg" \
+          gh release create "$GITHUB_REF_NAME" "build/MdEdit-$version.dmg" "build/MdEdit-$version-intel.dmg" \
             --title "MdEdit $version" --notes-file build/notes.md

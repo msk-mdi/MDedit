@@ -542,7 +542,7 @@ private struct Converter {
         let outside: (Character) -> Bool = { $0 == " " || $0 == "\n" || $0 == "\t" || String($0) == Self.lineBreak }
         guard let first = text.firstIndex(where: { !outside($0) }), let last = text.lastIndex(where: { !outside($0) })
         else { return text }
-        return String(text[..<first]) + delimiter + text[first...last] + delimiter + text[text.index(after: last)...]
+        return String(text[..<first]) + delimiter + String(text[first...last]) + delimiter + String(text[text.index(after: last)...])
     }
 
     private func destination(_ url: String) -> String {
