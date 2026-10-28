@@ -873,34 +873,51 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             }
         }
 
+        // Each table is laid out as soon as its rows are styled, while what
+        // follows it is still the one run the text came in with. Laid out
+        // after every line was styled, each table's attributes went in among
+        // the runs of the whole document after it, and moving those along
+        // took most of opening a 4.5 MB file.
+        var tablesFrom = lower
         for line in lower...upper {
-            guard let info = structure.info(forLine: line) else { continue }
-            let lineRange = structure.index.range(ofLine: line)
-            guard lineRange.length > 0 || lineRange.location < text.length else { continue }
-            lineAwaits = []
-            style(line: line, info: info, range: lineRange, text: text)
-            noteAwaits(line: line, range: lineRange)
+            if let info = structure.info(forLine: line) {
+                let lineRange = structure.index.range(ofLine: line)
+                if lineRange.length > 0 || lineRange.location < text.length {
+                    lineAwaits = []
+                    style(line: line, info: info, range: lineRange, text: text)
+                    noteAwaits(line: line, range: lineRange)
+                }
+            }
+            if line == upper || gridTable(containing: line)?.upperBound == line {
+                guard layOutTables(in: tablesFrom...line, only: rowsAlone ? lower...upper : nil, text: text) else { return false }
+                tablesFrom = line + 1
+            }
         }
+        return true
+    }
 
-        // A table's columns are as wide as their widest cell, so its rows are
-        // laid out together once each is styled. Callers widen the range to
-        // whole tables, unless only some rows changed.
+    /// Lays out the tables among styled lines. A table's columns are as wide
+    /// as their widest cell, so its rows are laid out together once each is
+    /// styled. Callers widen the range to whole tables, unless only some
+    /// rows changed: `only`. False when those rows no longer fit the
+    /// columns, and the whole table must be styled.
+    private func layOutTables(in lines: ClosedRange<Int>, only: ClosedRange<Int>?, text: NSString) -> Bool {
         guard !sourceMode else { return true }
-        var line = lower
-        while line <= upper {
+        var line = lines.lowerBound
+        while line <= lines.upperBound {
             guard let table = gridTable(containing: line) else {
                 line += 1
                 continue
             }
             let needed: CGFloat
-            switch layOutTable(table, text: text, only: rowsAlone ? lower...upper : nil) {
+            switch layOutTable(table, text: text, only: only) {
             case .laidOut:
                 line = table.upperBound + 1
                 continue
             case .columnsChanged:
                 return false
             case let .tooWide(width):
-                if rowsAlone { return false }
+                if only != nil { return false }
                 needed = width
             }
             // Too wide for the column: aligned source scrolls no worse than prose wraps.
