@@ -34,3 +34,6 @@ jobs:
 
       - name: Assemble the app
         run: Scripts/make-app.sh release --sandbox
+
+      - name: Assemble the app for Intel Macs
+        run: MDEDIT_SWIFT_FLAGS="--arch x86_64" Scripts/make-app.sh release --sandbox

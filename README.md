@@ -123,7 +123,8 @@ brew install msk-mdi/tap/mdedit
 `brew upgrade` updates it; `brew uninstall --zap mdedit` removes it and its settings.
 
 **From a release** — download the DMG from
-[Releases](https://github.com/msk-mdi/MDedit/releases) and drag MdEdit to
+[Releases](https://github.com/msk-mdi/MDedit/releases) (`MdEdit-<version>-intel.dmg`
+on an Intel Mac) and drag MdEdit to
 Applications. MdEdit is free and not notarized by Apple (that takes a paid
 developer account), so the first time it opens macOS stops it with "Apple could
 not verify…". Click **Done**, open System Settings ▸ Privacy & Security, and
@@ -151,7 +152,9 @@ open build/MdEdit.app
 
 `Scripts/make-app.sh release` builds an optimised bundle, with the Quick Look
 extension inside. By default it is ad-hoc signed, which is enough to run it
-locally but not to distribute it.
+locally but not to distribute it. It is built for your Mac's processor; to
+build for the other one, set `MDEDIT_SWIFT_FLAGS="--arch x86_64"` (Intel) or
+`MDEDIT_SWIFT_FLAGS="--arch arm64"` (Apple silicon).
 
 ### Releasing
 

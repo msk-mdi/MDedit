@@ -5,6 +5,11 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+### Fixed
+- MdEdit runs on Intel Macs. Each release has an Intel disk image,
+  `MdEdit-<version>-intel.dmg`, beside the Apple silicon one.
+- MdEdit builds with Xcode 26.3.
+
 ## [1.3.2] - 2026-10-23
 
 ### Changed

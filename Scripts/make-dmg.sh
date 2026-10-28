@@ -1,6 +1,7 @@
 #!/bin/bash
-# Packs build/MdEdit.app into build/MdEdit-<version>.dmg, with an
-# Applications link to drag it onto. Run Scripts/make-app.sh release first.
+# Packs build/MdEdit.app into build/MdEdit-<version>.dmg (-intel.dmg for an
+# Intel build), with an Applications link to drag it onto. Run
+# Scripts/make-app.sh release first.
 # With MDEDIT_SIGN_IDENTITY and MDEDIT_NOTARY_PROFILE set, as for
 # make-app.sh, the image is signed, notarized and stapled too.
 # Usage: Scripts/make-dmg.sh
@@ -11,7 +12,11 @@ APP="$ROOT/build/MdEdit.app"
 [ -d "$APP" ] || { echo "no $APP: run Scripts/make-app.sh release first" >&2; exit 1; }
 
 VERSION="$(/usr/libexec/PlistBuddy -c "Print :CFBundleShortVersionString" "$APP/Contents/Info.plist")"
-DMG="$ROOT/build/MdEdit-$VERSION.dmg"
+# An app built for Intel Macs only gets its own name; the Apple silicon one
+# keeps the plain name the Homebrew cask downloads.
+SUFFIX=""
+if [ "$(lipo -archs "$APP/Contents/MacOS/MdEdit")" = x86_64 ]; then SUFFIX="-intel"; fi
+DMG="$ROOT/build/MdEdit-$VERSION$SUFFIX.dmg"
 STAGING="$(mktemp -d)"
 trap 'rm -rf "$STAGING"' EXIT
 

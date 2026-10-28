@@ -40,7 +40,7 @@ final class FileWatcher: @unchecked Sendable {
         )
         source.setEventHandler { [weak self] in
             // The source fires on the main queue, so this is already isolated.
-            MainActor.assumeIsolated {
+            MainActor.assumeIsolated { [weak self] in
                 guard let self else { return }
                 let events = source.data
                 // Asked before the watch is dropped: the descriptor follows
