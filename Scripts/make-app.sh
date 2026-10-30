@@ -69,9 +69,11 @@ cp "$ROOT/Resources/QuickLook/Info.plist" "$APPEX/Contents/Info.plist"
 
 # Inside out: the extension first, then the app around it.
 IDENTITY="${MDEDIT_SIGN_IDENTITY:--}"
-SIGN=(codesign --force --sign "$IDENTITY")
+# The hardened runtime even when ad-hoc signed: it needs no certificate, and
+# the app loads no libraries but the system's, which are all it then allows.
+SIGN=(codesign --force --sign "$IDENTITY" --options runtime)
 if [ "$IDENTITY" != "-" ]; then
-	SIGN+=(--options runtime --timestamp)
+	SIGN+=(--timestamp)
 fi
 "${SIGN[@]}" --identifier com.mdedit.MdEdit.mdedit "$APP/Contents/Helpers/mdedit"
 "${SIGN[@]}" --entitlements "$ROOT/Resources/QuickLook/MdEditQuickLook.entitlements" "$APPEX"

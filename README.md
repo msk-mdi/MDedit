@@ -134,6 +134,13 @@ click **Open Anyway** next to MdEdit. Or run this once:
 xattr -dr com.apple.quarantine /Applications/MdEdit.app
 ```
 
+Each DMG carries a signed record that it was built by this repository's
+release workflow, from the tagged commit. With the GitHub CLI:
+
+```sh
+gh attestation verify MdEdit-<version>.dmg --repo msk-mdi/MDedit
+```
+
 ## Requirements to build
 
 Xcode 26 or later, or its Command Line Tools.
@@ -152,7 +159,7 @@ open build/MdEdit.app
 
 `Scripts/make-app.sh release` builds an optimised bundle, with the Quick Look
 extension inside. By default it is ad-hoc signed, which is enough to run it
-locally but not to distribute it. It is built for your Mac's processor; to
+locally but not to distribute it; either way it runs with the hardened runtime. It is built for your Mac's processor; to
 build for the other one, set `MDEDIT_SWIFT_FLAGS="--arch x86_64"` (Intel) or
 `MDEDIT_SWIFT_FLAGS="--arch arm64"` (Apple silicon).
 
@@ -162,8 +169,9 @@ build for the other one, set `MDEDIT_SWIFT_FLAGS="--arch x86_64"` (Intel) or
    `CHANGELOG.md`.
 2. Push a `v<version>` tag. GitHub Actions (`.github/workflows/release.yml`)
    tests, builds the app and `Scripts/make-dmg.sh`'s DMG, and publishes a release
-   with that CHANGELOG section and install instructions as notes. The DMG holds a
-   "First launch.txt" explaining Open Anyway.
+   with that CHANGELOG section and install instructions as notes, and attests the
+   DMGs' build provenance. The DMG holds a "First launch.txt" explaining Open
+   Anyway.
 3. Update the tap: copy `Packaging/Homebrew/mdedit.rb` to `Casks/mdedit.rb` in
    the `msk-mdi/homebrew-tap` repository, with the new `version` and the DMG's
    checksum in `sha256` (`shasum -a 256` of the release's DMG).
