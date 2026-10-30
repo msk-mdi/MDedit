@@ -5,6 +5,12 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [1.3.6] - 2026-10-30
+
+### Fixed
+- Resizing the window no longer leaves the caret where the text was before
+  the column moved.
+
 ## [1.3.5] - 2026-10-28
 
 ### Fixed
