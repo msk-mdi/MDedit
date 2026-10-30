@@ -225,6 +225,7 @@ final class EditorViewController: NSViewController {
             let inset = (width - textContainer.size.width) / 2
             if abs(textView.textContainerInset.width - inset) > 0.5 {
                 textView.textContainerInset = CGSize(width: inset, height: textView.textContainerInset.height)
+                textView.updateInsertionPointStateAndRestartTimer(true)
             }
             return
         }
@@ -232,12 +233,18 @@ final class EditorViewController: NSViewController {
         // so clicks either side of the column still place the caret.
         let column = min(lineWidth, available - 2 * Metrics.chromeInset)
         let inset = max(Metrics.chromeInset, (width - column) / 2)
+        var moved = false
         if abs(textView.textContainerInset.width - inset) > 0.5 {
             textView.textContainerInset = CGSize(width: inset, height: textView.textContainerInset.height)
+            moved = true
         }
         if abs(textContainer.size.width - column) > 0.5 {
             textContainer.size = CGSize(width: column, height: CGFloat.greatestFiniteMagnitude)
+            moved = true
         }
+        // The caret is drawn by an indicator view placed when the selection
+        // changes: left alone, it stays where the text was before.
+        if moved { textView.updateInsertionPointStateAndRestartTimer(true) }
         storage.maxImageWidth = column - 2 * textContainer.lineFragmentPadding
         updateCodeAccessory()
     }
