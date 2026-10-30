@@ -5,6 +5,11 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+### Security
+- The app runs with the hardened runtime, though ad-hoc signed.
+- Each release's disk images carry a build provenance attestation:
+  `gh attestation verify MdEdit-<version>.dmg --repo msk-mdi/MDedit`.
+
 ## [1.3.6] - 2026-10-30
 
 ### Fixed

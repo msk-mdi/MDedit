@@ -16,6 +16,9 @@ on:
 
 permissions:
   contents: write
+  # Signing the DMGs' build provenance, below.
+  id-token: write
+  attestations: write
 
 jobs:
   release:
@@ -74,6 +77,14 @@ jobs:
           MDEDIT_SWIFT_FLAGS="--arch x86_64" Scripts/make-app.sh release --sandbox
           Scripts/make-dmg.sh | tee -a build/checksum.txt
 
+      # A signed record that these DMGs were built here, by this workflow from
+      # this commit: `gh attestation verify <dmg> --repo msk-mdi/MDedit`
+      # checks a download. It does not stand in for notarization.
+      - name: Attest the disk images' provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8  # v4.2.2
+        with:
+          subject-path: build/MdEdit-*.dmg
+
       - name: Publish the release
         env:
           GH_TOKEN: ${{ github.token }}
@@ -93,6 +104,9 @@ jobs:
           by Apple, so the first time it opens macOS stops it: click Done, then open
           System Settings ▸ Privacy & Security and click **Open Anyway** next to MdEdit.
           (Or run `xattr -dr com.apple.quarantine /Applications/MdEdit.app` once.)
+
+          To check a DMG was built by this repository's release workflow:
+          `gh attestation verify MdEdit-<version>.dmg --repo msk-mdi/MDedit`
           NOTES
           fi
           gh release create "$GITHUB_REF_NAME" "build/MdEdit-$version.dmg" "build/MdEdit-$version-intel.dmg" \
