@@ -5,6 +5,8 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [2.0.0] - 2026-10-30
+
 ### Security
 - The app runs with the hardened runtime, though ad-hoc signed.
 - Each release's disk images carry a build provenance attestation:
