@@ -182,6 +182,47 @@ struct PerformanceTests {
         #expect(keystroke < 25, "\(keystroke) ms")
     }
 
+    /// A keystroke, laid out again as the text view would, at the end of a
+    /// block thousands of lines long: the work must not grow with the block.
+    private static func keystrokeAtEnd(of text: String, prefix: String) -> Double {
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        let layoutManager = MarkdownLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 720, height: CGFloat.greatestFiniteMagnitude))
+        layoutManager.addTextContainer(container)
+        storage.addLayoutManager(layoutManager)
+        layoutManager.ensureLayout(for: container)
+        let start = (storage.string as NSString).range(of: prefix, options: .backwards).location + prefix.utf16.count
+        let line = storage.line(at: start)
+        storage.revealedLines = line...line
+        let typing = 20
+        let keystroke = milliseconds {
+            for offset in 0..<typing {
+                storage.replaceCharacters(in: NSRange(location: start + offset, length: 0), with: "x")
+                layoutManager.ensureLayout(forCharacterRange: NSRange(location: start + offset, length: 1))
+            }
+        } / Double(typing)
+        storage.removeLayoutManager(layoutManager)
+        return keystroke
+    }
+
+    @Test("Typing at the end of a long quote or code block stays local")
+    func typingInLongBlock() {
+        let lines = 5_000
+        let quote = (0..<lines).map { "> quoted line \($0) with *emphasis* and `code`" }.joined(separator: "\n") + "\n\nAfter.\n"
+        let code = "```swift\n" + (0..<lines).map { "let value\($0) = compute(\($0)) // comment" }.joined(separator: "\n") + "\n```\n\nAfter.\n"
+        let inQuote = Self.keystrokeAtEnd(of: quote, prefix: "> quoted line \(lines - 1)")
+        let inCode = Self.keystrokeAtEnd(of: code, prefix: "let value\(lines - 1)")
+        print("benchmark keystroke at the end of a \(lines)-line block", String(format: "quote %.2f ms, code %.2f ms", inQuote, inCode))
+        // Layout starts again from the quote's top, every line of which opens
+        // with a hidden `>`: started lower, a line took its marker's null
+        // glyph back from the line above and drew lower than laid out afresh.
+        withKnownIssue("Each keystroke lays out the quote above it again") {
+            #expect(inQuote < 25, "\(inQuote) ms")
+        }
+        #expect(inCode < 25, "\(inCode) ms")
+    }
+
     /// Opening a document, switching appearance and changing any setting all
     /// restyle every line. Done over the runs already there, that once grew
     /// with the square of the document: 42 s rather than 3 s at 4.5 MB.

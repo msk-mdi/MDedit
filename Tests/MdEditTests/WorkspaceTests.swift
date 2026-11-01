@@ -72,6 +72,45 @@ struct WorkspaceTests {
         #expect(edited.isEmpty)
     }
 
+    /// The text is searched whole now, not a line at a time; the matches
+    /// must be the ones the line-by-line search found.
+    @Test("Searching whole files finds what searching line by line did")
+    func searchMatchesLineByLine() {
+        func lineByLine(_ query: String, in text: String) -> [WorkspaceSearch.Match] {
+            var matches: [WorkspaceSearch.Match] = []
+            var lineNumber = 0
+            text.enumerateLines { line, _ in
+                let ns = line as NSString
+                var searchRange = NSRange(location: 0, length: ns.length)
+                while true {
+                    let found = ns.range(of: query, options: [.caseInsensitive, .diacriticInsensitive], range: searchRange)
+                    guard found.location != NSNotFound else { break }
+                    matches.append(.init(line: lineNumber, range: found, lineText: line))
+                    searchRange = NSRange(location: NSMaxRange(found), length: ns.length - NSMaxRange(found))
+                }
+                lineNumber += 1
+            }
+            return matches
+        }
+        let texts = [
+            "Alpha beta\nalphabet soup\n",
+            "no newline at the end alpha",
+            "\n\nalpha\n\n\nALPHA alpha\n",
+            "crlf alpha\r\nnext alpha\r\n",
+            "lone cr alpha\rnext alpha\u{2028}separated alpha\u{2029}x",
+            "café cafe CAFÉ\nàlpha",
+            "alphalpha alpha-alpha",
+            "spans al\npha lines",
+        ]
+        let url = URL(fileURLWithPath: "/nonexistent/note.md")
+        for text in texts {
+            for query in ["alpha", "cafe", "al", "a"] {
+                let found = WorkspaceSearch.search(query, in: [url], overrides: [url: text]).first?.matches ?? []
+                #expect(found == lineByLine(query, in: text), "\(query) in \(text.debugDescription)")
+            }
+        }
+    }
+
     /// Any change in the folder threw the file list away, `.git`'s at each
     /// commit and a build folder's all through a build.
     @Test("Only changes where the listing looks make the folder be listed again")
@@ -98,6 +137,44 @@ struct WorkspaceTests {
         #expect(await list.files(of: workspace).map(\.lastPathComponent) == ["a.md"])
         list.invalidate()
         #expect(await list.files(of: workspace).map(\.lastPathComponent) == ["a.md", "b.md"])
+    }
+
+    /// Any save in the folder dropped the list, and the next ⌘P or search
+    /// walked the whole folder again.
+    @MainActor
+    @Test("Notes that come and go are taken into the kept list; a save keeps it")
+    func fileListUpdates() async throws {
+        let root = try makeFolder(["a.md": "a\n", "c.md": "c\n"])
+        defer { try? FileManager.default.removeItem(at: root) }
+        let workspace = Workspace(root: root)
+        let real = root.resolvingSymlinksInPath().path
+        let list = WorkspaceFileList()
+        #expect(await list.files(of: workspace).map(\.lastPathComponent) == ["a.md", "c.md"])
+
+        try "b\n".write(to: root.appendingPathComponent("b.md"), atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: root.appendingPathComponent("c.md"))
+        try "x\n".write(to: root.appendingPathComponent("image.png"), atomically: true, encoding: .utf8)
+        list.update([
+            .init(path: real + "/b.md", isDirectory: false),
+            .init(path: real + "/c.md", isDirectory: false),
+            .init(path: real + "/image.png", isDirectory: false),
+            // Saved over: still there, still listed once.
+            .init(path: real + "/a.md", isDirectory: false),
+        ], in: workspace)
+        let afterSave = await list.files(of: workspace).map(\.lastPathComponent)
+        #expect(afterSave == ["a.md", "b.md"])
+
+        // Not walked again: a file added without word stays out.
+        try "d\n".write(to: root.appendingPathComponent("d.md"), atomically: true, encoding: .utf8)
+        list.update([.init(path: real + "/node_modules/e.md", isDirectory: false)], in: workspace)
+        let skipped = await list.files(of: workspace).map(\.lastPathComponent)
+        #expect(skipped == ["a.md", "b.md"])
+
+        // A folder that comes or goes has the folder walked again.
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("sub"), withIntermediateDirectories: true)
+        list.update([.init(path: real + "/sub", isDirectory: true)], in: workspace)
+        let walked = await list.files(of: workspace).map(\.lastPathComponent)
+        #expect(walked == ["a.md", "b.md", "d.md"])
     }
 
     /// A named pipe with a note's name was read like a file: the read waited

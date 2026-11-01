@@ -157,6 +157,44 @@ final class WorkspaceFileList {
         generation += 1
     }
 
+    /// Takes in notes created, removed or renamed, keeping the list: any save
+    /// in the folder dropped it, and the next ⌘P or search walked the whole
+    /// folder again. A folder that came or went is walked afresh.
+    func update(_ moved: [DirectoryWatcher.Item], in workspace: Workspace) {
+        let relevant = moved.filter { item in
+            item.isDirectory || (Workspace.isMarkdown(URL(fileURLWithPath: item.path))
+                && !(item.path as NSString).lastPathComponent.hasPrefix("."))
+        }
+        guard !relevant.isEmpty else { return }
+        let rootPath = workspace.root.resolvingSymlinksInPath().path
+        guard var files = listed?.files, listed?.root == workspace.root, files.count < Workspace.fileLimit,
+              !relevant.contains(where: \.isDirectory)
+        else { return invalidate() }
+        // Paths below the root, compared without it, which may be spelled
+        // several ways: `/var` is `/private/var`, a link the walk follows
+        // and FSEvents resolves, and `resolvingSymlinksInPath` takes
+        // `/private` off again, but only from a file that still exists.
+        let roots = Set([rootPath, workspace.root.path].flatMap { [$0, "/private" + $0] }).map { $0 + "/" }
+        func relative(_ path: String) -> Substring? {
+            roots.first(where: path.hasPrefix).map { path.dropFirst($0.count) }
+        }
+        for item in relevant {
+            // Not in a folder the walk skips.
+            guard let path = relative(item.path),
+                  workspace.listingChanged(inFolders: [(item.path as NSString).deletingLastPathComponent])
+            else { continue }
+            let index = files.firstIndex { relative($0.path) == path }
+            let exists = FileManager.default.fileExists(atPath: item.path)
+            if exists, index == nil {
+                let at = files.firstIndex { relative($0.path).map { path.localizedStandardCompare($0) == .orderedAscending } ?? false }
+                files.insert(URL(fileURLWithPath: item.path), at: at ?? files.endIndex)
+            } else if !exists, let index {
+                files.remove(at: index)
+            }
+        }
+        listed?.files = files
+    }
+
     func files(of workspace: Workspace) async -> [URL] {
         if let listed, listed.root == workspace.root { return listed.files }
         let generation = generation
@@ -199,31 +237,68 @@ enum WorkspaceSearch {
         guard !query.isEmpty else { return [] }
         var results: [FileResult] = []
         var total = 0
-        for url in files {
-            if isCancelled() || total >= matchLimit { break }
-            // Not a named pipe, which a read waits on forever, holding one of
-            // the few threads Swift's concurrency runs everything on.
-            if overrides[url] == nil, let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
-               values.isRegularFile == false || (values.fileSize ?? 0) > maxFileBytes { continue }
-            guard let text = overrides[url] ?? (try? String(contentsOf: url, encoding: .utf8)) else { continue }
-            var matches: [Match] = []
-            var lineNumber = 0
-            text.enumerateLines { line, stop in
-                let ns = line as NSString
-                var searchRange = NSRange(location: 0, length: ns.length)
-                while total < matchLimit {
-                    let found = ns.range(of: query, options: [.caseInsensitive, .diacriticInsensitive], range: searchRange)
-                    guard found.location != NSNotFound else { break }
-                    matches.append(Match(line: lineNumber, range: found, lineText: line))
-                    total += 1
-                    let next = NSMaxRange(found)
-                    searchRange = NSRange(location: next, length: ns.length - next)
+        // Files are read and searched a batch at a time, side by side: one
+        // after another, a large folder spent most of a search waiting on
+        // the disk. Cancellation and the match limit are checked between batches.
+        let batch = 32
+        var next = files.startIndex
+        while next < files.endIndex, !isCancelled(), total < matchLimit {
+            let urls = Array(files[next..<min(next + batch, files.endIndex)])
+            next += urls.count
+            var found = [[Match]](repeating: [], count: urls.count)
+            found.withUnsafeMutableBufferPointer { found in
+                nonisolated(unsafe) let found = found
+                DispatchQueue.concurrentPerform(iterations: urls.count) { index in
+                    found[index] = matches(of: query, in: urls[index], override: overrides[urls[index]], limit: matchLimit)
                 }
-                if total >= matchLimit { stop = true }
-                lineNumber += 1
             }
-            if !matches.isEmpty { results.append(FileResult(url: url, matches: matches)) }
+            for (url, matches) in zip(urls, found) where !matches.isEmpty && total < matchLimit {
+                let kept = Array(matches.prefix(matchLimit - total))
+                total += kept.count
+                results.append(FileResult(url: url, matches: kept))
+            }
         }
         return results
+    }
+
+    /// One file's matches, up to `limit`, line by line.
+    private static func matches(of query: String, in url: URL, override: String?, limit: Int) -> [Match] {
+        // Not a named pipe, which a read waits on forever, holding one of
+        // the few threads Swift's concurrency runs everything on.
+        if override == nil, let values = try? url.resolvingSymlinksInPath().resourceValues(forKeys: [.isRegularFileKey, .fileSizeKey]),
+           values.isRegularFile == false || (values.fileSize ?? 0) > maxFileBytes { return [] }
+        guard let text = override.map(NSString.init(string:)) ?? (try? NSString(contentsOf: url, encoding: NSUTF8StringEncoding)) else { return [] }
+        // Searched whole, not a line at a time: a string made for every line
+        // of every file was most of the work. Lines are found only around a match.
+        var matches: [Match] = []
+        var lineNumber = 0
+        var line = text.lineRange(for: NSRange(location: 0, length: 0))  // terminator included
+        var searchFrom = 0
+        while matches.count < limit, searchFrom < text.length {
+            let found = text.range(
+                of: query, options: [.caseInsensitive, .diacriticInsensitive],
+                range: NSRange(location: searchFrom, length: text.length - searchFrom)
+            )
+            guard found.location != NSNotFound else { break }
+            while found.location >= NSMaxRange(line), NSMaxRange(line) < text.length {
+                line = text.lineRange(for: NSRange(location: NSMaxRange(line), length: 0))
+                lineNumber += 1
+            }
+            var contentsEnd = 0
+            text.getLineStart(nil, end: nil, contentsEnd: &contentsEnd, for: line)
+            // Within one line, as a search line by line found them.
+            if NSMaxRange(found) <= contentsEnd {
+                let content = NSRange(location: line.location, length: contentsEnd - line.location)
+                matches.append(Match(
+                    line: lineNumber,
+                    range: NSRange(location: found.location - line.location, length: found.length),
+                    lineText: text.substring(with: content)
+                ))
+                searchFrom = NSMaxRange(found)
+            } else {
+                searchFrom = found.location + 1
+            }
+        }
+        return matches
     }
 }

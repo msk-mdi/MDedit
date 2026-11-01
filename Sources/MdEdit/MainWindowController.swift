@@ -1040,8 +1040,9 @@ final class MainWindowController: NSWindowController {
             DirectoryWatcher(url: workspace.root) { [weak self] change in
                 self?.sidebar.files.folderContentsChanged(change)
                 switch change {
-                case let .folders(folders) where !workspace.listingChanged(inFolders: folders): break
-                default: self?.workspaceFiles.invalidate()
+                case let .folders(folders, _) where !workspace.listingChanged(inFolders: folders): break
+                case let .folders(_, moved): self?.workspaceFiles.update(moved, in: workspace)
+                case .everything: self?.workspaceFiles.invalidate()
                 }
             }
         }

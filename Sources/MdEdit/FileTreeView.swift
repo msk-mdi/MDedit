@@ -150,7 +150,7 @@ final class FileTreeView: NSView {
             needsReload = true
             return
         }
-        guard case let .folders(paths) = change else {
+        guard case let .folders(paths, _) = change else {
             reload()
             return
         }

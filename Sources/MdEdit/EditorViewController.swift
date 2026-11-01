@@ -101,7 +101,7 @@ final class EditorViewController: NSViewController {
             forName: NSView.boundsDidChangeNotification, object: scrollView.contentView, queue: nil
         ) { [weak self] _ in
             MainActor.assumeIsolated {
-                self?.layoutColumn()
+                self?.layoutColumn(scrolled: true)
                 self?.slashMenuDidScroll()
             }
         }
@@ -191,7 +191,11 @@ final class EditorViewController: NSViewController {
     /// autoresizing, which would hold it to the clip view's frame. A large
     /// document keeps the column it has at Actual Size, and zoomed in past
     /// the window it scrolls sideways instead.
-    private func layoutColumn() {
+    ///
+    /// `scrolled` when only the clip view's bounds moved: the code block's
+    /// bar is a subview of the text view and scrolls with it, so it is placed
+    /// again only if the column moved.
+    private func layoutColumn(scrolled: Bool = false) {
         let clip = scrollView.contentView
         // Not sized yet: a column a point wide would put every character on
         // a line of its own, and laying that out takes seconds for a long
@@ -246,7 +250,7 @@ final class EditorViewController: NSViewController {
         // changes: left alone, it stays where the text was before.
         if moved { textView.updateInsertionPointStateAndRestartTimer(true) }
         storage.maxImageWidth = column - 2 * textContainer.lineFragmentPadding
-        updateCodeAccessory()
+        if moved || !scrolled { updateCodeAccessory() }
     }
 
     /// A zoom set before the scroll view has a size: magnifying it then

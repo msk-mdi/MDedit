@@ -71,6 +71,17 @@ struct PathologicalInputTests {
         #expect(links < 2, "\(links) s")
     }
 
+    /// Each `]` within 999 units of its opener had its whole span normalized
+    /// as a label before the bracket in it turned the label down: many short
+    /// nests, each under the limit, took about 15 ms a kilobyte.
+    @Test("Many nests of brackets, each short of the label limit")
+    func repeatedNestedBrackets() {
+        let nest = String(repeating: "[", count: 499) + String(repeating: "]", count: 499)
+        let time = Self.seconds(String(repeating: nest + " ", count: 100))
+        #expect(time < 1, "\(time) s")
+        #expect(HTMLRenderer().render(markdown: "[a\\]b]\n\n[a\\]b]: /url") == "<p><a href=\"/url\">a]b</a></p>\n")
+    }
+
     /// Each trailing `)` of a bare URL recounted the parentheses before it.
     @Test("Bare URL followed by a run of closing parentheses")
     func bareURLParentheses() {

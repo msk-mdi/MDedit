@@ -498,9 +498,13 @@ private struct Parser {
         // Labels run to 999 code units at most; copying a longer span to find
         // that out made nested brackets quadratic.
         guard label != nil || close - textStart <= 999 else { return nil }
+        // Link text holding a bracket is no label. Checked before copying it:
+        // in nested brackets the text starts with one, so each `]` is
+        // turned down at once rather than after normalizing its whole span.
+        if label == nil, containsUnescapedBracket(characters[textStart..<close]) { return nil }
         let resolved = label ?? string(characters, from: textStart, to: close)
-        guard isValidLabel(resolved) else { return nil }
-        if let definition = references.links[normalizeLabel(resolved)] {
+        guard let key = labelKey(resolved) else { return nil }
+        if let definition = references.links[key] {
             return (end, definition.destination, definition.title)
         }
         // The editor styles `[text][label]` before the label is defined.

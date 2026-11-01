@@ -168,7 +168,7 @@ struct FileTreeTests {
         final class Box { var folders: [String] = [] }
         let box = Box()
         let watcher = DirectoryWatcher(url: root) { change in
-            if case let .folders(folders) = change { box.folders += folders }
+            if case let .folders(folders, _) = change { box.folders += folders }
         }
         #expect(watcher != nil)
         // FSEvents starts watching a moment after the stream does.
