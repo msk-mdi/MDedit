@@ -59,6 +59,16 @@ final class MarkdownTextView: NSTextView {
         (textStorage as? MarkdownTextStorage)?.markComposing(hasMarkedText() ? markedRange() : nil, attributes: markedTextAttributes ?? [:])
     }
 
+    /// Where the text starts is the inset, always. A document opening with
+    /// a code card has its first line moved down for the card's padding
+    /// (`TableTypesetter`), and AppKit took the origin up by as much, but
+    /// only now and then: as the front matter's `---` hid and showed, the
+    /// text, its code backgrounds and the caret were each placed from a
+    /// different origin, up to the padding apart.
+    override var textContainerOrigin: NSPoint {
+        NSPoint(x: textContainerInset.width, y: textContainerInset.height)
+    }
+
     override func resignFirstResponder() -> Bool {
         let resigned = super.resignFirstResponder()
         if resigned { onLoseFocus?() }

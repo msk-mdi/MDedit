@@ -602,7 +602,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     /// jumping from the top of a long document to the bottom had every line
     /// between refixed and laid out again: seconds, for two lines.
     /// `widening` widens each range as typing does, table rows aside.
-    private func restyle(ranges: [ClosedRange<Int>], widening: Bool = false) {
+    /// `inEdit` when the text view is still making an edit, and places the
+    /// caret itself once it is done.
+    private func restyle(ranges: [ClosedRange<Int>], widening: Bool = false, inEdit: Bool = false) {
         for range in ranges {
             beginEditing()
             let styled = widening ? styleWidened(range, linesKept: true) : range
@@ -611,6 +613,32 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             endEditing()
             pendingInvalidation = characterRange(forLines: styled)
             flushPendingInvalidation()
+        }
+        if !ranges.isEmpty, !inEdit { textMovedUnderCarets() }
+    }
+
+    /// The caret is drawn by an indicator view AppKit places when the
+    /// selection changes, and a reveal restyles just after that: the lines
+    /// it grows or shrinks moved the text, and the caret stayed where the
+    /// text had been, between lines. The text above the restyled lines can
+    /// move too, and is drawn again with the rest of what shows.
+    ///
+    /// Placed once AppKit is done with the click or key: placed from inside
+    /// its selection change, the caret showed at the start of the line, or
+    /// between lines, until the next blink. The common modes include the
+    /// one a mouse drag runs in.
+    private func textMovedUnderCarets() {
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(placeCarets), object: nil)
+        perform(#selector(placeCarets), with: nil, afterDelay: 0, inModes: [.common])
+    }
+
+    @objc private func placeCarets() {
+        let views = layoutManagers.flatMap(\.textContainers).compactMap(\.textView)
+        MainActor.assumeIsolated {
+            for view in views {
+                view.updateInsertionPointStateAndRestartTimer(view.window?.firstResponder === view)
+                view.setNeedsDisplay(view.visibleRect)
+            }
         }
     }
 
@@ -761,7 +789,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             hasDeferredReveal = false
             let old = deferredRevealOld
             deferredRevealOld = nil
-            restyleRevealChange(from: old, to: revealedLines)
+            restyleRevealChange(from: old, to: revealedLines, inEdit: true)
         }
     }
 
@@ -777,8 +805,19 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         // the old card's edge there, or the new one missing, until something
         // else redrew them. Those lines are laid out again with the rest:
         // only redrawing them made AppKit generate glyphs mid-edit.
-        let lines = max(0, line(at: restyled.location) - 1)...(lastLine(of: restyled) + 1)
-        let range = NSUnionRange(restyled, characterRange(forLines: lines))
+        var first = max(0, line(at: restyled.location) - 1)
+        // A line opening with a concealed marker, as `` `code` `` does, has
+        // that marker's null glyph laid out at the end of the line before.
+        // Laid out again from its own start, the line took the glyph back,
+        // and drew lower than it does laid out from above, its code
+        // backgrounds left behind and the caret off its text. Layout starts
+        // again from a line above that keeps its first glyph.
+        while first > 0 {
+            let start = structure.index.range(ofLine: first).location
+            guard start < backing.length, backing.attribute(.mdConcealed, at: start, effectiveRange: nil) != nil else { break }
+            first -= 1
+        }
+        let range = NSUnionRange(restyled, characterRange(forLines: first...(lastLine(of: restyled) + 1)))
         for manager in layoutManagers {
             manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil)
             manager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
@@ -842,7 +881,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     }
 
     /// Reveals the newly active block and re-hides the one left behind.
-    private func restyleRevealChange(from old: ClosedRange<Int>?, to new: ClosedRange<Int>?) {
+    private func restyleRevealChange(from old: ClosedRange<Int>?, to new: ClosedRange<Int>?, inEdit: Bool = false) {
         // Only lines that were revealed and are not, or the other way round:
         // a selection growing by a line restyles that line, not all of it.
         func lines(_ range: ClosedRange<Int>?) -> IndexSet {
@@ -850,7 +889,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         }
         let changed = lines(old).symmetricDifference(lines(new))
         // A block that shows as an image opens and closes as a whole.
-        restyle(ranges: changed.rangeView.map { $0.lowerBound...($0.upperBound - 1) }, widening: true)
+        restyle(ranges: changed.rangeView.map { $0.lowerBound...($0.upperBound - 1) }, widening: true, inEdit: inEdit)
     }
 
     /// Styles lines. With `rowsAlone`, the lines are rows of one grid table
