@@ -380,18 +380,32 @@ func parseLinkLabel(_ characters: [UInt16], at start: Int, limit: Int) -> (label
 /// Whether text between brackets could be a link label, for shortcut and
 /// collapsed references.
 func isValidLabel(_ text: String) -> Bool {
-    guard text.utf16.count <= 999, !normalizeLabel(text).isEmpty else { return false }
+    labelKey(text) != nil
+}
+
+/// The `normalizeLabel` key of text between brackets, or nil if it could not
+/// be a link label. The bracket check comes first: it is cheap, and rejects
+/// most of what normalizing would have been wasted on.
+func labelKey(_ text: String) -> String? {
+    let units = text.utf16
+    guard units.count <= 999, !containsUnescapedBracket(units) else { return nil }
+    let key = normalizeLabel(text)
+    return key.isEmpty ? nil : key
+}
+
+/// Whether code units hold a `[` or `]` not escaped by a backslash.
+func containsUnescapedBracket<Units: Collection<UInt16>>(_ units: Units) -> Bool {
     var escaped = false
-    for character in text {
+    for unit in units {
         if escaped {
             escaped = false
-        } else if character == "\\" {
+        } else if unit == UInt16(ascii: "\\") {
             escaped = true
-        } else if character == "[" || character == "]" {
-            return false
+        } else if unit == UInt16(ascii: "[") || unit == UInt16(ascii: "]") {
+            return true
         }
     }
-    return true
+    return false
 }
 
 /// Backslash escapes and entity references resolved, as in destinations,

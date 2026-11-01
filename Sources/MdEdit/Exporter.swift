@@ -483,17 +483,63 @@ enum Exporter {
 
     /// Styled text for Mail, Pages or Word: RTF and HTML, with the markdown
     /// itself for apps that only take plain text.
+    ///
+    /// The RTF and HTML are made when an app asks for them, not here: the
+    /// RTF goes through WebKit's HTML import, which on the main thread took
+    /// seconds of a long document, at every copy, pasted or not.
     static func copyRichText(markdown: String, baseURL: URL?) {
         var options = ExportOptions.load()
         options.tableOfContents = false
+        let provider = RichTextProvider(markdown: markdown, baseURL: baseURL, options: options)
+        let item = NSPasteboardItem()
+        item.setDataProvider(provider, forTypes: [.rtf, .html])
+        item.setString(markdown, forType: .string)
         let pasteboard = NSPasteboard.general
         pasteboard.clearContents()
-        if let text = attributedString(markdown: markdown, title: "", baseURL: baseURL, options: options),
-           let rtf = try? data(for: .richText, from: text) {
-            pasteboard.setData(rtf, forType: .rtf)
+        pasteboard.writeObjects([item])
+        RichTextProvider.current = provider
+    }
+}
+
+/// The RTF and HTML of a Copy as Rich Text, made when first asked for.
+/// Its state is set once, in `init`: `@unchecked` for that alone.
+private final class RichTextProvider: NSObject, NSPasteboardItemDataProvider, @unchecked Sendable {
+    /// Held until the pasteboard is done with it: an item does not keep
+    /// its provider.
+    @MainActor static var current: RichTextProvider?
+
+    private let markdown: String
+    private let baseURL: URL?
+    private let options: ExportOptions
+
+    init(markdown: String, baseURL: URL?, options: ExportOptions) {
+        self.markdown = markdown
+        self.baseURL = baseURL
+        self.options = options
+    }
+
+    func pasteboard(_ pasteboard: NSPasteboard?, item: NSPasteboardItem, provideDataForType type: NSPasteboard.PasteboardType) {
+        // WebKit's import runs on the main thread only.
+        let data = Thread.isMainThread ? MainActor.assumeIsolated { self.data(for: type) } : DispatchQueue.main.sync { self.data(for: type) }
+        if let data { item.setData(data, forType: type) }
+    }
+
+    func pasteboardFinishedWithDataProvider(_ pasteboard: NSPasteboard) {
+        DispatchQueue.main.async {
+            if RichTextProvider.current === self { RichTextProvider.current = nil }
         }
-        pasteboard.setString(htmlFragment(markdown: markdown, baseURL: baseURL), forType: .html)
-        pasteboard.setString(markdown, forType: .string)
+    }
+
+    @MainActor private func data(for type: NSPasteboard.PasteboardType) -> Data? {
+        switch type {
+        case .rtf:
+            guard let text = Exporter.attributedString(markdown: markdown, title: "", baseURL: baseURL, options: options) else { return nil }
+            return try? Exporter.data(for: .richText, from: text)
+        case .html:
+            return Data(Exporter.htmlFragment(markdown: markdown, baseURL: baseURL).utf8)
+        default:
+            return nil
+        }
     }
 }
 

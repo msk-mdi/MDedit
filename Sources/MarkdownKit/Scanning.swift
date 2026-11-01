@@ -128,12 +128,15 @@ func isASCIILetter(_ character: UInt16) -> Bool {
 
 /// Unicode whitespace, as the flanking rules define it.
 func isUnicodeWhitespace(_ character: UInt16) -> Bool {
+    // ASCII without a set lookup, which is most of what is asked.
+    if character < 0x80 { return character == 0x20 || (0x09...0x0D).contains(character) }
     guard let scalar = Unicode.Scalar(character) else { return false }
     return CharacterSet.whitespacesAndNewlines.contains(scalar)
 }
 
 /// Unicode punctuation, as the flanking rules define it.
 func isUnicodePunctuation(_ character: UInt16) -> Bool {
+    if character < 0x80 { return isASCIIPunctuation(character) }
     guard let scalar = Unicode.Scalar(character) else { return false }
     return CharacterSet.punctuationCharacters.contains(scalar)
         || CharacterSet.symbols.contains(scalar)

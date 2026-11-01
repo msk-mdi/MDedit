@@ -817,9 +817,14 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             guard start < backing.length, backing.attribute(.mdConcealed, at: start, effectiveRange: nil) != nil else { break }
             first -= 1
         }
-        let range = NSUnionRange(restyled, characterRange(forLines: first...(lastLine(of: restyled) + 1)))
+        let last = lastLine(of: restyled) + 1
+        let range = NSUnionRange(restyled, characterRange(forLines: first...last))
+        // The lines the walk added were not restyled: their glyphs stand, and
+        // only their layout is done again. In a blockquote, every line of
+        // which opens with a hidden `>`, the walk reaches the quote's top.
+        let glyphs = NSUnionRange(restyled, characterRange(forLines: max(0, line(at: restyled.location) - 1)...last))
         for manager in layoutManagers {
-            manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil)
+            manager.invalidateGlyphs(forCharacterRange: glyphs, changeInLength: 0, actualCharacterRange: nil)
             manager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             manager.invalidateDisplay(forCharacterRange: range)
             (manager as? MarkdownLayoutManager)?.invalidateMargins(forCharacterRange: range)
