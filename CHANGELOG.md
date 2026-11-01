@@ -5,6 +5,18 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [2.0.1] - 2026-11-01
+
+### Fixed
+- In a document opening with front matter, the caret no longer sits half
+  a line above the text it marks, and the text, its code backgrounds and
+  the caret no longer drift apart as the front matter's `---` shows and
+  hides.
+- Moving the caret past a line that starts with inline code no longer
+  pushes that line down and leaves its code backgrounds behind.
+- When showing a line's markdown moves the text, the caret moves with it
+  instead of staying between lines.
+
 ## [2.0.0] - 2026-10-30
 
 ### Security
