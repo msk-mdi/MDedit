@@ -91,6 +91,68 @@ struct LayoutTests {
         }
     }
 
+    /// A line opening with hidden backticks has their null glyph laid out at
+    /// the end of the line above. Restyling the line below laid the line out
+    /// again from its own start, taking the glyph back: the line drew lower,
+    /// leaving its code backgrounds behind and the caret off its text.
+    @Test("Moving the caret past a line opening with code leaves its glyphs where they were")
+    func revealBelowLeadingCode() {
+        let text = "Every claim gets a citation and a\n`Sources:` list, and a `url → [n]` mapping\nso the numbers come from retrieval\never emits small integers.\n"
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        let (manager, container) = layoutManager(contiguous: true, for: storage)
+
+        /// The characters on each line fragment.
+        func lines(_ manager: NSLayoutManager, _ container: NSTextContainer) -> [NSRange] {
+            manager.ensureLayout(for: container)
+            var ranges: [NSRange] = []
+            manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { _, _, _, glyphs, _ in
+                ranges.append(manager.characterRange(forGlyphRange: glyphs, actualGlyphRange: nil))
+            }
+            return ranges
+        }
+
+        _ = lines(manager, container)
+        for line in [1, 2, 3, 2, 1, 0] {
+            storage.revealedLines = line...line
+            let fresh = MarkdownTextStorage(theme: .light)
+            fresh.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+            fresh.revealedLines = line...line
+            let (freshManager, freshContainer) = layoutManager(contiguous: true, for: fresh)
+            #expect(lines(manager, container) == lines(freshManager, freshContainer), "caret on line \(line)")
+        }
+    }
+
+    /// Counts the times AppKit is asked to place the caret again.
+    private final class CaretCountingTextView: NSTextView {
+        var caretPlacements = 0
+        override func updateInsertionPointStateAndRestartTimer(_ restartFlag: Bool) {
+            caretPlacements += 1
+            super.updateInsertionPointStateAndRestartTimer(restartFlag)
+        }
+    }
+
+    /// The caret is an indicator view placed when the selection changes,
+    /// before the reveal that follows moves the text: it stayed between lines.
+    /// Placed from inside the selection change, it showed at the line's start.
+    @Test("A reveal places the caret again, on the text it moved, once AppKit is done")
+    func revealPlacesCaret() async throws {
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "---\ntitle: x\n---\n\n# Heading\n\nText.\n")
+        let (manager, container) = layoutManager(contiguous: true, for: storage)
+        let textView = CaretCountingTextView(frame: NSRect(x: 0, y: 0, width: 600, height: 400), textContainer: container)
+        manager.ensureLayout(for: container)
+
+        textView.caretPlacements = 0
+        storage.revealedLines = 0...0
+        storage.revealedLines = 4...4
+        #expect(textView.caretPlacements == 0)
+        for _ in 0..<50 where textView.caretPlacements == 0 {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(textView.caretPlacements > 0)
+    }
+
     /// The caret on an empty document is sized from the typing attributes
     /// alone; without the paragraph style those carry, it came out shorter
     /// than the caret on the first typed line.
