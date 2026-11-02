@@ -28,6 +28,13 @@ final class TableTypesetter: NSATSTypesetter {
         // A row's leading pipe is concealed, and its null glyph goes with the
         // paragraph before: the paragraph starts after it, the line does not.
         let line = text.lineRange(for: NSRange(location: paragraph.location, length: 0))
+        // Laid out again from here, TextKit starts below the fragment before,
+        // the last line of a wrapping row's last cell: above its deepest cell
+        // and its padding, so everything after drew over the row.
+        if line.location > 0, let manager = layoutManager as? MarkdownLayoutManager,
+           let row = manager.wrappedRow(atCharacter: line.location - 1) {
+            lineFragmentOrigin.pointee.y = manager.bounds(of: row).maxY
+        }
         guard let grid = storage.attribute(.mdTableRow, at: line.location, effectiveRange: nil) as? TableGrid,
               let wrapping = grid.wrapping, grid.edges.count > 1
         else { return super.layoutParagraph(at: lineFragmentOrigin) }
