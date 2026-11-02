@@ -359,6 +359,38 @@ struct LayoutTests {
         for fragment in row.fragments { #expect(NSIntersectionRange(strip, fragment.glyphs).length > 0) }
     }
 
+    /// Laid out again from below a wrapping row, TextKit started under the
+    /// row's last fragment, the last line of its last cell: when that cell
+    /// was shorter than the deepest, what followed drew over the table.
+    @Test("Moving the caret below a wrapping table leaves the text after it below the table")
+    func revealBelowWrappingTable() {
+        let long = "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau"
+        let text = "Before\n\n| Ref | Finding | Remedy |\n| --- | --- | --- |\n| H5 | **Stale** \(long) | \(long) |\n"
+            + "| H6 | **Images are stale.** \(long) **5 CRITICAL** | Rebuild |\n\n### Medium\n\nOne\n\nTwo\n\nThree\n"
+        func storage(revealing line: Int?) -> MarkdownTextStorage {
+            let storage = MarkdownTextStorage(theme: .light)
+            storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+            storage.maxImageWidth = 400
+            storage.restyleTablesChangingFit()
+            storage.revealedLines = line.map { $0...$0 }
+            return storage
+        }
+        func layout(_ storage: MarkdownTextStorage) -> (MarkdownLayoutManager, NSTextContainer) {
+            let (manager, container) = layoutManager(contiguous: true, for: storage)
+            container.size = CGSize(width: 400 + 2 * container.lineFragmentPadding, height: .greatestFiniteMagnitude)
+            return (manager, container)
+        }
+
+        let edited = storage(revealing: nil)
+        let (manager, container) = layout(edited)
+        _ = fragments(manager, container)
+        for line in [5, 6, 7, 9, 11, 5, 9, 4, 13, 2, 0] {
+            edited.revealedLines = line...line
+            let (freshManager, freshContainer) = layout(storage(revealing: line))
+            #expect(fragments(manager, container) == fragments(freshManager, freshContainer), "caret on line \(line)")
+        }
+    }
+
     @Test("Zooming keeps the column centred, the page never scrolled sideways")
     func zoomKeepsColumnCentred() {
         let document = Document(text: PerformanceTests.document(lines: 40), theme: .light)
