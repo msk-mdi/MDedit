@@ -359,6 +359,34 @@ struct LayoutTests {
         for fragment in row.fragments { #expect(NSIntersectionRange(strip, fragment.glyphs).length > 0) }
     }
 
+    /// A word wider than the whole column, as a line of JSON is, made the
+    /// table give up its grid and show as source: it breaks inside instead.
+    @Test("A wrapping table breaks a word too long for its column inside the cell")
+    func wrappingTableBreaksLongWord() throws {
+        let json = #"{"log-opts":{"max-size":"20m","max-file":"5"},"live-restore":true,"no-new-privileges":true,"icc":false}"#
+        let text = "| ID | Finding | Fix |\n| --- | --- | --- |\n| M4 | Leftover /var/www/glpi-10.0.17-before-upgrade (258 MB) | Delete it |\n"
+            + "| M9 | No /etc/docker/daemon.json: container logs are unbounded | Write \(json) and restart dockerd |\n"
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        storage.maxImageWidth = 400
+        storage.restyleTablesChangingFit()
+        let rowStart = (text as NSString).range(of: "| M9").location
+        let grid = try #require(storage.attribute(.mdTableRow, at: rowStart, effectiveRange: nil) as? TableGrid)
+        #expect(grid.wrapping != nil)
+        #expect(grid.indent + (grid.edges.last ?? 0) <= 400 + 0.5)
+
+        let (manager, container) = layoutManager(contiguous: true, for: storage)
+        container.size = CGSize(width: 400 + 2 * container.lineFragmentPadding, height: .greatestFiniteMagnitude)
+        manager.ensureLayout(for: container)
+        let row = try #require(manager.wrappedRow(atCharacter: rowStart + 3))
+        // The JSON goes down its cell, every line inside the column.
+        let fix = Dictionary(grouping: row.fragments) { $0.rect.minX }.sorted { $0.key < $1.key }[2].value
+        #expect(fix.count > 3)
+        for fragment in row.fragments {
+            #expect(manager.lineFragmentUsedRect(forGlyphAt: fragment.glyphs.location, effectiveRange: nil).maxX <= fragment.rect.maxX + 0.5)
+        }
+    }
+
     /// Laid out again from below a wrapping row, TextKit started under the
     /// row's last fragment, the last line of its last cell: when that cell
     /// was shorter than the deepest, what followed drew over the table.

@@ -1728,8 +1728,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     private var rowMinimumWidths: [RowKey: [CGFloat]] = [:]
 
     /// Lays out a table's rows as a grid. One too wide for the column wraps
-    /// its cells, columns sharing the room as a browser shares it, unless a
-    /// word is wider than the room it would get.
+    /// its cells, columns sharing the room as a browser shares it; a word
+    /// wider than the room its column gets breaks inside, unless even a few
+    /// letters a column do not fit.
     private func layOutTable(_ table: ClosedRange<Int>, text: NSString, only: ClosedRange<Int>? = nil) -> TableLayout {
         let delimiterLine = table.lowerBound + 1
         guard case let .tableDelimiter(alignments)? = structure.info(forLine: delimiterLine)?.kind else { return .tooWide(.infinity) }
@@ -1789,8 +1790,27 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 }
             }
             let room = maxImageWidth - indent - CGFloat(widths.count) * 2 * padding
-            let least = minimums.reduce(0, +)
-            guard least <= room else { return .tooWide(indent + least + CGFloat(widths.count) * 2 * padding) }
+            var least = minimums.reduce(0, +)
+            if least > room {
+                // Words too long for the room, a path or some JSON, break
+                // inside: the columns holding them give up room, as evenly as
+                // they can, down to a few letters each.
+                let fewest = (theme.bodyFontSize * 3).rounded()
+                let floors = minimums.map { min($0, fewest) }
+                guard floors.reduce(0, +) <= room else { return .tooWide(indent + floors.reduce(0, +) + CGFloat(widths.count) * 2 * padding) }
+                var left = room
+                var cap = room
+                for (index, minimum) in minimums.sorted().enumerated() {
+                    cap = left / CGFloat(minimums.count - index)
+                    guard minimum > cap else {
+                        left -= minimum
+                        continue
+                    }
+                    break
+                }
+                minimums = minimums.map { min($0, max(fewest, cap.rounded(.down))) }
+                least = minimums.reduce(0, +)
+            }
             let spare = columns.reduce(0, +) - least
             let share = spare > 0 ? (room - least) / spare : 0
             columns = zip(minimums, columns).map { minimum, natural in

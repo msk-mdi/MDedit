@@ -332,7 +332,7 @@ struct MarkdownTextStorageTests {
         storage.restyleTablesChangingFit()
         #expect(try #require(storage.attribute(.mdTableRow, at: 0, effectiveRange: nil) as? TableGrid).wrapping == nil)
 
-        // Narrower than its longest word, it shows as source.
+        // Too narrow for a few letters a column, it shows as source.
         storage.maxImageWidth = 40
         storage.restyleTablesChangingFit()
         #expect(storage.attribute(.mdTableRow, at: 0, effectiveRange: nil) is CGFloat)
