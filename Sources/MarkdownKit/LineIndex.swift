@@ -13,12 +13,18 @@ public struct LineIndex: Equatable {
     public init(text: NSString) {
         starts = [0]
         length = text.length
-        // Read in chunks: a message per character is slow on long documents.
+        Self.appendLineStarts(in: text, from: 0, to: length, to: &starts)
+    }
+
+    /// Appends the offset after each newline in `start..<end`. Read in
+    /// chunks: a message per character is slow on long documents, and on
+    /// a long paste.
+    private static func appendLineStarts(in text: NSString, from start: Int, to end: Int, to starts: inout [Int]) {
         let chunk = 16_384
-        var buffer = [UInt16](repeating: 0, count: chunk)
-        var offset = 0
-        while offset < length {
-            let count = min(chunk, length - offset)
+        var buffer = [UInt16](repeating: 0, count: min(chunk, max(0, end - start)))
+        var offset = start
+        while offset < end {
+            let count = min(chunk, end - offset)
             buffer.withUnsafeMutableBufferPointer { pointer in
                 text.getCharacters(pointer.baseAddress!, range: NSRange(location: offset, length: count))
                 for index in 0..<count where pointer[index] == 0x0A {  // \n
@@ -86,13 +92,7 @@ public struct LineIndex: Equatable {
         }
 
         var replacement: [Int] = []
-        var index = scanStart
-        while index < scanEnd {
-            if text.character(at: index) == 0x0A, index + 1 <= text.length {
-                replacement.append(index + 1)
-            }
-            index += 1
-        }
+        Self.appendLineStarts(in: text, from: scanStart, to: scanEnd, to: &replacement)
 
         // Lines after the rescanned region keep their identity, shifted by
         // delta, in place rather than through copies of the whole array.

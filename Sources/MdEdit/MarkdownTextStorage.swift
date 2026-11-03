@@ -734,8 +734,17 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                     perform(#selector(restyleForReferences), with: nil, afterDelay: Self.referenceRestyleDelay)
                 }
             }
-            headingNumberCache = nil
-            cachedHeadings = cachedHeadings.flatMap { headingsKept($0, reparsed: updated, lineDelta: lineDelta) }
+            let keptHeadings = cachedHeadings.flatMap { headingsKept($0, reparsed: updated, lineDelta: lineDelta) }
+            // The numbers stand while the headings do, moved with their
+            // lines: rebuilt from every heading, they cost each keystroke.
+            if keptHeadings == nil {
+                headingNumberCache = nil
+            } else if lineDelta != 0, let numbers = headingNumberCache {
+                headingNumberCache = Dictionary(uniqueKeysWithValues: numbers.map { line, number in
+                    (line > updated.lowerBound ? line + lineDelta : line, number)
+                })
+            }
+            cachedHeadings = keptHeadings
             if !extents.isEmpty {
                 adjustFolds(extents: extents, lineDelta: lineDelta)
             }
@@ -1099,21 +1108,21 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         }
         let definitionRole = headingLevel == nil && !isTableHeader ? definitionRole(ofLine: line, info: info, text: text) : nil
         let baseFont: NSFont = if isGrid, isTableHeader {
-            NSFontManager.shared.convert(theme.body, toHaveTrait: .boldFontMask)
+            FontCache.font(theme.body, withTraits: .boldFontMask)
         } else if isGrid, !isTableDelimiter(info.kind) {
             theme.body
         } else if isTableHeader {
-            NSFontManager.shared.convert(theme.mono, toHaveTrait: .boldFontMask)
+            FontCache.font(theme.mono, withTraits: .boldFontMask)
         } else if isTableLine {
             theme.mono
         } else if sourceMode {
-            headingLevel != nil ? NSFontManager.shared.convert(theme.mono, toHaveTrait: .boldFontMask) : theme.mono
+            headingLevel != nil ? FontCache.font(theme.mono, withTraits: .boldFontMask) : theme.mono
         } else if let headingLevel {
             theme.headingFont(level: headingLevel)
         } else if isCode {
             theme.mono
         } else if definitionRole == .term {
-            NSFontManager.shared.convert(theme.body, toHaveTrait: .boldFontMask)
+            FontCache.font(theme.body, withTraits: .boldFontMask)
         } else {
             theme.body
         }
@@ -1224,7 +1233,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 .foregroundColor: theme.syntax.color(for: token.kind),
             ]
             if token.kind == .comment {
-                tokenAttributes[.font] = NSFontManager.shared.convert(theme.mono, toHaveTrait: .italicFontMask)
+                tokenAttributes[.font] = FontCache.font(theme.mono, withTraits: .italicFontMask)
             }
             backing.addAttributes(tokenAttributes, range: tokenRange)
         }
@@ -1299,7 +1308,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     private nonisolated(unsafe) static let lineHeightManager = NSLayoutManager()
 
     private var captionFont: NSFont {
-        NSFontManager.shared.convert(theme.body, toSize: theme.bodyFontSize * 0.85)
+        FontCache.font(theme.body, size: theme.bodyFontSize * 0.85)
     }
 
     /// The image, sized to fit, when a line's only content is one image that
@@ -1370,7 +1379,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 let label = NSRange(location: lineStart + NSMaxRange(opening), length: node.range.location - NSMaxRange(opening))
                 guard label.length > 0 else { continue }
                 backing.addAttributes([
-                    .font: NSFontManager.shared.convert(baseFont, toSize: baseFont.pointSize * 0.85),
+                    .font: FontCache.font(baseFont, size: baseFont.pointSize * 0.85),
                     .mdInlineCode: true,
                 ], range: label)
                 for marker in [opening, node.range] {
@@ -2072,7 +2081,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             case .superscript, .subscript:
                 let isSuper = if case .superscript = node { true } else { false }
                 backing.addAttributes([
-                    .font: NSFontManager.shared.convert(childStyle.font(base: baseFont), toSize: baseFont.pointSize * 0.75),
+                    .font: FontCache.font(childStyle.font(base: baseFont), size: baseFont.pointSize * 0.75),
                     .baselineOffset: baseFont.pointSize * (isSuper ? 0.35 : -0.15),
                 ], range: absolute)
 
@@ -2089,7 +2098,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 // A small raised label, like the superscript it exports as.
                 let size = baseFont.pointSize * 0.75
                 backing.addAttributes([
-                    .font: NSFontManager.shared.convert(baseFont, toSize: size),
+                    .font: FontCache.font(baseFont, size: size),
                     .baselineOffset: baseFont.pointSize * 0.35,
                     .foregroundColor: theme.accent,
                 ], range: absolute)

@@ -118,6 +118,29 @@ struct SettingsTests {
         #expect(storage.headingNumber(forLine: 3) == "3")
     }
 
+    /// The numbers are kept through edits that leave the headings alone,
+    /// moved with their lines; they must match numbering the text afresh.
+    @Test("Heading numbers kept through typing match numbering afresh")
+    func headingNumbersKept() {
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "# A\ntext\n## B\nmore\n# C\n")
+        func numbers(_ storage: MarkdownTextStorage) -> [String?] {
+            (0..<storage.structure.lineCount).map { storage.headingNumber(forLine: $0) }
+        }
+        _ = numbers(storage)
+        let edits: [(Int, String)] = [(5, "x"), (5, "\n\n"), (0, "intro\n\n"), (15, "## D\n"), (2, "y")]
+        for (location, text) in edits {
+            storage.replaceCharacters(in: NSRange(location: location, length: 0), with: text)
+            let fresh = MarkdownTextStorage(theme: .light)
+            fresh.replaceCharacters(in: NSRange(location: 0, length: 0), with: storage.string)
+            #expect(numbers(storage) == numbers(fresh), "after inserting \(text.debugDescription) at \(location)")
+        }
+        storage.replaceCharacters(in: NSRange(location: 0, length: 7), with: "")
+        let fresh = MarkdownTextStorage(theme: .light)
+        fresh.replaceCharacters(in: NSRange(location: 0, length: 0), with: storage.string)
+        #expect(numbers(storage) == numbers(fresh))
+    }
+
     @Test("View modes are remembered per tab, and old sessions still load")
     func viewModes() throws {
         let tab = Session.Tab(url: URL(fileURLWithPath: "/tmp/a.md"), selectedLocation: 0, sourceMode: true, typewriterMode: false, focusMode: true)

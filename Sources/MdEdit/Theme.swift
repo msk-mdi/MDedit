@@ -266,6 +266,8 @@ enum FontCache {
     enum Role: Hashable {
         case body, mono, heading(Bool)
         case converted(NSFontTraitMask.RawValue)
+        case removed(NSFontTraitMask.RawValue)
+        case resized
     }
 
     private struct Key: Hashable {
@@ -290,6 +292,20 @@ enum FontCache {
     static func font(_ base: NSFont, withTraits traits: NSFontTraitMask) -> NSFont {
         font(.converted(traits.rawValue), name: base.fontName, size: base.pointSize) {
             NSFontManager.shared.convert(base, toHaveTrait: traits)
+        }
+    }
+
+    /// `NSFontManager.convert(_:toNotHaveTrait:)`, remembered.
+    static func font(_ base: NSFont, withoutTraits traits: NSFontTraitMask) -> NSFont {
+        font(.removed(traits.rawValue), name: base.fontName, size: base.pointSize) {
+            NSFontManager.shared.convert(base, toNotHaveTrait: traits)
+        }
+    }
+
+    /// `NSFontManager.convert(_:toSize:)`, remembered.
+    static func font(_ base: NSFont, size: CGFloat) -> NSFont {
+        font(.resized, name: base.fontName, size: size) {
+            NSFontManager.shared.convert(base, toSize: size)
         }
     }
 }
