@@ -17,7 +17,7 @@ public final class BlockStructure {
         index = LineIndex(text: text)
         lines = []
         lines.reserveCapacity(index.count)
-        hasFrontMatter = Self.opensFrontMatter(text, index: index)
+        (hasFrontMatter, frontMatterDecidedThrough) = Self.frontMatter(text, index: index)
         var carry = startCarry()
         for line in 0..<index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)
@@ -38,16 +38,27 @@ public final class BlockStructure {
     /// looks at every line of it, on every edit.
     static let frontMatterLookahead = 1_000
 
+    /// The last line the front matter decision looked at: an edit below it
+    /// leaves the answer as it was.
+    private var frontMatterDecidedThrough = 0
+
     static func opensFrontMatter(_ text: NSString, index: LineIndex) -> Bool {
-        guard index.count > 1, isFrontMatterOpening(characters(of: text, index: index, line: 0)) else { return false }
+        frontMatter(text, index: index).opens
+    }
+
+    /// Whether the document opens with front matter, and the last line that
+    /// took looking at to know.
+    static func frontMatter(_ text: NSString, index: LineIndex) -> (opens: Bool, through: Int) {
+        guard index.count > 1, isFrontMatterOpening(characters(of: text, index: index, line: 0)) else { return (false, 0) }
         var hasContent = false
-        for line in 1..<min(index.count, frontMatterLookahead) {
+        let end = min(index.count, frontMatterLookahead)
+        for line in 1..<end {
             let characters = characters(of: text, index: index, line: line)
-            if isFrontMatterClosing(characters) { return hasContent }
-            guard isYAMLFrontMatterLine(String(decoding: characters, as: UTF16.self)) else { return false }
+            if isFrontMatterClosing(characters) { return (hasContent, line) }
+            guard isYAMLFrontMatterLine(String(decoding: characters, as: UTF16.self)) else { return (false, line) }
             if !isBlank(characters, from: 0) { hasContent = true }
         }
-        return false
+        return (false, end - 1)
     }
 
     private func startCarry() -> CarryState {
@@ -79,11 +90,16 @@ public final class BlockStructure {
 
         var first = touched.lowerBound
         // An edit anywhere in the first lines can make them front matter or
-        // stop them being it: then they all parse again.
-        let opens = Self.opensFrontMatter(text, index: index)
-        if opens != hasFrontMatter {
-            hasFrontMatter = opens
-            first = 0
+        // stop them being it: then they all parse again. Below the lines the
+        // answer was read from, it cannot, and up to a thousand lines are
+        // not read again at every keystroke.
+        if first <= frontMatterDecidedThrough {
+            let (opens, through) = Self.frontMatter(text, index: index)
+            frontMatterDecidedThrough = through
+            if opens != hasFrontMatter {
+                hasFrontMatter = opens
+                first = 0
+            }
         }
         let lastTouched = touched.upperBound
 
@@ -145,7 +161,7 @@ public final class BlockStructure {
         index = LineIndex(text: text)
         lines = []
         lines.reserveCapacity(index.count)
-        hasFrontMatter = Self.opensFrontMatter(text, index: index)
+        (hasFrontMatter, frontMatterDecidedThrough) = Self.frontMatter(text, index: index)
         var carry = startCarry()
         for line in 0..<index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)

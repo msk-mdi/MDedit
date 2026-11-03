@@ -111,7 +111,10 @@ final class Document {
     /// Stable identity for autosave recovery files.
     let id: UUID
     private(set) var url: URL? {
-        didSet { storage.baseURL = url }
+        didSet {
+            storage.baseURL = url
+            cachedGoal = nil
+        }
     }
     let storage: MarkdownTextStorage
     /// This document's own undo history: tabs share a window, not a history,
@@ -124,6 +127,7 @@ final class Document {
         didSet {
             savedLength = (savedText as NSString).length
             cachedDirtiness = nil
+            cachedDigest = nil
         }
     }
     /// Comparing lengths first keeps the dirty check off the whole text
@@ -263,7 +267,15 @@ final class Document {
 
     /// Identifies the text last read from or written to disk, for telling
     /// whether a recovery snapshot was made against what the file holds now.
-    var savedDigest: String { Self.digest(savedText) }
+    /// Worked out once per saved text: every recovery snapshot asks.
+    var savedDigest: String {
+        if let cachedDigest { return cachedDigest }
+        let digest = Self.digest(savedText)
+        cachedDigest = digest
+        return digest
+    }
+
+    private var cachedDigest: String?
 
     static func digest(_ text: String) -> String {
         SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
@@ -373,6 +385,7 @@ final class Document {
         if let goal = untitledGoal {
             WordGoals.set(goal, for: destination)
             untitledGoal = nil
+            cachedGoal = nil
         }
         savedText = contents
         isMissingOnDisk = false
@@ -477,11 +490,22 @@ final class Document {
 
     /// A target word count, kept per file across launches.
     var wordGoal: Int? {
-        get { url.flatMap { WordGoals.goal(for: $0) } ?? untitledGoal }
+        get {
+            // Kept: the status asks at every keystroke, and each read of the
+            // defaults bridged the whole dictionary of goals.
+            if let cachedGoal { return cachedGoal }
+            let goal = url.flatMap { WordGoals.goal(for: $0) } ?? untitledGoal
+            cachedGoal = .some(goal)
+            return goal
+        }
         set {
             if let url { WordGoals.set(newValue, for: url) } else { untitledGoal = newValue }
+            cachedGoal = nil
         }
     }
+
+    /// The goal as last read, nil when it must be read again.
+    private var cachedGoal: Int??
 
     private var untitledGoal: Int?
 }
