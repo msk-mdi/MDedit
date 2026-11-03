@@ -279,7 +279,7 @@ enum Exporter {
     }
 
     /// The markdown with `[TOC]` placed after any front matter, when asked for.
-    static func withTableOfContents(_ markdown: String, extensions: SyntaxExtensions = .all) -> String {
+    nonisolated static func withTableOfContents(_ markdown: String, extensions: SyntaxExtensions = .all) -> String {
         let structure = BlockStructure(text: markdown as NSString, extensions: extensions)
         var line = 0
         while line < structure.lineCount,
@@ -294,14 +294,23 @@ enum Exporter {
 
     /// A whole page, for Export as HTML.
     static func html(markdown: String, title: String, baseURL: URL?, options: ExportOptions, settings: Settings = Settings()) -> String {
-        let source = options.tableOfContents ? withTableOfContents(markdown, extensions: settings.extensions) : markdown
-        let css = options.includeStylesheet ? stylesheet(themeName: options.themeName, settings: settings) : ""
-        return renderer(baseURL: baseURL, options: options, settings: settings)
-            .renderDocument(markdown: source, title: title, css: css)
+        page(markdown: markdown, title: title, baseURL: baseURL, options: options, settings: settings)()
     }
 
     static func html(for document: Document, options: ExportOptions = .load()) -> String {
         html(markdown: document.text, title: document.displayName, baseURL: document.url, options: options)
+    }
+
+    /// A whole page's rendering, with what it needs of the settings and
+    /// theme read here, on the main thread, to be run on any.
+    static func page(markdown: String, title: String, baseURL: URL?, options: ExportOptions, settings: Settings = Settings()) -> @Sendable () -> String {
+        let extensions = settings.extensions
+        let css = options.includeStylesheet ? stylesheet(themeName: options.themeName, settings: settings) : ""
+        let renderer = renderer(baseURL: baseURL, options: options, settings: settings)
+        return {
+            let source = options.tableOfContents ? withTableOfContents(markdown, extensions: extensions) : markdown
+            return renderer.renderDocument(markdown: source, title: title, css: css)
+        }
     }
 
     /// The rendered body only, for pasting into mail or a CMS.
@@ -392,7 +401,12 @@ enum Exporter {
 
     static func exportHTML(document: Document, in window: NSWindow?, onError: @escaping (Error) -> Void) {
         save(document, types: [.html], fileExtension: "html", accessory: ExportAccessory(kind: .html), in: window, onError: onError) { url, options in
-            try html(for: document, options: options).write(to: url, atomically: true, encoding: .utf8)
+            // Parsed, rendered and written off the main thread: a long
+            // document, or one with images to embed, held the app up.
+            let render = page(markdown: document.text, title: document.displayName, baseURL: document.url, options: options)
+            try await Task.detached(priority: .userInitiated) {
+                try render().write(to: url, atomically: true, encoding: .utf8)
+            }.value
         }
     }
 

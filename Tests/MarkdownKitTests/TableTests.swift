@@ -70,4 +70,19 @@ struct TableTests {
         let table = try #require(MarkdownTable(lines: ["| 名前 | x |", "| - | - |"]))
         #expect(table.formatted().lines[1] == "| ---- | --- |")
     }
+
+    /// The parser counts a row's cells in place; it must count what splitting
+    /// the row does.
+    @Test("Counting a row's cells in place agrees with splitting it")
+    func cellCountMatchesSplitting() {
+        let pieces = ["|", "|", " ", "\t", "a", "\\", "\\|", "é", "b c", ""]
+        var generator = SystemRandomNumberGenerator()
+        var rows = ["|", "| ", " |", "||", "a|", "|a", "| a | b |", "a \\| b", "\\|", "\\\\|", "| a \\|", "|é|", " | | "]
+        for _ in 0..<5_000 {
+            rows.append((0..<Int.random(in: 1...8, using: &generator)).map { _ in pieces.randomElement(using: &generator)! }.joined())
+        }
+        for row in rows where row.contains("|") {
+            #expect(cellCount(Array(row.utf16), from: 0) == MarkdownTable.cells(of: row).count, "\(row.debugDescription)")
+        }
+    }
 }

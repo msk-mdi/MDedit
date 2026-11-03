@@ -6,7 +6,7 @@ import Foundation
 /// rather than the editor's line-at-a-time `BlockParser`: what you export is
 /// CommonMark, while the editor stays fast. Inline markup comes from the same
 /// `InlineParser` the editor styles with.
-public struct HTMLRenderer {
+public struct HTMLRenderer: Sendable {
     /// Resolves relative image and link paths, when the document has a location.
     public var baseURL: URL?
     /// Which extended syntax to recognise.

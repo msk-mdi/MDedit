@@ -649,7 +649,35 @@ public enum BlockParser {
 }
 
 /// The cells a row would split into, as `MarkdownTable.cells(of:)` counts them.
-private func cellCount(_ line: [UInt16], from start: Int) -> Int {
+///
+/// Counted in place for ASCII, the usual row: making every cell's string to
+/// count them was most of the cost of a line holding a pipe.
+func cellCount(_ line: [UInt16], from start: Int) -> Int {
     guard start < line.count, contains(line, from: start, character: UInt16(ascii: "|")) else { return 1 }
-    return MarkdownTable.cells(of: string(line, from: start, to: line.count)).count
+    var cells = 1
+    var escaped = false
+    // Whether the first cell, and the one being read, are blank so far.
+    var firstBlank = false
+    var currentBlank = true
+    for index in start..<line.count {
+        let unit = line[index]
+        // Beyond ASCII a pipe can carry a combining mark, which makes it
+        // no pipe to a split by character.
+        guard unit < 0x80 else { return MarkdownTable.cells(of: string(line, from: start, to: line.count)).count }
+        if escaped {
+            escaped = false
+            currentBlank = false
+        } else if unit == UInt16(ascii: "|") {
+            if cells == 1 { firstBlank = currentBlank }
+            cells += 1
+            currentBlank = true
+        } else {
+            if unit == UInt16(ascii: "\\") { escaped = true }
+            if unit != 0x20, unit != 0x09 { currentBlank = false }
+        }
+    }
+    // Outer pipes are optional decoration: `| a | b |` is two cells.
+    if firstBlank { cells -= 1 }
+    if cells > 1, currentBlank { cells -= 1 }
+    return cells
 }
