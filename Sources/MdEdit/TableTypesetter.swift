@@ -80,6 +80,7 @@ final class TableTypesetter: NSATSTypesetter {
             var advances: [CGFloat] = []
             var hidden: [Int] = []  // concealed markup and line ends, drawn as nothing
             var drawn: CGFloat = 0  // up to the last glyph that is not a space
+            var total: CGFloat = 0  // summed as it goes: summed again at each glyph, a long cell was quadratic
             for glyph in glyphs.location..<NSMaxRange(glyphs) {
                 let properties = layoutManager.propertyForGlyph(at: glyph)
                 guard !properties.contains(.null), !properties.contains(.controlCharacter) else {
@@ -90,9 +91,11 @@ final class TableTypesetter: NSATSTypesetter {
                 let character = layoutManager.characterIndexForGlyph(at: glyph)
                 let font = fonts.font(at: character)
                 let kern = storage.attribute(.kern, at: character, effectiveRange: nil) as? CGFloat ?? 0
-                advances.append(font.advancement(forCGGlyph: layoutManager.cgGlyph(at: glyph)).width + kern)
+                let advance = font.advancement(forCGGlyph: layoutManager.cgGlyph(at: glyph)).width + kern
+                advances.append(advance)
+                total += advance
                 if !CharacterSet.whitespaces.contains(Unicode.Scalar(text.character(at: character)) ?? " ") {
-                    drawn = advances.reduce(0, +)
+                    drawn = total
                 }
             }
 

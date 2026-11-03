@@ -159,11 +159,13 @@ final class MarkdownLayoutManager: NSLayoutManager {
                 inline.image.draw(in: frame, from: .zero, operation: .sourceOver, fraction: 1, respectFlipped: true, hints: nil)
             }
 
+            // The number first, which most lines have not: it is a lookup,
+            // the other two scan the paragraph and its markers.
             if let markdown = storage as? MarkdownTextStorage, markdown.numberHeadings,
+               let number = markdown.headingNumber(forLine: markdown.line(at: lineCharacters.location)),
                self.isFirstFragmentOfParagraph(lineCharacters.location, in: storage),
                // Revealed markers hang where the number would go.
-               self.hangingMarkers(at: lineCharacters.location, in: storage) == nil,
-               let number = markdown.headingNumber(forLine: markdown.line(at: lineCharacters.location)) {
+               self.hangingMarkers(at: lineCharacters.location, in: storage) == nil {
                 self.drawHeadingNumber(number, glyphRange: lineGlyphRange, fragment: fragmentRect, attributes: attributes, origin: origin)
             }
 
@@ -415,7 +417,7 @@ final class MarkdownLayoutManager: NSLayoutManager {
         origin: NSPoint
     ) {
         guard let font = attributes[.font] as? NSFont, let container = textContainers.first else { return }
-        let numberFont = NSFontManager.shared.convert(font, toNotHaveTrait: .boldFontMask)
+        let numberFont = FontCache.font(font, withoutTraits: .boldFontMask)
         let label = NSAttributedString(string: number, attributes: [
             .font: numberFont,
             .foregroundColor: theme.marker,

@@ -81,7 +81,9 @@ enum CommandLineRenderer {
         options.themeName = invocation.themeName
         options.tableOfContents = invocation.tableOfContents
         options.embedImages = invocation.embedImages
-        options.offlineScripts = true
+        // Only a whole page carries KaTeX and Mermaid: read for a fragment,
+        // they were 4 MB loaded and encoded for nothing at every run.
+        options.offlineScripts = invocation.standalone
         var renderer = Exporter.renderer(baseURL: baseURL, options: options, settings: settings)
         renderer.numberHeadings = invocation.numberHeadings || settings.numberHeadings
         let source = invocation.tableOfContents ? Exporter.withTableOfContents(markdown, extensions: settings.extensions) : markdown
