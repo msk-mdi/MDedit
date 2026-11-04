@@ -5,6 +5,8 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-11-04
+
 ### Added
 - Emphasis closes itself as you type: `*` gives `*|*`, `**` gives
   `**|**`, `~~` and `==` close too, and typing the closer steps over it.
@@ -23,6 +25,25 @@ workflow publishes the section for a version as its release notes.
   written as HTML (`<span style="color: …">`, `<mark style="background:
   …">`), so exports keep them; the editor hides the tags and shows the
   colour, and reads any CSS colour written by hand.
+
+### Changed
+- Saving, Export as HTML and Copy as Rich Text work in the background, so
+  a slow disk or a long document no longer holds the app still.
+- Typing stays quick in long quotes and tables (35 ms to 20 ms a keystroke
+  in a 300-row table), and in documents with many nested brackets (a
+  hundred nests: 1.4 s to 0.1 s), long pastes, numbered headings and
+  front matter.
+- The file list keeps up with notes created, removed or renamed without
+  walking the folder again, and Find in Folder reads files side by side.
+
+### Fixed
+- A word too long for its table column, such as a long path or a line of
+  JSON, breaks inside its cell instead of showing the whole table as
+  source.
+- The text after a wrapping table no longer draws over its last row as
+  the caret moves.
+- Typing below hidden link definitions no longer shifts the lines after
+  them.
 
 ## [2.0.1] - 2026-11-01
 
