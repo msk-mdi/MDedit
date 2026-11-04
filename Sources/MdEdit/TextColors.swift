@@ -65,18 +65,33 @@ enum TextColor: Int, CaseIterable {
 
     var textColor: NSColor { ColorMarkup.color(textHex) ?? .labelColor }
 
-    /// A round swatch for menus.
+    /// A swatch for menus: a dot for text, a rounded square for a highlight.
+    /// It is drawn for the appearance it shows in, so on a dark menu a
+    /// highlight shows the deeper hue the editor gives it there, not the
+    /// pale tint meant for a white page.
     func swatch(highlight: Bool) -> NSImage {
-        let fill = highlight ? (ColorMarkup.color(highlightHex) ?? .yellow) : textColor
+        let pale = ColorMarkup.color(highlightHex) ?? .yellow
+        let text = textColor
         let image = NSImage(size: NSSize(width: 12, height: 12), flipped: false) { rect in
-            let circle = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+            let isDark = NSAppearance.currentDrawing().bestMatch(from: [.aqua, .darkAqua]) == .darkAqua
+            let fill: NSColor
+            if highlight {
+                let wash = ColorMarkup.darkWash(pale)
+                fill = isDark ? wash.withAlphaComponent(1).blended(withFraction: 0.15, of: .black) ?? wash : pale
+            } else {
+                fill = text
+            }
+            let bounds = rect.insetBy(dx: 0.5, dy: 0.5)
+            let shape = highlight ? NSBezierPath(roundedRect: bounds, xRadius: 3, yRadius: 3) : NSBezierPath(ovalIn: bounds)
             fill.setFill()
-            circle.fill()
-            NSColor.black.withAlphaComponent(0.15).setStroke()
-            circle.lineWidth = 0.5
-            circle.stroke()
+            shape.fill()
+            (isDark ? NSColor.white.withAlphaComponent(0.2) : NSColor.black.withAlphaComponent(0.15)).setStroke()
+            shape.lineWidth = 0.5
+            shape.stroke()
             return true
         }
+        // Drawn afresh each time, so it follows the menu's appearance.
+        image.cacheMode = .never
         return image
     }
 }
