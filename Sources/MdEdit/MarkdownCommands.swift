@@ -47,6 +47,106 @@ extension EditorViewController {
         replace(range, with: wrapped, select: NSRange(location: range.location + length, length: range.length), actionName: actionName)
     }
 
+    /// Colours the selection's text or highlight, or the word at the caret;
+    /// nil takes the colour off. Text already in a colour of that kind
+    /// changes colour rather than nesting another tag. With nothing to
+    /// colour, an empty pair of tags goes in with the caret inside.
+    func applyColor(_ color: TextColor?, to target: ColorTarget, coloringWord: Bool = true) {
+        let text = storage.text
+        var range = textView.selectedRange()
+        if range.length == 0, coloringWord { range = wordRange(around: range.location) }
+
+        guard range.length > 0 else {
+            if let wrap = colorWrap(around: range, target: target) {
+                recolor(wrap, color, target: target)
+            } else if let color {
+                let opening = target.opening(color)
+                replace(range, with: opening + target.closing, select: NSRange(location: range.location + opening.utf16.count, length: 0), actionName: target.actionName)
+            }
+            return
+        }
+
+        // Each line's text is coloured on its own, past its `#`, `-` or `>`:
+        // a tag running across lines would end paragraphs and lists half open.
+        let firstLine = storage.line(at: range.location)
+        let lastLine = storage.lastLine(of: range)
+        var pieces: [NSRange] = []
+        for line in firstLine...lastLine {
+            guard let info = storage.structure.info(forLine: line), !info.kind.isCode else { continue }
+            let lineStart = storage.structure.index.range(ofLine: line).location
+            let length = storage.structure.characters(of: text, line: line).count
+            var start = max(lineStart + min(info.contentStart, length), range.location)
+            var end = min(lineStart + length, NSMaxRange(range))
+            while start < end, text.character(at: start) == 0x20 || text.character(at: start) == 0x09 { start += 1 }
+            while end > start, text.character(at: end - 1) == 0x20 || text.character(at: end - 1) == 0x09 { end -= 1 }
+            if end > start { pieces.append(NSRange(location: start, length: end - start)) }
+        }
+        guard let first = pieces.first, let last = pieces.last else { return }
+        if pieces.count == 1 {
+            if let wrap = colorWrap(around: first, target: target) {
+                recolor(wrap, color, target: target)
+            } else if let color {
+                let opening = target.opening(color)
+                let replacement = opening + text.substring(with: first) + target.closing
+                replace(first, with: replacement, select: NSRange(location: first.location + opening.utf16.count, length: first.length), actionName: target.actionName)
+            }
+            return
+        }
+
+        // Several lines: one edit, so one undo.
+        var outer = NSRange(location: first.location, length: NSMaxRange(last) - first.location)
+        let wraps = pieces.map { colorWrap(around: $0, target: target) }
+        if let wrap = wraps.first ?? nil { outer = NSUnionRange(outer, wrap.outer) }
+        if let wrap = wraps.last ?? nil { outer = NSUnionRange(outer, wrap.outer) }
+        var result = ""
+        var cursor = outer.location
+        for (piece, wrap) in zip(pieces, wraps) {
+            let whole = wrap?.outer ?? piece
+            let content = text.substring(with: wrap?.content ?? piece)
+            result += text.substring(with: NSRange(location: cursor, length: whole.location - cursor))
+            result += color.map { target.opening($0) + content + target.closing } ?? content
+            cursor = NSMaxRange(whole)
+        }
+        result += text.substring(with: NSRange(location: cursor, length: NSMaxRange(outer) - cursor))
+        replace(outer, with: result, select: NSRange(location: outer.location, length: result.utf16.count), actionName: target.actionName)
+    }
+
+    /// Gives text already in a colour another one, or takes it off.
+    private func recolor(_ wrap: (outer: NSRange, content: NSRange), _ color: TextColor?, target: ColorTarget) {
+        let content = storage.text.substring(with: wrap.content)
+        let opening = color.map(target.opening) ?? ""
+        let replacement = color.map { target.opening($0) + content + target.closing } ?? content
+        let selection = NSRange(location: wrap.outer.location + opening.utf16.count, length: wrap.content.length)
+        replace(wrap.outer, with: replacement, select: selection, actionName: target.actionName)
+    }
+
+    /// The tags of a colour around a range: just outside it, or as its
+    /// first and last characters.
+    private func colorWrap(around range: NSRange, target: ColorTarget) -> (outer: NSRange, content: NSRange)? {
+        let text = storage.text
+        let lineRange = text.lineRange(for: NSRange(location: range.location, length: 0))
+        let closing = target.closing
+        let closingLength = closing.utf16.count
+        guard let opening = try? NSRegularExpression(pattern: target.openingPattern, options: .caseInsensitive) else { return nil }
+
+        // Inside: the selection starts with the opening tag and ends with the closer.
+        let selected = text.substring(with: range)
+        if selected.lowercased().hasSuffix(closing),
+           let match = opening.firstMatch(in: selected, options: .anchored, range: NSRange(location: 0, length: range.length)),
+           match.range.length + closingLength <= range.length {
+            let content = NSRange(location: range.location + match.range.length, length: range.length - match.range.length - closingLength)
+            return (range, content)
+        }
+
+        // Outside: the opening tag ends where the range starts, the closer follows it.
+        let after = NSRange(location: NSMaxRange(range), length: closingLength)
+        guard NSMaxRange(after) <= text.length, text.substring(with: after).lowercased() == closing else { return nil }
+        let before = NSRange(location: lineRange.location, length: range.location - lineRange.location)
+        let matches = opening.matches(in: text as String, range: before)
+        guard let match = matches.last, NSMaxRange(match.range) == range.location else { return nil }
+        return (NSRange(location: match.range.location, length: NSMaxRange(after) - match.range.location), range)
+    }
+
     /// Sets or clears the heading level of every line the selection touches.
     func setHeading(level: Int) {
         let actionName = level > 0 ? String(localized: "Heading \(level)") : String(localized: "Paragraph")
@@ -144,7 +244,7 @@ extension EditorViewController {
     func wordRange(around location: Int) -> NSRange {
         let text = storage.text
         guard text.length > 0 else { return NSRange(location: location, length: 0) }
-        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*_`[]()#>"))
+        let separators = CharacterSet.whitespacesAndNewlines.union(CharacterSet(charactersIn: "*_`[]()#<>"))
 
         var start = min(location, text.length)
         while start > 0,

@@ -192,6 +192,62 @@ struct SlashCommandTests {
         }
     }
 
+    @Test("Colours type tags with the caret inside, and recolour or come off")
+    func colors() {
+        let harness = Harness("Say ")
+        harness.type("/red")
+        #expect(harness.titles.prefix(2) == ["Red Text", "Red Highlight"])
+        harness.returnKey()
+        harness.type("hot")
+        #expect(harness.document.text == "Say <span style=\"color: #E5484D\">hot</span>")
+
+        // The word at the caret changes colour, then loses it.
+        harness.editor.applyColor(.blue, to: .text)
+        #expect(harness.document.text == "Say <span style=\"color: #3E8EF7\">hot</span>")
+        harness.editor.applyColor(nil, to: .text)
+        #expect(harness.document.text == "Say hot")
+
+        // A selection is highlighted, and the highlight comes off whole.
+        harness.editor.textView.setSelectedRange(NSRange(location: 4, length: 3))
+        harness.editor.applyColor(.yellow, to: .highlight)
+        #expect(harness.document.text == "Say <mark style=\"background: #FFF3A3\">hot</mark>")
+        harness.editor.textView.setSelectedRange(NSRange(location: 4, length: (harness.document.text as NSString).length - 4))
+        harness.editor.applyColor(nil, to: .highlight)
+        #expect(harness.document.text == "Say hot")
+    }
+
+    @Test("Colouring several lines colours each line's text")
+    func colorsSeveralLines() {
+        let harness = Harness("Say hello world\n\nnext\n")
+        harness.editor.textView.selectAll(nil)
+        harness.editor.applyColor(.red, to: .text)
+        let red = "<span style=\"color: #E5484D\">"
+        #expect(harness.document.text == "\(red)Say hello world</span>\n\n\(red)next</span>\n")
+        // Again, in another colour: recoloured, not nested; then taken off.
+        harness.editor.applyColor(.blue, to: .text)
+        #expect(harness.document.text == "<span style=\"color: #3E8EF7\">Say hello world</span>\n\n<span style=\"color: #3E8EF7\">next</span>\n")
+        harness.editor.applyColor(nil, to: .text)
+        #expect(harness.document.text == "Say hello world\n\nnext\n")
+
+        // Markers stay outside: a heading and a list item keep working.
+        let marked = Harness("# Title\n- item\n")
+        marked.editor.textView.selectAll(nil)
+        marked.editor.applyColor(.green, to: .highlight)
+        let green = "<mark style=\"background: #D3F5DC\">"
+        #expect(marked.document.text == "# \(green)Title</mark>\n- \(green)item</mark>\n")
+    }
+
+    /// `setTextColor:` was the action at first: the text view, ahead of the
+    /// window in the responder chain, took the menu item for a colour and
+    /// crashed drawing it.
+    @Test("The colour menus' actions are not ones the text view answers")
+    func colorActionsReachTheWindow() {
+        for action in [#selector(MainWindowController.applyTextColor(_:)), #selector(MainWindowController.applyHighlightColor(_:))] {
+            #expect(!MarkdownTextView.instancesRespond(to: action), "\(action)")
+            #expect(!EditorViewController.instancesRespond(to: action), "\(action)")
+        }
+    }
+
     @Test("A table comes with its header cell selected")
     func table() {
         let harness = Harness()

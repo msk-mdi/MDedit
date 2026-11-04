@@ -144,6 +144,8 @@ enum MainMenu {
             add(menu, "Strikethrough", #selector(MainWindowController.toggleStrikethrough(_:)), "x", [.command, .shift])
             add(menu, "Inline Code", #selector(MainWindowController.toggleCode(_:)), "k", [.command, .shift])
             add(menu, "Link…", #selector(MainWindowController.insertLink(_:)), "k")
+            menu.addItem(colorMenu("Text Color", #selector(MainWindowController.applyTextColor(_:)), highlight: false))
+            menu.addItem(colorMenu("Highlight Color", #selector(MainWindowController.applyHighlightColor(_:)), highlight: true))
             menu.addItem(.separator())
             for level in 1...6 {
                 add(menu, "Heading \(level)", #selector(MainWindowController.setHeadingLevel(_:)), "\(level)", [.command, .control], tag: level)
@@ -175,6 +177,20 @@ enum MainMenu {
                 table.addItem(.separator())
                 add(table, "Format Table", #selector(MainWindowController.tableFormat(_:)))
             })
+        }
+    }
+
+    /// A submenu of colours, each with its swatch, and one to take it off.
+    private static func colorMenu(_ title: String.LocalizationValue, _ action: Selector, highlight: Bool) -> NSMenuItem {
+        submenu(title) { menu in
+            for color in TextColor.allCases {
+                let item = NSMenuItem(title: color.title, action: action, keyEquivalent: "")
+                item.tag = color.rawValue
+                item.image = color.swatch(highlight: highlight)
+                menu.addItem(item)
+            }
+            menu.addItem(.separator())
+            add(menu, "No Color", action, tag: -1)
         }
     }
 

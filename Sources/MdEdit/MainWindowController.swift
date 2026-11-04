@@ -1434,6 +1434,13 @@ final class MainWindowController: NSWindowController {
     @objc func toggleItalic(_ sender: Any?) { currentEditor?.toggleInline("*") }
     @objc func toggleStrikethrough(_ sender: Any?) { currentEditor?.toggleInline("~~") }
     @objc func toggleCode(_ sender: Any?) { currentEditor?.toggleInline("`") }
+    /// The colour items carry the colour's raw value as their tag, -1 for none.
+    @objc func applyTextColor(_ sender: Any?) {
+        currentEditor?.applyColor(TextColor(rawValue: (sender as? NSMenuItem)?.tag ?? -1), to: .text)
+    }
+    @objc func applyHighlightColor(_ sender: Any?) {
+        currentEditor?.applyColor(TextColor(rawValue: (sender as? NSMenuItem)?.tag ?? -1), to: .highlight)
+    }
     @objc func insertLink(_ sender: Any?) { currentEditor?.insertLink() }
     @objc func insertCodeBlock(_ sender: Any?) { currentEditor?.insertCodeBlock() }
     @objc func toggleQuote(_ sender: Any?) { currentEditor?.toggleQuote() }

@@ -12,6 +12,7 @@ struct SlashCommand: Equatable {
         case link, image, footnote, tableOfContents
         /// An empty pair of delimiters, with the caret between them.
         case inline(String)
+        case textColor(TextColor), highlightColor(TextColor)
     }
 
     let action: Action
@@ -21,6 +22,8 @@ struct SlashCommand: Equatable {
     let symbol: String
     /// The markdown it writes, shown beside the title.
     let hint: String
+    /// A colour for the symbol, for the colour commands.
+    var tint: NSColor?
 
     /// Every command, in menu order. Math is left out when it is turned off.
     static func all(extensions: SyntaxExtensions) -> [SlashCommand] {
@@ -55,6 +58,20 @@ struct SlashCommand: Equatable {
             commands.append(SlashCommand(
                 action: .heading(level), title: String(localized: "Heading \(level)"), keywords: ["h\(level)"],
                 symbol: "\(level).square", hint: String(repeating: "#", count: level)
+            ))
+        }
+        for color in TextColor.allCases {
+            commands.append(SlashCommand(
+                action: .textColor(color), title: String(localized: "\(color.title) Text"),
+                keywords: ["color", "colour", "couleur", "text color", "font color", color.keyword],
+                symbol: "paintbrush.pointed.fill", hint: "<span>", tint: color.textColor
+            ))
+        }
+        for color in TextColor.allCases {
+            commands.append(SlashCommand(
+                action: .highlightColor(color), title: String(localized: "\(color.title) Highlight"),
+                keywords: ["highlight", "background", "color", "colour", "couleur", "surligner", "surlignage", color.keyword],
+                symbol: "highlighter", hint: "<mark>", tint: color.textColor
             ))
         }
         if !extensions.contains(.math) { commands.removeAll { $0.action == .mathBlock || $0.action == .inline("$") } }
@@ -351,7 +368,7 @@ extension SlashMenu: NSTableViewDataSource, NSTableViewDelegate {
             super.init(frame: .zero)
             let icon = NSImageView(image: NSImage(systemSymbolName: command.symbol, accessibilityDescription: nil) ?? NSImage())
             icon.symbolConfiguration = .init(pointSize: 13, weight: .regular)
-            icon.contentTintColor = .secondaryLabelColor
+            icon.contentTintColor = command.tint ?? .secondaryLabelColor
             icon.translatesAutoresizingMaskIntoConstraints = false
             // Each command's symbol sits on a small tile, as Notion's blocks do.
             let tile = IconTile()
@@ -572,6 +589,10 @@ extension EditorViewController {
             chooseImages()
         case .footnote:
             insertFootnote()
+        case let .textColor(color):
+            applyColor(color, to: .text, coloringWord: false)
+        case let .highlightColor(color):
+            applyColor(color, to: .highlight, coloringWord: false)
         case let .inline(delimiter):
             let caret = NSRange(location: start, length: 0)
             let inside = NSRange(location: start + delimiter.utf16.count, length: 0)

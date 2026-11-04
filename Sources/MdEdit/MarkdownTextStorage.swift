@@ -1258,6 +1258,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             applyMarker(marker, lineStart: range.location, revealed: revealed, baseFont: baseFont)
         }
         styleKeys(in: nodes, characters: characters, lineStart: range.location, revealed: revealed, baseFont: baseFont)
+        styleColors(in: nodes, characters: characters, lineStart: range.location, revealed: revealed, baseFont: baseFont)
         if definitionRole == .definition, let start = definitionStart(Array(characters[info.contentStart...])) {
             // The `: ` gives way to the indent.
             let marker = Marker(range: NSRange(location: info.contentStart, length: start), kind: .conceal)
@@ -1391,6 +1392,53 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 }
             default:
                 continue
+            }
+        }
+    }
+
+    /// `<span style="color: …">` and `<mark style="background: …">` colour
+    /// what they hold, and their tags hide like any marker.
+    private func styleColors(in nodes: [InlineNode], characters: [UInt16], lineStart: Int, revealed: Bool, baseFont: NSFont) {
+        var tags: [(range: NSRange, tag: ColorMarkup.Tag)] = []
+        func collect(_ nodes: [InlineNode]) {
+            for node in nodes {
+                if case let .rawHTML(range) = node {
+                    let html = String(utf16CodeUnits: Array(characters[range.location..<NSMaxRange(range)]), count: range.length)
+                    if let tag = ColorMarkup.tag(html) { tags.append((range, tag)) }
+                } else {
+                    collect(node.children)
+                }
+            }
+        }
+        collect(nodes)
+        guard !tags.isEmpty else { return }
+
+        var open: [(range: NSRange, tag: ColorMarkup.Tag)] = []
+        for (range, tag) in tags {
+            guard tag.isClosing else {
+                open.append((range, tag))
+                continue
+            }
+            guard let index = open.lastIndex(where: { $0.tag.name == tag.name }) else { continue }
+            let opening = open[index]
+            open.removeSubrange(index...)
+            let foreground = opening.tag.foreground
+            // `<mark>` alone highlights as `==` does.
+            var background = opening.tag.background
+            if background == nil, opening.tag.name == "mark" { background = theme.highlight }
+            guard foreground != nil || background != nil else { continue }
+
+            let content = NSRange(location: lineStart + NSMaxRange(opening.range), length: range.location - NSMaxRange(opening.range))
+            if content.length > 0 {
+                if let foreground { backing.addAttribute(.foregroundColor, value: foreground, range: content) }
+                if var background {
+                    // A pale tint would glare on a dark page, and faded it goes grey.
+                    if theme.isDark, opening.tag.background != nil { background = ColorMarkup.darkWash(background) }
+                    backing.addAttribute(.backgroundColor, value: background, range: content)
+                }
+            }
+            for marker in [opening.range, range] {
+                applyMarker(Marker(range: marker, kind: .conceal), lineStart: lineStart, revealed: revealed, baseFont: baseFont)
             }
         }
     }
