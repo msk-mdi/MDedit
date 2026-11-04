@@ -672,13 +672,51 @@ final class MainWindowController: NSWindowController {
 
     /// Saves, offering UTF-8 when the text no longer fits the file's own
     /// encoding: without that, every save and Save As would fail alike.
+    ///
+    /// The file is written off the main thread: on iCloud, a network volume
+    /// or a slow disk, the app stood still for as long as the write took.
+    /// Saves go one at a time, each checked against what the one before
+    /// wrote, and `completion` is called once the file is written.
     private func write(
         _ document: Document, to target: URL? = nil, overwritingChanges: Bool = false,
         completion: @escaping (Bool) -> Void
     ) {
+        let previous = savingTask
+        savingGeneration += 1
+        savingTask = Task { [weak self] in
+            await previous?.value
+            await self?.writeNow(document, to: target, overwritingChanges: overwritingChanges, completion: completion)
+        }
+    }
+
+    /// The save being written, and the ones queued behind it.
+    private var savingTask: Task<Void, Never>?
+    private var savingGeneration = 0
+
+    /// Waits for every save asked for so far, and any those ask for in turn.
+    func finishSaving() async {
+        while let task = savingTask {
+            let generation = savingGeneration
+            await task.value
+            if generation == savingGeneration { break }
+        }
+    }
+
+    private func writeNow(_ document: Document, to target: URL?, overwritingChanges: Bool, completion: @escaping (Bool) -> Void) async {
         do {
-            try document.save(to: target, overwritingChanges: overwritingChanges)
-            completion(true)
+            guard let pending = try document.prepareSave(to: target, overwritingChanges: overwritingChanges) else {
+                return completion(true)
+            }
+            document.beginSaving()
+            let written = await Task.detached(priority: .userInitiated) { Result { try Document.write(pending) } }.value
+            switch written {
+            case let .success(stamp):
+                document.finishSave(pending, stamp: stamp)
+                completion(true)
+            case let .failure(error):
+                document.endSaving()
+                throw error
+            }
         } catch is Document.ChangedOnDiskError {
             // Another app wrote the file since it was read: saving blindly
             // would throw its changes away unseen.

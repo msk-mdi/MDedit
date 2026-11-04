@@ -140,7 +140,7 @@ extension MarkdownLayoutManager {
             let fragment = lineFragmentRect(forGlyphAt: glyph, effectiveRange: nil, withoutAdditionalLayout: true)
             let shift = revealMotion?.offset(forGlyph: glyph, progress: progress) ?? .zero
             let unit = text.character(at: character)
-            let visible = !propertyForGlyph(at: glyph).contains(.null) && unit != 0x0A && unit != 0x0D
+            let visible = !isConcealed(glyph: glyph) && unit != 0x0A && unit != 0x0D
             return Spot(x: fragment.minX + location(forGlyphAt: glyph).x + shift.dx, lineY: fragment.minY + shift.dy, visible: visible)
         }
     }

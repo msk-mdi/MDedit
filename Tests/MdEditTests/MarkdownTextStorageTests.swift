@@ -203,10 +203,11 @@ struct MarkdownTextStorageTests {
         #expect(storage.attribute(probe, at: far().location, effectiveRange: nil) != nil)
         #expect(matchesFresh())
 
-        // Wider than the header, the cell moves the column: every row follows.
+        // Wider than the header, the cell moves the column: every row follows,
+        // its grid laid out again but its text not styled again.
         storage.addAttribute(probe, value: true, range: far())
         storage.replaceCharacters(in: NSRange(location: cell, length: 0), with: String(repeating: "w", count: 40))
-        #expect(storage.attribute(probe, at: far().location, effectiveRange: nil) == nil)
+        #expect(storage.attribute(probe, at: far().location, effectiveRange: nil) != nil)
         #expect(matchesFresh())
     }
 
