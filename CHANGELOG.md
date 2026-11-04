@@ -5,6 +5,17 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+### Added
+- Emphasis closes itself as you type: `*` gives `*|*`, `**` gives
+  `**|**`, `~~` and `==` close too, and typing the closer steps over it.
+  A space right after the opener takes the closer away, so lists, rules
+  and `2 * 3` type as before; nothing pairs inside a word or inline code.
+- Code blocks type like a code editor: brackets and quotes close
+  themselves, Return after `{`, `(` or `[` (or `:` in Python) indents a
+  level and splits a pair onto its own lines, `}` on an empty line
+  outdents, Tab and Shift-Tab indent and outdent selected lines, and
+  Backspace in indentation removes a level.
+
 ## [2.0.1] - 2026-11-01
 
 ### Fixed

@@ -292,6 +292,92 @@ struct TypingTests {
         #expect(word.string == "(word")
     }
 
+    /// Types each character of a string, the way the editor does.
+    private func typeAll(_ string: String, _ textView: MarkdownTextView, _ input: MarkdownInputHandler) {
+        for character in string { type(String(character), textView, input) }
+    }
+
+    private func press(_ selector: Selector, _ textView: MarkdownTextView, _ input: MarkdownInputHandler) {
+        if !input.handleCommand(selector, in: textView) { textView.doCommand(by: selector) }
+    }
+
+    @Test("Emphasis closes itself and is typed over")
+    func emphasisPairs() {
+        UserDefaults.standard.removeObject(forKey: MarkdownInputHandler.autoPairDefaultsKey)
+        let (bold, boldInput) = makeTextView("")
+        typeAll("**test", bold, boldInput)
+        #expect(bold.string == "**test**")
+        typeAll("** done", bold, boldInput)
+        #expect(bold.string == "**test** done")
+
+        let (italic, italicInput) = makeTextView("a ")
+        italic.setSelectedRange(NSRange(location: 2, length: 0))
+        typeAll("_it_ b", italic, italicInput)
+        #expect(italic.string == "a _it_ b")
+
+        let (strike, strikeInput) = makeTextView("")
+        typeAll("x ~~gone~~ ==hi==", strike, strikeInput)
+        #expect(strike.string == "x ~~gone~~ ==hi==")
+
+        // A list, a product, a word with underscores and a rule type as before.
+        for text in ["* item", "2 * 3", "2*3", "snake_case", "***", "~~~", "a ~ b"] {
+            let (textView, input) = makeTextView("")
+            typeAll(text, textView, input)
+            #expect(textView.string == text, "\(text)")
+        }
+
+        // Backspace in an empty pair removes both halves.
+        let (empty, emptyInput) = makeTextView("")
+        typeAll("**", empty, emptyInput)
+        #expect(empty.string == "****")
+        press(#selector(NSResponder.deleteBackward(_:)), empty, emptyInput)
+        #expect(empty.string == "**")
+
+        // No pairing in inline code.
+        let (code, codeInput) = makeTextView("")
+        typeAll("`a *", code, codeInput)
+        #expect(code.string == "`a *`")
+    }
+
+    @Test("Code blocks type like a code editor")
+    func codeEditing() {
+        UserDefaults.standard.removeObject(forKey: MarkdownInputHandler.autoPairDefaultsKey)
+        let (textView, input) = makeTextView("```c\n\n```")
+        textView.setSelectedRange(NSRange(location: 5, length: 0))
+        typeAll("int main(void) {", textView, input)
+        #expect(textView.string == "```c\nint main(void) {}\n```")
+        press(#selector(NSResponder.insertNewline(_:)), textView, input)
+        #expect(textView.string == "```c\nint main(void) {\n    \n}\n```")
+        typeAll("printf(\"Hi\");", textView, input)
+        #expect(textView.string == "```c\nint main(void) {\n    printf(\"Hi\");\n}\n```")
+        press(#selector(NSResponder.insertNewline(_:)), textView, input)
+        typeAll("char *p = *q;", textView, input)
+        #expect(textView.string == "```c\nint main(void) {\n    printf(\"Hi\");\n    char *p = *q;\n}\n```")
+
+        // Backspace in indentation removes a level; `}` on its own line outdents.
+        press(#selector(NSResponder.insertNewline(_:)), textView, input)
+        press(#selector(NSResponder.insertTab(_:)), textView, input)
+        #expect(textView.string.hasSuffix("*q;\n        \n}\n```"))
+        press(#selector(NSResponder.deleteBackward(_:)), textView, input)
+        #expect(textView.string.hasSuffix("*q;\n    \n}\n```"))
+        typeAll("}", textView, input)
+        #expect(textView.string.hasSuffix("*q;\n}\n}\n```"))
+
+        // A colon opens a block in Python; an apostrophe in a word stays single.
+        let (python, pythonInput) = makeTextView("```python\n\n```")
+        python.setSelectedRange(NSRange(location: 10, length: 0))
+        typeAll("def f():", python, pythonInput)
+        press(#selector(NSResponder.insertNewline(_:)), python, pythonInput)
+        typeAll("# it's 'x'", python, pythonInput)
+        #expect(python.string == "```python\ndef f():\n    # it's 'x'\n```")
+
+        // Shift-Tab outdents the selected lines.
+        let (block, blockInput) = makeTextView("```\n    a\n    b\n```")
+        block.setSelectedRange(NSRange(location: 4, length: 11))
+        press(#selector(NSResponder.insertBacktab(_:)), block, blockInput)
+        #expect(block.string == "```\na\nb\n```")
+    }
+
     @Test("Typing before an emoji or CJK on the line keeps the caret after what was typed")
     func caretBeforeFallbackFont() {
         for line in ["a 😀", "a 漢字"] {

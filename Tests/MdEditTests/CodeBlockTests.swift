@@ -52,11 +52,15 @@ struct CodeBlockTests {
         #expect(closed.string == "```js\n\nx\n```")
     }
 
-    @Test("Return in code keeps the line's indentation and quote")
+    @Test("Return in code keeps the line's indentation and quote, a level deeper after a bracket")
     func indentation() {
         let (textView, _, input) = makeTextView("```\n    if x {\n```", caret: 14)
         pressReturn(textView, input)
-        #expect(textView.string == "```\n    if x {\n    \n```")
+        #expect(textView.string == "```\n    if x {\n        \n```")
+
+        let (plain, _, plainInput) = makeTextView("```\n    x = 1\n```", caret: 13)
+        pressReturn(plain, plainInput)
+        #expect(plain.string == "```\n    x = 1\n    \n```")
 
         let (quoted, _, quotedInput) = makeTextView("> ```\n>   a\n> ```", caret: 11)
         pressReturn(quoted, quotedInput)
