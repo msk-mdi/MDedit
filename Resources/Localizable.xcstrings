@@ -123,6 +123,9 @@
     "Bold" : {
 
     },
+    "Bold Italic" : {
+
+    },
     "Bring All to Front" : {
 
     },
@@ -339,6 +342,9 @@
     "Hide Sidebar" : {
 
     },
+    "Highlight" : {
+
+    },
     "Image, " : {
 
     },
@@ -352,6 +358,9 @@
 
     },
     "Inline Code" : {
+
+    },
+    "Inline Math" : {
 
     },
     "Insert" : {
@@ -625,6 +634,9 @@
     "Save changes to “%@” before closing?" : {
 
     },
+    "Save this document first, so pasted images have a folder to go in." : {
+
+    },
     "Saved" : {
 
     },
@@ -710,6 +722,12 @@
     "Strikethrough" : {
 
     },
+    "Subscript" : {
+
+    },
+    "Superscript" : {
+
+    },
     "System" : {
 
     },
@@ -738,6 +756,9 @@
 
     },
     "Title and page numbers on each page" : {
+
+    },
+    "Too large to draw" : {
 
     },
     "Top and bottom padding:" : {

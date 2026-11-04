@@ -15,6 +15,9 @@ workflow publishes the section for a version as its release notes.
   level and splits a pair onto its own lines, `}` on an empty line
   outdents, Tab and Shift-Tab indent and outdent selected lines, and
   Backspace in indentation removes a level.
+- The `/` menu has inline styles: Bold, Italic, Bold Italic,
+  Strikethrough, Highlight, Inline Code, Inline Math, Subscript and
+  Superscript type an empty pair with the caret inside.
 
 ## [2.0.1] - 2026-11-01
 
