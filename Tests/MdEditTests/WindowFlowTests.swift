@@ -76,6 +76,7 @@ struct WindowFlowTests {
         let document = try await openEdited("save.md", in: controller)
         _ = script(controller, [.save])
         controller.closeDocument(at: try #require(controller.documents.firstIndex { $0 === document }))
+        await controller.finishSaving()
         #expect(!controller.documents.contains { $0 === document })
         #expect(try String(contentsOf: document.url!, encoding: .utf8) == "edited saved\n")
     }
@@ -191,11 +192,13 @@ struct WindowFlowTests {
         controller.askToConvertToUTF8 = { _, answer in answer(answers.removeFirst()) }
         var saved: Bool?
         controller.save(document: document) { saved = $0 }
+        await controller.finishSaving()
         #expect(saved == false)
         #expect(document.isDirty)
         #expect(try Data(contentsOf: url) == "café\n".data(using: .isoLatin1))
 
         controller.save(document: document) { saved = $0 }
+        await controller.finishSaving()
         #expect(saved == true)
         #expect(!document.isDirty)
         #expect(document.format.encoding == .utf8)
@@ -279,8 +282,28 @@ struct WindowFlowTests {
 
         // Saved: nothing left to recover.
         controller.save(document: document)
+        await controller.finishSaving()
         #expect(recorded() == nil)
         #expect(!FileManager.default.fileExists(atPath: snapshot.path))
+    }
+
+    /// The file is written off the main thread now, before the stamp that
+    /// tells the watcher it was this app's write is known.
+    @Test("A save written in the background is not taken for another app's change")
+    func backgroundSaveIsOurs() async throws {
+        let controller = makeWindow()
+        let document = try await openEdited("ours.md", in: controller)
+        var asked = 0
+        controller.askAboutExternalChange = { _, answer in asked += 1; answer(false) }
+        var saved: Bool?
+        controller.save(document: document) { saved = $0 }
+        await controller.finishSaving()
+        // Past the watcher's wait for a writer's last event.
+        try await Task.sleep(for: .milliseconds(500))
+        #expect(saved == true)
+        #expect(asked == 0)
+        #expect(!document.isDirty)
+        #expect(try String(contentsOf: try #require(document.url), encoding: .utf8) == "edited saved\n")
     }
 
     @Test("Saving over a change on disk asks first; Cancel leaves the file as the other app wrote it")
@@ -295,11 +318,13 @@ struct WindowFlowTests {
 
         var saved: Bool?
         controller.save(document: document) { saved = $0 }
+        await controller.finishSaving()
         #expect(saved == false)
         #expect(try String(contentsOf: url, encoding: .utf8) == "theirs\n")
         #expect(document.isDirty)
 
         controller.save(document: document) { saved = $0 }
+        await controller.finishSaving()
         #expect(saved == true)
         #expect(asked == 2)
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited saved\n")
@@ -318,6 +343,7 @@ struct WindowFlowTests {
         document.onExternalChange?()
         var saved: Bool?
         controller.save(document: document) { saved = $0 }
+        await controller.finishSaving()
         #expect(saved == true)
         #expect(asked == 0)
         #expect(try String(contentsOf: url, encoding: .utf8) == "edited saved\n")
@@ -349,6 +375,7 @@ struct WindowFlowTests {
         controller.askToOverwriteChangesOnDisk = { _, answer in asked += 1; answer(false) }
         document.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "edited ")
         controller.save(document: document)
+        await controller.finishSaving()
         #expect(asked == 1)
         #expect(try String(contentsOf: url, encoding: .utf8) == "theirs\n")
     }

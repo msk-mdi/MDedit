@@ -814,26 +814,15 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         // the old card's edge there, or the new one missing, until something
         // else redrew them. Those lines are laid out again with the rest:
         // only redrawing them made AppKit generate glyphs mid-edit.
-        var first = max(0, line(at: restyled.location) - 1)
-        // A line opening with a concealed marker, as `` `code` `` does, has
-        // that marker's null glyph laid out at the end of the line before.
-        // Laid out again from its own start, the line took the glyph back,
-        // and drew lower than it does laid out from above, its code
-        // backgrounds left behind and the caret off its text. Layout starts
-        // again from a line above that keeps its first glyph.
-        while first > 0 {
-            let start = structure.index.range(ofLine: first).location
-            guard start < backing.length, backing.attribute(.mdConcealed, at: start, effectiveRange: nil) != nil else { break }
-            first -= 1
-        }
-        let last = lastLine(of: restyled) + 1
-        let range = NSUnionRange(restyled, characterRange(forLines: first...last))
-        // The lines the walk added were not restyled: their glyphs stand, and
-        // only their layout is done again. In a blockquote, every line of
-        // which opens with a hidden `>`, the walk reaches the quote's top.
-        let glyphs = NSUnionRange(restyled, characterRange(forLines: max(0, line(at: restyled.location) - 1)...last))
+        // A line opening with a concealed marker, as `` `code` `` or a
+        // quote's `>` does, keeps it on its own line as a glyph of no
+        // width: as a null glyph it went with the line before, so a line
+        // laid out again from its own start took it back and drew lower,
+        // and layout had to start again from a line above that kept its
+        // first glyph, the top of a whole blockquote.
+        let range = NSUnionRange(restyled, characterRange(forLines: max(0, line(at: restyled.location) - 1)...(lastLine(of: restyled) + 1)))
         for manager in layoutManagers {
-            manager.invalidateGlyphs(forCharacterRange: glyphs, changeInLength: 0, actualCharacterRange: nil)
+            manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil)
             manager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)
             manager.invalidateDisplay(forCharacterRange: range)
             (manager as? MarkdownLayoutManager)?.invalidateMargins(forCharacterRange: range)
@@ -996,7 +985,13 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     /// long table was laid out again on each keystroke. `linesKept` says no
     /// lines came or went. Returns the lines styled.
     private func styleWidened(_ lines: ClosedRange<Int>, linesKept: Bool) -> ClosedRange<Int> {
-        if linesKept, isRowsAlone(lines), applyStyles(lineRange: lines, rowsAlone: true) { return lines }
+        if linesKept, isRowsAlone(lines) {
+            regriddedTable = nil
+            defer { regriddedTable = nil }
+            if applyStyles(lineRange: lines, rowsAlone: true) {
+                return regriddedTable.map { min($0.lowerBound, lines.lowerBound)...max($0.upperBound, lines.upperBound) } ?? lines
+            }
+        }
         let widened = expandedToDefinitionGaps(expandedToTypesetBlocks(lines))
         applyStyles(lineRange: widened)
         return widened
@@ -1732,6 +1727,10 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         var header: Bool
     }
 
+    /// A table whose rows all had their grid laid out again while only some
+    /// were styled: its columns moved. Its lines are laid out again with them.
+    private var regriddedTable: ClosedRange<Int>?
+
     /// Cell widths measured before: measuring every cell of a long table
     /// again was a large part of each keystroke in it. Cleared whenever
     /// something other than a row's own text may change them.
@@ -1833,12 +1832,21 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         }
         var edges: [CGFloat] = [0]
         for width in columns { edges.append(edges[edges.count - 1] + width + 2 * padding) }
-        if let only {
+        var only = only
+        if let rowsAlone = only {
             // The rows left as they are must have their columns where these go.
-            guard let other = rows.first(where: { !only.contains($0.line) && $0.line != delimiterLine }),
+            guard let other = rows.first(where: { !rowsAlone.contains($0.line) && $0.line != delimiterLine }),
                   let grid = backing.attribute(.mdTableRow, at: other.range.location, effectiveRange: nil) as? TableGrid,
-                  grid.edges == edges, grid.indent == indent
+                  grid.indent == indent, (grid.wrapping != nil) == wraps
             else { return .columnsChanged }
+            // Moved columns move every row, but only its grid: its text is
+            // styled as it was. Styling every row again, as for a table
+            // that starts or stops wrapping, took most of a keystroke in
+            // the widest cell of a long table.
+            if grid.edges != edges {
+                only = nil
+                regriddedTable = table
+            }
         }
 
         let verticalPadding = (theme.bodyFontSize * 0.45).rounded()
@@ -1905,7 +1913,8 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                         alignment: alignment
                     )
                 )
-                backing.addAttributes([.paragraphStyle: style, .mdTableRow: grid], range: row.range)
+                backing.addAttribute(.paragraphStyle, value: style, range: row.range)
+                backing.addAttribute(.mdTableRow, value: grid, range: row.range)
                 continue
             }
 
@@ -1943,12 +1952,13 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 isLast: isLast,
                 isDelimiter: isDelimiter
             )
-            backing.addAttributes([
-                .paragraphStyle: style,
-                .mdTableRow: grid,
-                // The line's extra height goes above the text; this centres it.
-                .baselineOffset: verticalPadding,
-            ], range: row.range)
+            // One attribute at a time: a dictionary of them, bridged, was
+            // looked up again in every run of the row, most of the time a
+            // keystroke took when a long table's columns moved.
+            backing.addAttribute(.paragraphStyle, value: style, range: row.range)
+            backing.addAttribute(.mdTableRow, value: grid, range: row.range)
+            // The line's extra height goes above the text; this centres it.
+            backing.addAttribute(.baselineOffset, value: verticalPadding, range: row.range)
         }
         return .laidOut
     }

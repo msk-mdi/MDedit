@@ -174,6 +174,7 @@ final class Document {
             pendingExternalChange?.cancel()
             let change = DispatchWorkItem { [weak self] in
                 guard let self, let url = self.url else { return }
+                if savesInFlight > 0 { return }
                 if let diskStamp, FileStamp(of: url.resolvingSymlinksInPath()) == diskStamp { return }
                 onExternalChange?()
             }
@@ -362,7 +363,31 @@ final class Document {
     /// was changed by someone else since it was last read or written, unless
     /// `overwritingChanges`.
     func save(to target: URL? = nil, overwritingChanges: Bool = false) throws {
-        guard let destination = target ?? url else { return }
+        guard let pending = try prepareSave(to: target, overwritingChanges: overwritingChanges) else { return }
+        beginSaving()
+        let stamp: FileStamp?
+        do {
+            stamp = try Self.write(pending)
+        } catch {
+            endSaving()
+            throw error
+        }
+        finishSave(pending, stamp: stamp)
+    }
+
+    /// A save worked out on the main thread, its file to be written on another.
+    struct PendingSave: Sendable {
+        let destination: URL
+        /// The destination with symlinks resolved.
+        let file: URL
+        let contents: String
+        let data: Data
+    }
+
+    /// The text and where it goes, checked as `save` checks it. Nil when the
+    /// document has nowhere to go.
+    func prepareSave(to target: URL? = nil, overwritingChanges: Bool = false) throws -> PendingSave? {
+        guard let destination = target ?? url else { return nil }
         let contents = storage.string
         let data = try format.encode(contents)
         // Through a symlink to the file it names: an atomic write renames a
@@ -373,12 +398,36 @@ final class Document {
         if !overwritingChanges, destination == url, let found = FileStamp(of: file), found != diskStamp {
             throw ChangedOnDiskError()
         }
-        if Self.linkCount(of: file) > 1 {
-            try Self.writeInPlace(data, to: file)
+        return PendingSave(destination: destination, file: file, contents: contents, data: data)
+    }
+
+    /// Saves under way: the watcher's news of their writes is not someone
+    /// else's change, though the stamp to tell it by is not known yet.
+    private var savesInFlight = 0
+
+    func beginSaving() {
+        savesInFlight += 1
+    }
+
+    func endSaving() {
+        savesInFlight -= 1
+    }
+
+    /// Writes a prepared save's file, on any thread, and returns its stamp.
+    nonisolated static func write(_ save: PendingSave) throws -> FileStamp? {
+        if linkCount(of: save.file) > 1 {
+            try writeInPlace(save.data, to: save.file)
         } else {
-            try Self.replace(file, with: data)
+            try replace(save.file, with: save.data)
         }
-        diskStamp = FileStamp(of: file)
+        return FileStamp(of: save.file)
+    }
+
+    /// Takes a written save's text as the saved one.
+    func finishSave(_ save: PendingSave, stamp: FileStamp?) {
+        endSaving()
+        let destination = save.destination, contents = save.contents
+        diskStamp = stamp
         let needsWatcher = url != destination || isMissingOnDisk
         if url != destination { FileAccess.remember(destination) }
         url = destination
@@ -394,14 +443,14 @@ final class Document {
         recordVersion(contents)
     }
 
-    private static func linkCount(of file: URL) -> Int {
+    private nonisolated static func linkCount(of file: URL) -> Int {
         ((try? FileManager.default.attributesOfItem(atPath: file.path))?[.referenceCount] as? NSNumber)?.intValue ?? 0
     }
 
     /// Writes a new file into place with the old one's metadata: its Finder
     /// tags, other extended attributes, creation date and permissions. An
     /// atomic write renamed a new file over it, which had none of them.
-    private static func replace(_ file: URL, with data: Data) throws {
+    private nonisolated static func replace(_ file: URL, with data: Data) throws {
         let manager = FileManager.default
         guard let attributes = try? manager.attributesOfItem(atPath: file.path) else {
             return try data.write(to: file, options: .atomic)
@@ -426,7 +475,7 @@ final class Document {
     /// into place, which would split a file with other hard links from them:
     /// they would keep the old text. Should the write fail partway, the old
     /// bytes are put back.
-    private static func writeInPlace(_ data: Data, to file: URL) throws {
+    private nonisolated static func writeInPlace(_ data: Data, to file: URL) throws {
         let original = try Data(contentsOf: file)
         let handle = try FileHandle(forWritingTo: file)
         defer { try? handle.close() }

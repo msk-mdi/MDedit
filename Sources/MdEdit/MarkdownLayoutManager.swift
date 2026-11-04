@@ -70,7 +70,16 @@ final class MarkdownLayoutManager: NSLayoutManager {
 
     /// Whether a glyph is drawn at all; folded and concealed ones are not.
     private func attribute(forGlyphAt glyph: Int) -> Bool {
-        !propertyForGlyph(at: glyph).contains(.null)
+        !isConcealed(glyph: glyph)
+    }
+
+    /// Whether a glyph is concealed markup: a null glyph, or, opening a
+    /// line, a control glyph of no width.
+    func isConcealed(glyph: Int) -> Bool {
+        let property = propertyForGlyph(at: glyph)
+        if property.contains(.null) { return true }
+        guard property.contains(.controlCharacter), let storage = textStorage else { return false }
+        return storage.attribute(.mdConcealed, at: characterIndexForGlyph(at: glyph), effectiveRange: nil) != nil
     }
 
     // MARK: - Block decoration
@@ -622,7 +631,7 @@ extension MarkdownLayoutManager {
         var best = fragment.glyphs.location
         var bestFraction: CGFloat = 0
         // The nearest glyph that is drawn: concealed ones take no room.
-        for glyph in fragment.glyphs.location..<NSMaxRange(fragment.glyphs) where !propertyForGlyph(at: glyph).contains(.null) {
+        for glyph in fragment.glyphs.location..<NSMaxRange(fragment.glyphs) where !isConcealed(glyph: glyph) {
             let start = fragment.rect.minX + location(forGlyphAt: glyph).x
             let next = glyph + 1 < NSMaxRange(fragment.glyphs) ? fragment.rect.minX + location(forGlyphAt: glyph + 1).x : start
             let width = max(0, next - start)
@@ -671,6 +680,21 @@ extension MarkdownLayoutManager {
 }
 
 extension MarkdownLayoutManager: NSLayoutManagerDelegate {
+    /// Concealed markup opening a line is a control glyph, laid out with no width.
+    func layoutManager(
+        _ layoutManager: NSLayoutManager,
+        shouldUse action: NSLayoutManager.ControlCharacterAction,
+        forControlCharacterAt characterIndex: Int
+    ) -> NSLayoutManager.ControlCharacterAction {
+        // Real control characters, a concealed line end among them, do what
+        // they always do.
+        guard let storage = layoutManager.textStorage, characterIndex < storage.length,
+              storage.attribute(.mdConcealed, at: characterIndex, effectiveRange: nil) != nil,
+              !Self.isControl(Self.text(of: storage).character(at: characterIndex))
+        else { return action }
+        return .zeroAdvancement
+    }
+
     /// A revealed quote's `> ` hangs into the margin beside the quote bar,
     /// so the quoted text stays where it sat while the marker was hidden.
     func layoutManager(
@@ -721,7 +745,18 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
             guard characterIndex < length else { continue }
 
             if concealed.value(at: characterIndex, in: storage) != nil {
-                newProperties[offset] = .null
+                // Opening a line, a null glyph is laid out with the line
+                // before, and the line laid out from its own start took it
+                // back: a control glyph of no width stays on its line.
+                // Table rows aside, which `TableTypesetter` lays out itself,
+                // and lines hidden whole, line end and all, which still go
+                // with the line before as they always have.
+                let text = Self.text(of: storage)
+                let opensLine = characterIndex == 0 || text.character(at: characterIndex - 1) == 0x0A
+                let keepsLine = opensLine && !Self.isControl(text.character(at: characterIndex))
+                    && storage.attribute(.mdTableRow, at: characterIndex, effectiveRange: nil) == nil
+                    && !Self.isHiddenWhole(lineAt: characterIndex, in: text, storage: storage)
+                newProperties[offset] = keepsLine ? .controlCharacter : .null
                 changed = true
                 continue
             }
@@ -766,6 +801,24 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
             forGlyphRange: glyphRange
         )
         return glyphRange.length
+    }
+
+    /// Whether a line's end is concealed with the rest of it, so it shows
+    /// as no line at all.
+    private static func isHiddenWhole(lineAt index: Int, in text: NSString, storage: NSTextStorage) -> Bool {
+        var contentsEnd = 0
+        var end = 0
+        text.getLineStart(nil, end: &end, contentsEnd: &contentsEnd, for: NSRange(location: index, length: 0))
+        guard end == contentsEnd else { return storage.attribute(.mdConcealed, at: contentsEnd, effectiveRange: nil) != nil }
+        // The last line, with no end: hidden whole when all of it is.
+        var run = NSRange()
+        let line = NSRange(location: index, length: contentsEnd - index)
+        guard storage.attribute(.mdConcealed, at: index, longestEffectiveRange: &run, in: line) != nil else { return false }
+        return NSMaxRange(run) >= contentsEnd
+    }
+
+    private static func isControl(_ unit: unichar) -> Bool {
+        unit < 0x20 || unit == 0x7F || unit == 0x85 || unit == 0x2028 || unit == 0x2029
     }
 
     private func isBulletCharacter(_ text: NSString, at index: Int) -> Bool {

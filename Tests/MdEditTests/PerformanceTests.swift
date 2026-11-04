@@ -195,7 +195,7 @@ struct PerformanceTests {
         let start = (storage.string as NSString).range(of: prefix, options: .backwards).location + prefix.utf16.count
         let line = storage.line(at: start)
         storage.revealedLines = line...line
-        let typing = 20
+        let typing = Int(ProcessInfo.processInfo.environment["MDEDIT_TYPING"] ?? "") ?? 20
         let keystroke = milliseconds {
             for offset in 0..<typing {
                 storage.replaceCharacters(in: NSRange(location: start + offset, length: 0), with: "x")
@@ -206,6 +206,20 @@ struct PerformanceTests {
         return keystroke
     }
 
+    /// Typing in the widest cell moves a column at each keystroke, and every
+    /// row with it: the table is laid out again, though its rows are not
+    /// styled again (`tableRowAlone` checks that). This catches work beyond
+    /// the table.
+    @Test("Typing in the widest cell of a long table")
+    func typingInTable() {
+        let rows = 299  // the most a table has and still lays out as a grid
+        let table = "| Name | Value | Notes |\n| :--- | ---: | --- |\n"
+            + (0..<rows).map { "| row \($0) | \($0 * 7) | some *notes* on row \($0) |" }.joined(separator: "\n") + "\n\nAfter.\n"
+        let keystroke = Self.keystrokeAtEnd(of: table, prefix: "| row \(rows / 2) ")
+        print("benchmark keystroke in a \(rows)-row table", String(format: "%.2f ms", keystroke))
+        #expect(keystroke < 100, "\(keystroke) ms")
+    }
+
     @Test("Typing at the end of a long quote or code block stays local")
     func typingInLongBlock() {
         let lines = 5_000
@@ -214,12 +228,10 @@ struct PerformanceTests {
         let inQuote = Self.keystrokeAtEnd(of: quote, prefix: "> quoted line \(lines - 1)")
         let inCode = Self.keystrokeAtEnd(of: code, prefix: "let value\(lines - 1)")
         print("benchmark keystroke at the end of a \(lines)-line block", String(format: "quote %.2f ms, code %.2f ms", inQuote, inCode))
-        // Layout starts again from the quote's top, every line of which opens
-        // with a hidden `>`: started lower, a line took its marker's null
-        // glyph back from the line above and drew lower than laid out afresh.
-        withKnownIssue("Each keystroke lays out the quote above it again") {
-            #expect(inQuote < 25, "\(inQuote) ms")
-        }
+        // Every line of a quote opens with a hidden `>`, laid out with the
+        // line before as a null glyph: each keystroke laid out the quote
+        // above it again, 200 ms at the end of this one.
+        #expect(inQuote < 25, "\(inQuote) ms")
         #expect(inCode < 25, "\(inCode) ms")
     }
 

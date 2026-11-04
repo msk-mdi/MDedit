@@ -445,7 +445,7 @@ final class EditorViewController: NSViewController {
         // A concealed fence sits above the card, which starts at the code:
         // pinned to the fence, the bar would stick out over the card's top.
         if !block.isIndented, lineRange.length > 0, block.openLine + 1 < (block.closeLine ?? storage.structure.lineCount),
-           layoutManager.propertyForGlyph(at: layoutManager.glyphIndexForCharacter(at: lineRange.location)).contains(.null) {
+           layoutManager.isConcealed(glyph: layoutManager.glyphIndexForCharacter(at: lineRange.location)) {
             lineRange = storage.structure.index.range(ofLine: block.openLine + 1)
         }
         let anchor = max(lineRange.location, NSMaxRange(lineRange) - 1)
