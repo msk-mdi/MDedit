@@ -753,10 +753,8 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
                 // with the line before as they always have.
                 let text = Self.text(of: storage)
                 let opensLine = characterIndex == 0 || text.character(at: characterIndex - 1) == 0x0A
-                let keepsLine = opensLine && !Self.isControl(text.character(at: characterIndex))
-                    && storage.attribute(.mdTableRow, at: characterIndex, effectiveRange: nil) == nil
-                    && !Self.isHiddenWhole(lineAt: characterIndex, in: text, storage: storage)
-                newProperties[offset] = keepsLine ? .controlCharacter : .null
+                newProperties[offset] = opensLine && Self.keepsOnItsLine(concealedAt: characterIndex, in: text, storage: storage)
+                    ? .controlCharacter : .null
                 changed = true
                 continue
             }
@@ -801,6 +799,15 @@ extension MarkdownLayoutManager: NSLayoutManagerDelegate {
             forGlyphRange: glyphRange
         )
         return glyphRange.length
+    }
+
+    /// Whether concealed markup opening a line stays on that line as a
+    /// control glyph of no width, rather than a null glyph that goes with
+    /// the line before.
+    static func keepsOnItsLine(concealedAt index: Int, in text: NSString, storage: NSTextStorage) -> Bool {
+        !isControl(text.character(at: index))
+            && storage.attribute(.mdTableRow, at: index, effectiveRange: nil) == nil
+            && !isHiddenWhole(lineAt: index, in: text, storage: storage)
     }
 
     /// Whether a line's end is concealed with the rest of it, so it shows
