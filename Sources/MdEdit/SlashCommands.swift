@@ -3,13 +3,15 @@ import MarkdownKit
 import UniformTypeIdentifiers
 
 /// One entry in the menu that typing `/` opens: a block to turn the line
-/// into, or one to insert.
+/// into, one to insert, or an inline style to type in.
 struct SlashCommand: Equatable {
     enum Action: Equatable {
         case heading(Int)
         case bulletList, numberedList, taskList, quote
         case codeBlock, mermaid, mathBlock, table, divider
         case link, image, footnote, tableOfContents
+        /// An empty pair of delimiters, with the caret between them.
+        case inline(String)
     }
 
     let action: Action
@@ -33,6 +35,15 @@ struct SlashCommand: Equatable {
             SlashCommand(action: .codeBlock, title: String(localized: "Code Block"), keywords: ["code", "fence", "pre"], symbol: "chevron.left.forwardslash.chevron.right", hint: "```"),
             SlashCommand(action: .table, title: String(localized: "Table"), keywords: ["grid"], symbol: "tablecells", hint: "| |"),
             SlashCommand(action: .divider, title: String(localized: "Divider"), keywords: ["hr", "horizontal rule", "line", "separator"], symbol: "minus", hint: "---"),
+            SlashCommand(action: .inline("**"), title: String(localized: "Bold"), keywords: ["strong"], symbol: "bold", hint: "**"),
+            SlashCommand(action: .inline("*"), title: String(localized: "Italic"), keywords: ["emphasis", "em"], symbol: "italic", hint: "*"),
+            SlashCommand(action: .inline("***"), title: String(localized: "Bold Italic"), keywords: ["strong emphasis"], symbol: "bold.italic.underline", hint: "***"),
+            SlashCommand(action: .inline("~~"), title: String(localized: "Strikethrough"), keywords: ["strike", "delete", "del"], symbol: "strikethrough", hint: "~~"),
+            SlashCommand(action: .inline("=="), title: String(localized: "Highlight"), keywords: ["mark", "marker"], symbol: "highlighter", hint: "=="),
+            SlashCommand(action: .inline("`"), title: String(localized: "Inline Code"), keywords: ["monospace"], symbol: "curlybraces", hint: "`"),
+            SlashCommand(action: .inline("$"), title: String(localized: "Inline Math"), keywords: ["equation", "latex", "tex"], symbol: "x.squareroot", hint: "$"),
+            SlashCommand(action: .inline("~"), title: String(localized: "Subscript"), keywords: ["sub"], symbol: "textformat.subscript", hint: "~"),
+            SlashCommand(action: .inline("^"), title: String(localized: "Superscript"), keywords: ["sup", "power"], symbol: "textformat.superscript", hint: "^"),
             SlashCommand(action: .link, title: String(localized: "Link"), keywords: ["url"], symbol: "link", hint: "[]()"),
             SlashCommand(action: .image, title: String(localized: "Image…"), keywords: ["picture", "photo", "img"], symbol: "photo", hint: "![]()"),
             SlashCommand(action: .mathBlock, title: String(localized: "Math Block"), keywords: ["equation", "latex", "tex", "katex"], symbol: "function", hint: "$$"),
@@ -46,7 +57,9 @@ struct SlashCommand: Equatable {
                 symbol: "\(level).square", hint: String(repeating: "#", count: level)
             ))
         }
-        if !extensions.contains(.math) { commands.removeAll { $0.action == .mathBlock } }
+        if !extensions.contains(.math) { commands.removeAll { $0.action == .mathBlock || $0.action == .inline("$") } }
+        if !extensions.contains(.highlight) { commands.removeAll { $0.action == .inline("==") } }
+        if !extensions.contains(.scripts) { commands.removeAll { $0.action == .inline("~") || $0.action == .inline("^") } }
         return commands
     }
 
@@ -559,6 +572,10 @@ extension EditorViewController {
             chooseImages()
         case .footnote:
             insertFootnote()
+        case let .inline(delimiter):
+            let caret = NSRange(location: start, length: 0)
+            let inside = NSRange(location: start + delimiter.utf16.count, length: 0)
+            replace(caret, with: delimiter + delimiter, select: inside, actionName: command.title)
         }
     }
 

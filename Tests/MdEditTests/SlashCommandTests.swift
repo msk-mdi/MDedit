@@ -170,6 +170,28 @@ struct SlashCommandTests {
         #expect(harness.caret == harness.document.text.utf16.count)
     }
 
+    @Test("Inline styles type an empty pair with the caret inside")
+    func inlineStyles() {
+        let harness = Harness("Say ")
+        harness.type("/bold")
+        harness.returnKey()
+        #expect(harness.document.text == "Say ****")
+        harness.type("hi** and ")
+        #expect(harness.document.text == "Say **hi** and ")
+        harness.type("/italic")
+        harness.returnKey()
+        harness.type("there")
+        #expect(harness.document.text == "Say **hi** and *there*")
+
+        for (query, text) in [("/strike", "~~x~~"), ("/highlight", "==x=="), ("/inline code", "`x`"), ("/bold italic", "***x***")] {
+            let harness = Harness()
+            harness.type(query)
+            harness.returnKey()
+            harness.type("x")
+            #expect(harness.document.text == text, "\(query)")
+        }
+    }
+
     @Test("A table comes with its header cell selected")
     func table() {
         let harness = Harness()
