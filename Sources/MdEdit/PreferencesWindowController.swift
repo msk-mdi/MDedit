@@ -27,7 +27,7 @@ final class PreferencesWindowController: NSWindowController {
     private let spacingLabel = NSTextField(labelWithString: "")
     private let paddingSlider = NSSlider()
     private let paddingLabel = NSTextField(labelWithString: "")
-    private let autoPairBox = NSButton(checkboxWithTitle: String(localized: "Close brackets and backticks automatically"), target: nil, action: nil)
+    private let autoPairBox = NSButton(checkboxWithTitle: String(localized: "Close brackets, quotes and emphasis automatically"), target: nil, action: nil)
     private let smartQuotesBox = NSButton(checkboxWithTitle: String(localized: "Use smart quotes and dashes (never in code)"), target: nil, action: nil)
     private let spellCheckBox = NSButton(checkboxWithTitle: String(localized: "Check spelling while typing"), target: nil, action: nil)
     private let updatesBox = NSButton(checkboxWithTitle: String(localized: "Check for updates once a day"), target: nil, action: nil)
