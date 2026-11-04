@@ -123,6 +123,60 @@ struct LayoutTests {
         }
     }
 
+    /// Concealed markup opening a line stays on it as a glyph of no width,
+    /// but a line hidden whole, a link definition, is null glyphs that go
+    /// with the line before. Laid out again from among them, they made a
+    /// line of their own and gave a blank line after them their height.
+    /// Edited and moved through anyhow, a document lays out as afresh.
+    @Test("Lines laid out again beside hidden ones lay out as laying it all out")
+    func hiddenLinesLayOutAsFresh() {
+        var generator = SeededGenerator(seed: 1)
+        let blocks = [
+            "> quote `code`\n> `more` quote", "`code` opening a line", "# Heading", "- item\n- [x] task",
+            "[ref]: /u\n[x]: /v", "[one]: /w", "Prose with [ref] and **bold**.", "```\nlet x = 1\n```", ">\n> after a blank quote line",
+        ]
+
+        func lines(_ manager: NSLayoutManager, _ container: NSTextContainer) -> [CGRect] {
+            manager.ensureLayout(for: container)
+            var rects: [CGRect] = []
+            manager.enumerateLineFragments(forGlyphRange: NSRange(location: 0, length: manager.numberOfGlyphs)) { rect, used, _, _, _ in
+                rects.append(rect.union(used))
+            }
+            return rects
+        }
+
+        for _ in 0..<60 {
+            let text = (0..<Int.random(in: 3...7, using: &generator)).map { _ in blocks.randomElement(using: &generator)! }
+                .joined(separator: "\n\n")
+            let storage = MarkdownTextStorage(theme: .light)
+            storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+            let (manager, container) = layoutManager(contiguous: true, for: storage)
+            _ = lines(manager, container)
+            var steps: [String] = []
+            for _ in 0..<6 {
+                let line = Int.random(in: 0..<storage.structure.lineCount, using: &generator)
+                steps.append("caret \(line)")
+                storage.revealedLines = line...line
+                let range = storage.characterRange(forLines: line...line)
+                let content = (storage.string as NSString).substring(with: range)
+                // Not in or beside a definition, whose links restyle once typing pauses.
+                if Bool.random(using: &generator), !content.hasPrefix("["), content.trimmingCharacters(in: .whitespacesAndNewlines).count > 0 {
+                    storage.replaceCharacters(in: NSRange(location: range.location + 1, length: 0), with: "x")
+                    steps.append("type")
+                }
+                let fresh = MarkdownTextStorage(theme: .light)
+                fresh.replaceCharacters(in: NSRange(location: 0, length: 0), with: storage.string)
+                fresh.revealedLines = storage.revealedLines
+                let (freshManager, freshContainer) = layoutManager(contiguous: true, for: fresh)
+                // Within a hundredth of a point: sums of line heights differ
+                // in their last bits by the order they were added in.
+                let edited = lines(manager, container), laidOut = lines(freshManager, freshContainer)
+                let first = zip(edited, laidOut).first { !$0.isClose(to: $1) }.map { "\($0) vs \($1)" }
+                #expect(edited.count == laidOut.count && first == nil, "\(text.debugDescription) \(steps): \(first ?? "\(edited.count) lines vs \(laidOut.count)")")
+            }
+        }
+    }
+
     /// Counts the times AppKit is asked to place the caret again.
     private final class CaretCountingTextView: NSTextView {
         var caretPlacements = 0
@@ -523,5 +577,26 @@ struct LayoutTests {
         let right = textView.frame.width - left - container.size.width
         #expect(abs(left - right) < 1)
         withExtendedLifetime(window) {}
+    }
+}
+
+/// The same numbers every run, so a failing case can be run again.
+private struct SeededGenerator: RandomNumberGenerator {
+    var state: UInt64
+    init(seed: UInt64) { state = seed }
+    mutating func next() -> UInt64 {
+        // SplitMix64.
+        state &+= 0x9E37_79B9_7F4A_7C15
+        var z = state
+        z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
+        z = (z ^ (z >> 27)) &* 0x94D0_49BB_1331_11EB
+        return z ^ (z >> 31)
+    }
+}
+
+private extension CGRect {
+    func isClose(to other: CGRect) -> Bool {
+        abs(minX - other.minX) < 0.01 && abs(minY - other.minY) < 0.01
+            && abs(width - other.width) < 0.01 && abs(height - other.height) < 0.01
     }
 }

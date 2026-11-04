@@ -815,12 +815,21 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         // else redrew them. Those lines are laid out again with the rest:
         // only redrawing them made AppKit generate glyphs mid-edit.
         // A line opening with a concealed marker, as `` `code` `` or a
-        // quote's `>` does, keeps it on its own line as a glyph of no
-        // width: as a null glyph it went with the line before, so a line
-        // laid out again from its own start took it back and drew lower,
-        // and layout had to start again from a line above that kept its
-        // first glyph, the top of a whole blockquote.
-        let range = NSUnionRange(restyled, characterRange(forLines: max(0, line(at: restyled.location) - 1)...(lastLine(of: restyled) + 1)))
+        // quote's `>` does, keeps it on its own line as a glyph of no width.
+        // Lines hidden whole, link definitions and folded lines, are null
+        // glyphs that go with the visible line before them, and laid out
+        // again from among them they made lines of their own, and gave
+        // their height to the line after: layout starts again above them.
+        var first = max(0, line(at: restyled.location) - 1)
+        while first > 0 {
+            let start = structure.index.range(ofLine: first).location
+            let opensNull = start < backing.length && backing.attribute(.mdConcealed, at: start, effectiveRange: nil) != nil
+                && !MarkdownLayoutManager.keepsOnItsLine(concealedAt: start, in: text, storage: self)
+            let afterHiddenEnd = start > 0 && backing.attribute(.mdConcealed, at: start - 1, effectiveRange: nil) != nil
+            guard opensNull || afterHiddenEnd else { break }
+            first -= 1
+        }
+        let range = NSUnionRange(restyled, characterRange(forLines: first...(lastLine(of: restyled) + 1)))
         for manager in layoutManagers {
             manager.invalidateGlyphs(forCharacterRange: range, changeInLength: 0, actualCharacterRange: nil)
             manager.invalidateLayout(forCharacterRange: range, actualCharacterRange: nil)

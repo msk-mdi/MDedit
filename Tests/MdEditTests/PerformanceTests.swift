@@ -187,6 +187,10 @@ struct PerformanceTests {
     private static func keystrokeAtEnd(of text: String, prefix: String) -> Double {
         let storage = MarkdownTextStorage(theme: .light)
         storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        return keystrokeAtEnd(of: storage, prefix: prefix)
+    }
+
+    private static func keystrokeAtEnd(of storage: MarkdownTextStorage, prefix: String) -> Double {
         let layoutManager = MarkdownLayoutManager()
         let container = NSTextContainer(size: CGSize(width: 720, height: CGFloat.greatestFiniteMagnitude))
         layoutManager.addTextContainer(container)
@@ -233,6 +237,19 @@ struct PerformanceTests {
         // above it again, 200 ms at the end of this one.
         #expect(inQuote < 25, "\(inQuote) ms")
         #expect(inCode < 25, "\(inCode) ms")
+    }
+
+    /// Lines hidden whole go with the line before them, so layout starts
+    /// again above them: below a fold, above the folded lines.
+    @Test("Typing below a fold stays local")
+    func typingBelowFold() throws {
+        let text = "# Folded\n\n" + Self.document(lines: 10_000) + "\n# After\n\nTyping here.\n"
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        storage.setFolded(true, headingLine: 0)
+        let keystroke = Self.keystrokeAtEnd(of: storage, prefix: "Typing here")
+        print("benchmark keystroke below a fold", String(format: "%.2f ms", keystroke))
+        #expect(keystroke < 25, "\(keystroke) ms")
     }
 
     /// Opening a document, switching appearance and changing any setting all
