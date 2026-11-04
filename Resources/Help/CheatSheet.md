@@ -7,6 +7,7 @@ Every construct MdEdit understands, as you would type it. Put the caret on a lin
 **bold** or __bold__ · *italic* or _italic_ · ***both*** · ~~strikethrough~~ · ==highlight==
 `inline code` · H~2~O subscript · E = mc^2^ superscript · :smile: emoji shortcodes
 <kbd>⌘</kbd> + <kbd>S</kbd> keys · a backslash \*escapes\* a marker
+<span style="color: #E5484D">coloured text</span> · <mark style="background: #D5E8FF">coloured highlight</mark> (Format ▸ Text Color, or `/red`)
 End a line with two spaces or a backslash for a hard line break.\
 Like this.
 

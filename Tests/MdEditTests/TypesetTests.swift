@@ -54,4 +54,45 @@ struct TypesetTests {
         #expect(storage.attribute(.mdInlineCode, at: 11, effectiveRange: nil) != nil)
         #expect(storage.attribute(.mdConcealed, at: 15, effectiveRange: nil) != nil)
     }
+
+    @Test("Colour tags hide and colour what they hold")
+    func colors() throws {
+        let text = "a <span style=\"color: #E5484D\">red</span> <mark style=\"background: #FFF3A3\">hi</mark> <span>plain</span> b"
+        let storage = MarkdownTextStorage(theme: .light, text: text)
+        let ns = text as NSString
+        let red = ns.range(of: "red").location
+        #expect(storage.attribute(.mdConcealed, at: 2, effectiveRange: nil) != nil)
+        #expect(storage.attribute(.mdConcealed, at: red + 3, effectiveRange: nil) != nil)
+        let foreground = try #require(storage.attribute(.foregroundColor, at: red, effectiveRange: nil) as? NSColor)
+        #expect(foreground == ColorMarkup.color("#E5484D"))
+        let highlighted = ns.range(of: ">hi<").location + 1
+        #expect(storage.attribute(.backgroundColor, at: highlighted, effectiveRange: nil) as? NSColor == ColorMarkup.color("#FFF3A3"))
+        // A span with no colour is left as written.
+        #expect(storage.attribute(.mdConcealed, at: ns.range(of: "<span>").location, effectiveRange: nil) == nil)
+    }
+
+    @Test("On a dark page a pale highlight keeps its hue, as a translucent wash")
+    func darkHighlights() throws {
+        let text = "<mark style=\"background: #FFD6D6\">hi</mark> <mark style=\"background: #E8E8EA\">grey</mark>"
+        let storage = MarkdownTextStorage(theme: .dark, text: text)
+        let red = try #require((storage.attribute(.backgroundColor, at: (text as NSString).range(of: "hi").location, effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB))
+        #expect(red.saturationComponent > 0.6)
+        #expect(abs(red.hueComponent - 0) < 0.02 || abs(red.hueComponent - 1) < 0.02)
+        #expect(red.alphaComponent < 0.5)
+        let grey = try #require((storage.attribute(.backgroundColor, at: (text as NSString).range(of: "grey").location, effectiveRange: nil) as? NSColor)?.usingColorSpace(.sRGB))
+        #expect(grey.saturationComponent < 0.05)
+    }
+
+    @Test("CSS colours are read in their common forms")
+    func cssColors() {
+        #expect(ColorMarkup.color("#f00") == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        #expect(ColorMarkup.color(" #00FF00 ") == NSColor(srgbRed: 0, green: 1, blue: 0, alpha: 1))
+        #expect(ColorMarkup.color("rgb(0, 0, 255)") == NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+        #expect(ColorMarkup.color("Red") == NSColor(srgbRed: 1, green: 0, blue: 0, alpha: 1))
+        #expect(ColorMarkup.color("nonsense") == nil)
+        #expect(ColorMarkup.tag("<font color=\"blue\">")?.foreground == NSColor(srgbRed: 0, green: 0, blue: 1, alpha: 1))
+        #expect(ColorMarkup.tag("<span style='background-color: red; color: #fff'>")?.background != nil)
+        #expect(ColorMarkup.tag("</SPAN>")?.isClosing == true)
+        #expect(ColorMarkup.tag("<div>") == nil)
+    }
 }

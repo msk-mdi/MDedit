@@ -288,6 +288,25 @@ struct LayoutTests {
         #expect(motion.progress(at: motion.start + motion.duration) == 1)
     }
 
+    @Test("Coloured text and highlights draw")
+    func coloredTextDraws() throws {
+        for theme in [Theme.light, Theme.dark] {
+            let storage = MarkdownTextStorage(theme: theme)
+            storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "a <span style=\"color: #E5484D\">red</span> <mark style=\"background: #FFF3A3\">hi</mark> <mark>x</mark>\n\nnext\n")
+            let (manager, container) = layoutManager(contiguous: true, for: storage)
+            let glyphs = manager.glyphRange(for: container)
+            let rep = try #require(NSBitmapImageRep(
+                bitmapDataPlanes: nil, pixelsWide: 600, pixelsHigh: 200, bitsPerSample: 8, samplesPerPixel: 4,
+                hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+            ))
+            NSGraphicsContext.saveGraphicsState()
+            NSGraphicsContext.current = NSGraphicsContext(bitmapImageRep: rep)
+            manager.drawBackground(forGlyphRange: glyphs, at: .zero)
+            manager.drawGlyphs(forGlyphRange: glyphs, at: .zero)
+            NSGraphicsContext.restoreGraphicsState()
+        }
+    }
+
     /// Drawing a code block's card walked every line of the block, twice
     /// over, on each redraw: a tenth of a second for a long one.
     @Test("Drawing part of a long code block fills its card past both edges, at a cost that does not grow with the block")

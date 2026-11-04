@@ -10,6 +10,12 @@
     "%.1f lines" : {
 
     },
+    "%@ Highlight" : {
+
+    },
+    "%@ Text" : {
+
+    },
     "%@ · macOS" : {
 
     },
@@ -118,6 +124,9 @@
 
     },
     "Blockquote" : {
+
+    },
+    "Blue" : {
 
     },
     "Bold" : {
@@ -306,6 +315,12 @@
     "Go to Tab" : {
 
     },
+    "Gray" : {
+
+    },
+    "Green" : {
+
+    },
     "HTML…" : {
 
     },
@@ -343,6 +358,9 @@
 
     },
     "Highlight" : {
+
+    },
+    "Highlight Color" : {
 
     },
     "Image, " : {
@@ -471,6 +489,9 @@
     "Next Tab" : {
 
     },
+    "No Color" : {
+
+    },
     "No headings" : {
 
     },
@@ -532,6 +553,9 @@
     "Open…" : {
 
     },
+    "Orange" : {
+
+    },
     "Outline" : {
 
     },
@@ -562,6 +586,9 @@
     "Paste and Match Style" : {
 
     },
+    "Pink" : {
+
+    },
     "Plain Text" : {
 
     },
@@ -574,6 +601,9 @@
     "Print…" : {
 
     },
+    "Purple" : {
+
+    },
     "Quick Open…" : {
 
     },
@@ -581,6 +611,9 @@
 
     },
     "Reading time" : {
+
+    },
+    "Red" : {
 
     },
     "Redo" : {
@@ -746,6 +779,9 @@
     "Task List" : {
 
     },
+    "Text Color" : {
+
+    },
     "Theme Folder…" : {
 
     },
@@ -873,6 +909,9 @@
           }
         }
       }
+    },
+    "Yellow" : {
+
     },
     "You have unsaved changes here. Reloading discards them." : {
 

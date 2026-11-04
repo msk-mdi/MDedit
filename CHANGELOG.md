@@ -18,6 +18,11 @@ workflow publishes the section for a version as its release notes.
 - The `/` menu has inline styles: Bold, Italic, Bold Italic,
   Strikethrough, Highlight, Inline Code, Inline Math, Subscript and
   Superscript type an empty pair with the caret inside.
+- Coloured text and highlights: Format ▸ Text Color and Highlight Color,
+  or `/red`, `/blue highlight` and the like, in eight colours. They are
+  written as HTML (`<span style="color: …">`, `<mark style="background:
+  …">`), so exports keep them; the editor hides the tags and shows the
+  colour, and reads any CSS colour written by hand.
 
 ## [2.0.1] - 2026-11-01
 
