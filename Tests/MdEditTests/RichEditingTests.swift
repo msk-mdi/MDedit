@@ -7,7 +7,7 @@ import Testing
 @Suite("Rich editing")
 struct RichEditingTests {
     /// A small PNG on disk, so image loading has something real to read.
-    private func writeImage(width: Int, height: Int) throws -> URL {
+    fileprivate func writeImage(width: Int, height: Int) throws -> URL {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditImages-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let rep = try #require(NSBitmapImageRep(
@@ -460,7 +460,7 @@ struct TypingTests {
     /// path, and an entry kept for each.
     @Test("Typing an image's address loads nothing until the caret leaves the line")
     func typingAddressStartsNoLoad() async throws {
-        let image = try writeImage(width: 200, height: 100)
+        let image = try RichEditingTests().writeImage(width: 200, height: 100)
         let folder = image.deletingLastPathComponent()
         let storage = MarkdownTextStorage(theme: .light)
         storage.baseURL = folder.appendingPathComponent("doc.md")
