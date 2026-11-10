@@ -70,6 +70,21 @@ struct HeadingNumberTests {
         off.tableOfContents = false
         #expect(off.render(markdown: "[TOC]").contains("<p>[TOC]</p>"))
     }
+
+    @Test("Only the first `[TOC]` becomes the contents, so the page grows with the document")
+    func repeatedTableOfContents() {
+        let out = HTMLRenderer().render(markdown: "[TOC]\n\n# One\n\n[TOC]\n\n# Two\n\n[toc]")
+        #expect(out.components(separatedBy: "<nav class=\"toc\">").count == 2)
+        #expect(out.hasPrefix("<nav class=\"toc\">\n<ul>\n<li><a href=\"#one\">One</a></li>\n<li><a href=\"#two\">Two</a></li>\n</ul>\n</nav>\n<h1 id=\"one\">One</h1>\n<p>[TOC]</p>"))
+        #expect(out.hasSuffix("<p>[toc]</p>\n"))
+
+        // One heading and one `[TOC]` each, 2,000 times over: 24 KB that
+        // once rendered to 130 MB.
+        let markdown = String(repeating: "# a\n\n[TOC]\n\n", count: 2_000)
+        let page = HTMLRenderer().render(markdown: markdown)
+        #expect(page.components(separatedBy: "<nav class=\"toc\">").count == 2)
+        #expect(page.utf8.count < 20 * markdown.utf8.count)
+    }
 }
 
 @Suite("Self-contained export")

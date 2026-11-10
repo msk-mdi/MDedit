@@ -13,7 +13,10 @@ public struct HTMLRenderer: Sendable {
     public var extensions: SyntaxExtensions = .all
     /// Prefixes headings with outline numbers: `1`, `1.1`, `1.2`.
     public var numberHeadings = false
-    /// Turns a paragraph of just `[TOC]` into a table of contents.
+    /// Turns a paragraph of just `[TOC]` into a table of contents — the
+    /// first one only: the contents list every heading, so one per `[TOC]`
+    /// would grow the page with the square of the document. A later `[TOC]`
+    /// stays the paragraph it is written as.
     public var tableOfContents = true
     /// Reads local images into `data:` URIs, so the page stands alone.
     public var embedImages = false
@@ -132,6 +135,8 @@ public struct HTMLRenderer: Sendable {
         /// Every heading, for numbering and `[TOC]`: level, text, id.
         var headingLevels: [(level: Int, title: String, id: String)] = []
         var numberer = HeadingNumberer(topLevel: 1)
+        /// Whether a `[TOC]` has already been turned into the contents.
+        var hasTableOfContents = false
 
         init(references: LinkReferences) {
             self.references = references
@@ -236,7 +241,11 @@ public struct HTMLRenderer: Sendable {
         case .paragraph:
             let tight = block.parent.map(isInTightList) ?? false
             var content = block.content.trimmingCharacters(in: .whitespacesAndNewlines)
-            if tableOfContents, content.utf8.count == 5, content.uppercased() == "[TOC]" {
+            if tableOfContents, content.utf8.count == 5, content.uppercased() == "[TOC]",
+               !context.hasTableOfContents {
+                // Without headings there is nothing to list, and every
+                // `[TOC]` is left out.
+                context.hasTableOfContents = !context.headingLevels.isEmpty
                 writer.cr()
                 writer.write(tableOfContentsHTML(context))
                 writer.cr()
