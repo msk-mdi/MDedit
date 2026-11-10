@@ -292,8 +292,10 @@ final class ImageDownloader: NSObject, URLSessionDataDelegate, @unchecked Sendab
 
     func urlSession(_ session: URLSession, dataTask: URLSessionDataTask, didReceive data: Data) {
         let outgrown = lock.withLock {
-            guard let body = transfers[dataTask.taskIdentifier]?.body else { return false }
-            if body.count + data.count > limit {
+            // Only the count is read: a second reference to the bytes, alive
+            // across the append, had each chunk copy all that came before it.
+            guard let count = transfers[dataTask.taskIdentifier]?.body?.count else { return false }
+            if count + data.count > limit {
                 transfers[dataTask.taskIdentifier]?.body = nil
                 return true
             }
