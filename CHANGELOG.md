@@ -39,6 +39,8 @@ workflow publishes the section for a version as its release notes.
   file on a stalled volume kept all of it from showing.
 - When unsaved changes cannot be backed up for recovery (a full disk),
   MdEdit says so and keeps trying, instead of going on with no copy.
+- Return at the end of a code block no longer hides its closing line,
+  with the card stopping short of it, until the next keystroke.
 
 ## [2.1.0] - 2026-11-04
 

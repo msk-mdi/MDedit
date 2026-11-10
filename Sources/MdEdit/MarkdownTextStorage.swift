@@ -642,6 +642,44 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         }
     }
 
+    /// The first line an edit that added or removed lines started on, until
+    /// the views draw what it moved.
+    private var movedBelow: Int?
+
+    /// An edit that adds or removes lines moves every line after it, and a
+    /// code card's lower edge with them. AppKit draws them again as a rule,
+    /// but not always where they went: after Return at the end of a code
+    /// block, its closing line and the card's edge stayed out of sight until
+    /// the next keystroke. Everything from the edit down is drawn again once
+    /// the edit is laid out; asked for from inside it, a redraw reaches only
+    /// as far as the text was laid out before.
+    private func linesMoved(below line: Int) {
+        movedBelow = min(movedBelow ?? line, line)
+        NSObject.cancelPreviousPerformRequests(withTarget: self, selector: #selector(drawMovedLines), object: nil)
+        perform(#selector(drawMovedLines), with: nil, afterDelay: 0, inModes: [.common])
+    }
+
+    @objc private func drawMovedLines() {
+        guard let line = movedBelow else { return }
+        movedBelow = nil
+        // From the line above: a card's padding reaches into it.
+        let first = min(max(0, line - 1), structure.lineCount - 1)
+        let location = structure.index.range(ofLine: first).location
+        for manager in layoutManagers {
+            let top = location < length && manager.numberOfGlyphs > 0
+                ? manager.lineFragmentRect(forGlyphAt: manager.glyphIndexForCharacter(at: location), effectiveRange: nil).minY
+                : 0
+            for view in manager.textContainers.compactMap(\.textView) {
+                MainActor.assumeIsolated {
+                    let visible = view.visibleRect
+                    let y = max(visible.minY, view.textContainerOrigin.y + top)
+                    guard visible.maxY > y else { return }
+                    view.setNeedsDisplay(NSRect(x: visible.minX, y: y, width: visible.width, height: visible.maxY - y))
+                }
+            }
+        }
+    }
+
     @available(*, unavailable)
     required init?(pasteboardPropertyList propertyList: Any, ofType type: NSPasteboard.PasteboardType) {
         fatalError("init(pasteboardPropertyList:ofType:) is not used")
@@ -711,6 +749,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
                 changeInLength: changeInLength
             )
             let lineDelta = structure.lineCount - oldLineCount
+            if lineDelta != 0 { linesMoved(below: updated.lowerBound) }
             // The lines the edit now spans; those it replaced were numbered
             // up to `editEnd - lineDelta` before it.
             let editEnd = max(updated.lowerBound, line(at: NSMaxRange(editedRange)))

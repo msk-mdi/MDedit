@@ -159,4 +159,40 @@ struct CodeBlockTests {
         #expect(paste("    x", into: "ab", at: 1) == "a    xb")
         #expect(paste("    x", into: "```\n\n```", at: 4) == "```\n    x\n```")
     }
+
+    /// Remembers what it was asked to draw again.
+    private final class RecordingTextView: NSTextView {
+        var invalidated: [NSRect] = []
+        override func setNeedsDisplay(_ invalidRect: NSRect) {
+            invalidated.append(invalidRect)
+            super.setNeedsDisplay(invalidRect)
+        }
+    }
+
+    @Test("Return at the end of the last code block draws its closing line and lower edge where they moved")
+    func returnRedrawsMovedLines() throws {
+        let text = "intro\n\n```c\nint main (void){\n    int a = 0;\n}\n```"
+        let storage = MarkdownTextStorage(theme: .light)
+        let layoutManager = MarkdownLayoutManager()
+        let container = NSTextContainer(size: CGSize(width: 400, height: CGFloat.greatestFiniteMagnitude))
+        storage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(container)
+        let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 400, height: 400))
+        let textView = RecordingTextView(frame: scrollView.bounds, textContainer: container)
+        scrollView.documentView = textView
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        layoutManager.ensureLayout(for: container)
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let caret = (text as NSString).range(of: "0;").location + 2
+        textView.invalidated = []
+        storage.replaceCharacters(in: NSRange(location: caret, length: 0), with: "\n    ")
+        RunLoop.main.run(until: Date().addingTimeInterval(0.05))
+
+        let brace = (storage.string as NSString).range(of: "}").location
+        let line = layoutManager.lineFragmentRect(forGlyphAt: layoutManager.glyphIndexForCharacter(at: brace), effectiveRange: nil)
+            .offsetBy(dx: textView.textContainerOrigin.x, dy: textView.textContainerOrigin.y)
+        let edge = NSRect(x: line.minX, y: line.minY, width: line.width, height: line.height + Metrics.codeCardPadding)
+        #expect(textView.invalidated.contains { $0.contains(edge) }, "\(textView.invalidated) should cover \(edge)")
+    }
 }
