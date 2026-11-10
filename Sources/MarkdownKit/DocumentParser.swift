@@ -589,8 +589,15 @@ final class DocumentParser {
             container.replace(with: table)
         } else {
             container.content = String(content[..<headerStart])
+            let parent = container.parent
             finalize(container)
-            table.insertAfter(container)
+            if container.parent != nil {
+                table.insertAfter(container)
+            } else {
+                // Nothing but link definitions stood above the header, so the
+                // paragraph took itself out: the table goes where it was.
+                (parent ?? document).append(table)
+            }
         }
         tip = table
         offset = line.count
@@ -729,7 +736,15 @@ final class DocumentParser {
         default:
             break
         }
-        if let parent { tip = parent }
+        if let parent {
+            tip = parent
+        } else if block !== document {
+            // Only the document has no parent. A detached block as the tip
+            // would be closed again and again by the loops that walk up from
+            // it, so start over from the top rather than hang.
+            assertionFailure("Finalized a block that is not in the document")
+            tip = document
+        }
     }
 
     private func isTight(_ list: Block) -> Bool {

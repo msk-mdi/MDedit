@@ -176,6 +176,31 @@ struct PathologicalInputTests {
         #expect(footnotes < 10, "\(footnotes) s")
     }
 
+    /// The paragraph above the header held nothing but definitions, so it
+    /// removed itself as it closed, and the table inserted after it ended up
+    /// outside the document: closing it never got back to the document, and
+    /// export never returned.
+    @Test("A table straight after link definitions")
+    func tableAfterDefinitions() {
+        let head = "<thead>\n<tr>\n<th>x</th>\n<th><a href=\"/u\">a</a></th>\n</tr>\n</thead>\n"
+        let body = "<tbody>\n<tr>\n<td>1</td>\n<td>2</td>\n</tr>\n</tbody>\n"
+        let table = "<table>\n\(head)\(body)</table>\n"
+        func render(_ markdown: String) -> String { HTMLRenderer().render(markdown: markdown) }
+
+        #expect(render("[a]: /u\nx | y\n-|-\n") == "<table>\n<thead>\n<tr>\n<th>x</th>\n<th>y</th>\n</tr>\n</thead>\n</table>\n")
+        #expect(render("[a]: /u\nx | [a]\n-|-\n1 | 2\n\nafter [a]") == table + "<p>after <a href=\"/u\">a</a></p>\n")
+        // Several definitions, each still collected.
+        #expect(render("[b]: /v\n[c]: /w\n[a]: /u\nx | [a]\n-|-\n1 | 2\n\n[b] [c]")
+            == table + "<p><a href=\"/v\">b</a> <a href=\"/w\">c</a></p>\n")
+        // Text between the definition and the header stays a paragraph.
+        #expect(render("[a]: /u\ntext\nx | [a]\n-|-\n1 | 2") == "<p>text</p>\n" + table)
+        // The table stays inside the quote or item the definitions were in,
+        // and what follows is parsed as usual.
+        #expect(render("> [a]: /u\n> x | [a]\n> -|-\n> 1 | 2\n\nout") == "<blockquote>\n\(table)</blockquote>\n<p>out</p>\n")
+        #expect(render("- [a]: /u\n  x | [a]\n  -|-\n  1 | 2\n- next") == "<ul>\n<li>\n\(table)</li>\n<li>next</li>\n</ul>\n")
+        #expect(render("[a]: /u\nx | [a]\n-|-\n1 | 2\n# h\n- item") == table + "<h1 id=\"h\">h</h1>\n<ul>\n<li>item</li>\n</ul>\n")
+    }
+
     /// A floor on where openers are searched for was kept as an index into
     /// pieces that each match then spliced, so it drifted past real openers.
     @Test("Emphasis after an earlier match still finds its opener")
