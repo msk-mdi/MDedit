@@ -5,6 +5,8 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [2.1.1] - 2026-11-12
+
 ### Changed
 - An image is fetched once its address is typed, when the caret leaves
   the line, not at every keystroke of it. One that could not be loaded is
