@@ -41,22 +41,38 @@ extension MarkdownTextView {
     func replace(at ranges: [NSRange], with replacement: (NSRange) -> String) {
         guard let storage = textStorage, !ranges.isEmpty else { return }
         let strings = ranges.map(replacement)
-        guard shouldChangeText(inRanges: ranges.map { NSValue(range: $0) }, replacementStrings: strings) else { return }
-        isEditingAtCaretsScope {
-            // One edit for each run of nearby targets: the storage reprocesses
-            // an edit from its first change to its last, so carets at the top
-            // and bottom of a document in one edit restyled every line between.
-            var end = Int.max
-            for (range, string) in zip(ranges, strings).reversed() {
-                if end - NSMaxRange(range) > Self.editGap {
-                    if end != Int.max { storage.endEditing() }
-                    storage.beginEditing()
-                }
-                storage.replaceCharacters(in: range, with: string)
-                end = range.location
+        // One edit for each run of nearby targets: the storage reprocesses
+        // an edit from its first change to its last, so carets at the top
+        // and bottom of a document in one edit restyled every line between.
+        // Each run is a change of its own to the text view as well, so that
+        // undoing puts them back one run at a time: told of them all at
+        // once, it undid them as one edit, and that restyled every line
+        // between after all (seven seconds, where typing took one).
+        var runs: [Range<Int>] = []
+        for index in ranges.indices {
+            if let last = runs.last, ranges[index].location - NSMaxRange(ranges[index - 1]) <= Self.editGap {
+                runs[runs.count - 1] = last.lowerBound..<(index + 1)
+            } else {
+                runs.append(index..<(index + 1))
             }
-            storage.endEditing()
-            didChangeText()
+        }
+        isEditingAtCaretsScope {
+            breakUndoCoalescing()
+            // One step to undo, however many runs.
+            undoManager?.beginUndoGrouping()
+            var changed = false
+            // Last run first, so the ranges before it still hold.
+            for run in runs.reversed() {
+                guard shouldChangeText(inRanges: ranges[run].map { NSValue(range: $0) }, replacementStrings: Array(strings[run])) else { break }
+                storage.beginEditing()
+                for index in run.reversed() { storage.replaceCharacters(in: ranges[index], with: strings[index]) }
+                storage.endEditing()
+                didChangeText()
+                changed = true
+            }
+            undoManager?.endUndoGrouping()
+            breakUndoCoalescing()
+            guard changed else { return }
 
             var shift = 0
             var carets: [Int] = []

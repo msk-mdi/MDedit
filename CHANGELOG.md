@@ -12,6 +12,12 @@ workflow publishes the section for a version as its release notes.
   and an image edited on disk shows as it now is.
 - The history of earlier versions is kept to its size while the app runs,
   not only when it next starts.
+- Undoing an edit made at carets far apart is as quick as making it
+  (seven seconds to under one, at the top and bottom of 20,000 lines).
+- A build, an install or a checkout in the open folder, which reports
+  thousands of changes at a time, no longer holds up typing.
+- Moving the caret onto a very long line, such as an image written into
+  the page, and typing in one, no longer take a long moment.
 
 ### Fixed
 - Exporting, printing, copying as HTML or previewing in Quick Look a
@@ -28,6 +34,9 @@ workflow publishes the section for a version as its release notes.
   stopping them all until the app is restarted.
 - A web image larger than the limit, or one that never ends, is given up
   on as it arrives rather than once it has all been written to disk.
+- Unsaved text recovered after a crash shows in each window as soon as
+  that window's files are read, instead of waiting for every window: one
+  file on a stalled volume kept all of it from showing.
 - When unsaved changes cannot be backed up for recovery (a full disk),
   MdEdit says so and keeps trying, instead of going on with no copy.
 

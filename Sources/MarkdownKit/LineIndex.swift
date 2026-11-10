@@ -87,8 +87,12 @@ public struct LineIndex: Equatable {
         // the line the edit now ends on.
         let scanStart = starts[firstLine]
         var scanEnd = NSMaxRange(editedRange)
-        while scanEnd < text.length, scanEnd > 0, text.character(at: scanEnd - 1) != 0x0A {
-            scanEnd += 1
+        // To the end of that line, found by a search rather than a message
+        // per character: a keystroke in a line of a megabyte, minified text
+        // or an image written into the page, read all of it that way.
+        if scanEnd > 0, scanEnd < text.length, text.character(at: scanEnd - 1) != 0x0A {
+            let newline = text.range(of: "\n", options: .literal, range: NSRange(location: scanEnd, length: text.length - scanEnd))
+            scanEnd = newline.location == NSNotFound ? text.length : NSMaxRange(newline)
         }
 
         var replacement: [Int] = []

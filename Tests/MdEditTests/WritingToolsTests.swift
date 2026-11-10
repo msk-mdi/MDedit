@@ -37,6 +37,37 @@ struct MultiCursorTests {
         #expect(document.text == "aa\nbb\ncc\n")
     }
 
+    /// Carets far apart are edited apart, so the lines between are left
+    /// alone; undone as one edit, they were all restyled after all.
+    @Test("Typing at carets far apart is one step to undo and to redo")
+    func undoFarCarets() throws {
+        let line = "Some *prose* with `code` in it.\n"
+        let text = String(repeating: line, count: 200)
+        #expect((text as NSString).length > 2 * MarkdownTextView.editGap)
+        let (document, editor) = makeEditor(text)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled], backing: .buffered, defer: true)
+        window.contentView = editor.view
+        let textView = editor.textView
+        let length = (text as NSString).length
+        // Two close together at the top, one at the bottom.
+        textView.setSelectedRange(NSRange(location: 4, length: 0))
+        textView.additionalCarets = [10, length - 1]
+        textView.insertText("X", replacementRange: NSRange(location: NSNotFound, length: 0))
+        let typed = NSMutableString(string: text)
+        for location in [length - 1, 10, 4] { typed.insert("X", at: location) }
+        #expect(document.text == typed as String)
+        #expect(textView.additionalCarets == [12, length + 2])
+
+        let undo = try #require(textView.undoManager)
+        undo.undo()
+        #expect(document.text == text)
+        #expect(!undo.canUndo)
+        undo.redo()
+        #expect(document.text == typed as String)
+        undo.undo()
+        #expect(document.text == text)
+    }
+
     @Test("Return at several carets inserts plain newlines, not list markers")
     func newlines() {
         let (document, editor) = makeEditor("- a\n- b\n")

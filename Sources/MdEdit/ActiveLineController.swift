@@ -19,6 +19,9 @@ final class ActiveLineController {
     }
 
     static let maxRevealedLines = 100
+    /// The most characters, in the lines showing and hiding their markdown,
+    /// whose move is animated.
+    static let maxAnimatedCharacters = 20_000
 
     /// Redraws while the text glides into place after a reveal.
     private let ticker: RevealTicker
@@ -45,12 +48,17 @@ final class ActiveLineController {
         // not for editing its syntax: only the line it ends on shows as
         // written, instead of every line in it restyling and reflowing.
         let revealed = lastLine - firstLine <= Self.maxRevealedLines ? firstLine...lastLine : lastLine...lastLine
-        if revealed != storage.revealedLines, shouldAnimate,
+        let lines = [storage.revealedLines, revealed].compactMap(\.self).map(storage.characterRange(forLines:))
+        // The motion notes where every character of those lines sits, before
+        // and after: for a line of a megabyte, an image written into the
+        // page, each arrow key onto it or off it took a long moment. Lines
+        // that long just change.
+        let isShort = lines.reduce(0) { $0 + $1.length } <= Self.maxAnimatedCharacters
+        if revealed != storage.revealedLines, isShort, shouldAnimate,
            let manager = textView.layoutManager as? MarkdownLayoutManager {
             // Markers appearing push words along, and a line that rewraps
             // moves the ones below; everything glides there instead.
-            let lines = [storage.revealedLines, revealed].compactMap(\.self)
-            if manager.animateReveal(across: lines.map(storage.characterRange(forLines:)), change: { storage.revealedLines = revealed }) {
+            if manager.animateReveal(across: lines, change: { storage.revealedLines = revealed }) {
                 ticker.start()
             }
         } else {

@@ -154,7 +154,10 @@ final class FileTreeView: NSView {
             reload()
             return
         }
-        let nodes = Set(paths).compactMap { listedNode(atReportedPath: $0, under: root) }
+        // The root's real path is found once, not once a folder: a build or
+        // an install in the folder reports thousands at a time.
+        let bases = [realPath(root.path), root.path]
+        let nodes = Set(paths).compactMap { listedNode(atReportedPath: $0, under: root, bases: bases) }
         guard !nodes.isEmpty else { return }
         list(nodes) { [weak self] found in
             guard let self else { return }
@@ -173,11 +176,11 @@ final class FileTreeView: NSView {
     }
 
     /// The listed folder a path from FSEvents names, if the tree shows it.
-    private func listedNode(atReportedPath reported: String, under root: FileNode) -> FileNode? {
+    private func listedNode(atReportedPath reported: String, under root: FileNode, bases: [String]) -> FileNode? {
         var path = reported
         while path.count > 1, path.hasSuffix("/") { path.removeLast() }
         // FSEvents reports paths with symlinks resolved: /private/tmp, not /tmp.
-        let relative = [realPath(root.path), root.path].lazy.compactMap { base -> Substring? in
+        let relative = bases.lazy.compactMap { base -> Substring? in
             if path == base { return "" }
             return path.hasPrefix(base + "/") ? path.dropFirst(base.count + 1) : nil
         }.first

@@ -62,10 +62,22 @@ struct Workspace: Equatable, Sendable {
     /// a build. Paths are as FSEvents reports them, symlinks resolved.
     func listingChanged(inFolders folders: [String]) -> Bool {
         let rootPath = root.resolvingSymlinksInPath().path
+        // The root as FSEvents may spell it: `/var` is `/private/var`, which
+        // `resolvingSymlinksInPath` takes off again.
+        let roots = Set([rootPath, root.path].flatMap { [$0, "/private" + $0] })
         return folders.contains { folder in
-            let path = URL(fileURLWithPath: folder).resolvingSymlinksInPath().path
-            guard path.hasPrefix(rootPath + "/") else { return true }
-            let components = path.dropFirst(rootPath.count + 1).split(separator: "/")
+            // Compared as reported first. Resolving every folder's links
+            // again asked the disk about each part of each path, and a
+            // build or an install in the folder reports thousands at a time.
+            var path = folder
+            var base = roots.first { path.hasPrefix($0 + "/") }
+            if base == nil {
+                if roots.contains(path) { return true }
+                path = URL(fileURLWithPath: folder).resolvingSymlinksInPath().path
+                guard path.hasPrefix(rootPath + "/") else { return true }
+                base = rootPath
+            }
+            let components = path.dropFirst((base ?? rootPath).count + 1).split(separator: "/")
             return !components.contains { $0.hasPrefix(".") || Self.skippedFolders.contains(String($0)) }
         }
     }
