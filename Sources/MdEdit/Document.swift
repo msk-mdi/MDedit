@@ -51,15 +51,27 @@ struct FileFormat: Equatable {
     /// Reads and decodes a file away from the main thread: a file still
     /// downloading from iCloud, or on a slow or remote volume, would
     /// otherwise stall the whole app until it arrived.
+    ///
+    /// The stamp is the file's as it was before its bytes were read: a write
+    /// landing during the read, or between it and the text reaching a
+    /// document, then shows as a change still unseen, never as one already
+    /// taken in. Stamped afterwards, the document held the old text under
+    /// the new file's stamp, and saving replaced the newer file unasked.
     static func read(
         _ url: URL,
         using load: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }
-    ) async throws -> (text: String, format: FileFormat) {
+    ) async throws -> Contents {
         try await Task.detached(priority: .userInitiated) {
             try checkReadable(url)
-            return try decode(load(url))
+            let stamp = FileStamp(of: url.resolvingSymlinksInPath())
+            let (text, format) = try decode(load(url))
+            return (text, format, stamp)
         }.value
     }
+
+    /// A file's text, how it was stored, and what the file looked like
+    /// just before it was read.
+    typealias Contents = (text: String, format: FileFormat, stamp: FileStamp?)
 
     /// Past this, a file is not opened: read whole, copied as it is decoded
     /// and styled on the main thread, a log of hundreds of megabytes hung the
@@ -215,10 +227,9 @@ final class Document {
     ) async throws -> Bool {
         guard let url else { return true }
         let generation = storage.editGeneration
-        // Taken before reading: a write landing during the read then shows
-        // as a change still unseen, never as one already taken in.
-        let stamp = FileStamp(of: url.resolvingSymlinksInPath())
-        let (text, format) = try await FileFormat.read(url, using: load)
+        // The stamp is from before the read: a write landing during it then
+        // shows as a change still unseen, never as one already taken in.
+        let (text, format, stamp) = try await FileFormat.read(url, using: load)
         guard storage.editGeneration == generation, self.url == url else { return false }
         diskStamp = stamp
         // Touched, or rewritten as it was (a sync, a checkout): reloading
@@ -250,8 +261,7 @@ final class Document {
         using load: @escaping @Sendable (URL) throws -> Data = { try Data(contentsOf: $0) }
     ) async throws -> DiskContents? {
         guard let url else { return nil }
-        let stamp = FileStamp(of: url.resolvingSymlinksInPath())
-        let (text, format) = try await FileFormat.read(url, using: load)
+        let (text, format, stamp) = try await FileFormat.read(url, using: load)
         guard self.url == url else { return nil }
         return DiskContents(text: text, format: format, stamp: stamp)
     }
@@ -316,6 +326,14 @@ final class Document {
         diskStamp = FileStamp(of: url.resolvingSymlinksInPath())
     }
 
+    /// The file is no longer as it was when last read or written here. The
+    /// watcher tells of changes from when it starts; this, of one made
+    /// before that, between a file's being read and its document's opening.
+    var hasChangedOnDiskSinceRead: Bool {
+        guard let url else { return false }
+        return FileStamp(of: url.resolvingSymlinksInPath()) != diskStamp
+    }
+
     func markMissingOnDisk() {
         isMissingOnDisk = true
     }
@@ -344,13 +362,15 @@ final class Document {
         open(url, read: try await FileFormat.read(url), theme: theme)
     }
 
-    /// A document for a file whose contents have already been read.
-    static func open(_ url: URL, read: (text: String, format: FileFormat), theme: Theme) -> Document {
-        let (text, format) = read
+    /// A document for a file whose contents have already been read. Its
+    /// stamp is the one taken before that read, not the file's as it is by
+    /// now: see `hasChangedOnDiskSinceRead`.
+    static func open(_ url: URL, read: FileFormat.Contents, theme: Theme) -> Document {
+        let (text, format, stamp) = read
         FileAccess.rememberLater(url)
         let document = Document(url: url, text: text, theme: theme)
         document.format = format
-        document.diskStamp = FileStamp(of: url.resolvingSymlinksInPath())
+        document.diskStamp = stamp
         document.beginWatching()
         NSDocumentController.shared.noteNewRecentDocumentURL(url)
         // The file as found, before any of this session's edits.

@@ -607,7 +607,9 @@ final class MainWindowController: NSWindowController {
                 openings[path] = nil
                 // Opened some other way while it was being read.
                 if focusDocument(at: url) || focusElsewhere?(url) == true { return }
-                addReplacingPlaceholder(Document.open(url, read: read, theme: theme))
+                let opened = Document.open(url, read: read, theme: theme)
+                addReplacingPlaceholder(opened)
+                takeInChangeSinceRead(of: opened)
             } catch {
                 self?.openings[path] = nil
                 self?.show(error: error)
@@ -635,16 +637,24 @@ final class MainWindowController: NSWindowController {
 
     /// Reads several files side by side, off the main thread; nil for any
     /// that could not be read.
-    private func read(_ urls: [URL]) async -> [(text: String, format: FileFormat)?] {
+    private func read(_ urls: [URL]) async -> [FileFormat.Contents?] {
         let readFile = readFile
-        return await withTaskGroup(of: (Int, (text: String, format: FileFormat)?).self) { group in
+        return await withTaskGroup(of: (Int, FileFormat.Contents?).self) { group in
             for (index, url) in urls.enumerated() {
                 group.addTask { (index, try? await FileFormat.read(url, using: readFile)) }
             }
-            var found = [(text: String, format: FileFormat)?](repeating: nil, count: urls.count)
+            var found = [FileFormat.Contents?](repeating: nil, count: urls.count)
             for await (index, read) in group { found[index] = read }
             return found
         }
+    }
+
+    /// A file rewritten between being read and getting its tab (a sync, a
+    /// pull; at launch, while the rest of the session was read) is treated
+    /// as any change on disk: its watcher only started after the change, so
+    /// the tab would otherwise go on showing the old text.
+    private func takeInChangeSinceRead(of document: Document) {
+        if document.hasChangedOnDiskSinceRead { handleExternalChange(of: document) }
     }
 
     /// Adds a document; an untouched empty tab is replaced rather than left behind.
@@ -1286,7 +1296,7 @@ final class MainWindowController: NSWindowController {
         let placeholder = documents.first { $0.url == nil && !$0.isDirty && $0.storage.length == 0 }
         let unopened = saved.tabs.indices.filter { !contains(saved.tabs[$0].url) }
         let reads = await read(unopened.map { saved.tabs[$0].url })
-        var found: [Int: (text: String, format: FileFormat)] = [:]
+        var found: [Int: FileFormat.Contents] = [:]
         for (index, read) in zip(unopened, reads) { found[index] = read }
         var selected: Document?
         var restoredLast: Document?
@@ -1297,6 +1307,7 @@ final class MainWindowController: NSWindowController {
                 ?? found[index].map { read in
                     let opened = Document.open(tab.url, read: read, theme: theme)
                     addDocument(opened, selecting: false)
+                    takeInChangeSinceRead(of: opened)
                     return opened
                 }
             guard let document else {
@@ -1352,7 +1363,7 @@ final class MainWindowController: NSWindowController {
     func restore(snapshots: [RecoveryStore.Snapshot]) async {
         let unopened = snapshots.indices.filter { snapshots[$0].url.map { !contains($0) } ?? false }
         let reads = await read(unopened.compactMap { snapshots[$0].url })
-        var found: [Int: (text: String, format: FileFormat)] = [:]
+        var found: [Int: FileFormat.Contents] = [:]
         for (index, read) in zip(unopened, reads) { found[index] = read }
 
         for (index, snapshot) in snapshots.enumerated() {
@@ -1366,7 +1377,7 @@ final class MainWindowController: NSWindowController {
                     let changed = snapshot.base.map { $0 != opened.savedDigest } ?? false
                     opened.restoreUnsavedText(snapshot.text)
                     addReplacingPlaceholder(opened)
-                    if changed { recoveredOverChangedFile(opened) }
+                    if changed { recoveredOverChangedFile(opened) } else { takeInChangeSinceRead(of: opened) }
                 } else {
                     let missing = Document(url: url, theme: theme)
                     missing.restoreUnsavedText(snapshot.text)

@@ -494,6 +494,58 @@ struct WindowFlowTests {
         #expect(!gate.gaveUp)
     }
 
+    /// A file's stamp was taken when its tab was made, after its read, so
+    /// one rewritten in between kept its old text in a tab that took the
+    /// file for unchanged: saving wrote the old text over the newer file.
+    @Test("A file rewritten while it was being opened shows its new contents")
+    func rewrittenWhileOpening() async throws {
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let url = scratch.appendingPathComponent("synced.md")
+        try "old\n".write(to: url, atomically: true, encoding: .utf8)
+        let controller = makeWindow()
+        let first = OnceFlag()
+        controller.readFile = { url in
+            let data = try Data(contentsOf: url)
+            if first.take() { try Data("newer, and longer\n".utf8).write(to: url, options: .atomic) }
+            return data
+        }
+
+        await controller.open(url: url)?.value
+        await controller.finishReading()
+        let document = try #require(controller.documents.first { $0.url == url })
+        #expect(document.text == "newer, and longer\n")
+        #expect(!document.isDirty)
+        #expect(!document.hasChangedOnDiskSinceRead)
+        try document.save()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "newer, and longer\n")
+    }
+
+    /// At launch the gap is widest: every file is read before any gets its tab.
+    @Test("A file rewritten while the session was being restored shows its new contents")
+    func rewrittenWhileRestoring() async throws {
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let tabs = try (0..<2).map { index -> Session.Tab in
+            let url = scratch.appendingPathComponent("restored\(index).md")
+            try "file \(index)\n".write(to: url, atomically: true, encoding: .utf8)
+            return Session.Tab(url: url, selectedLocation: 0, sourceMode: nil, typewriterMode: nil, focusMode: nil)
+        }
+        let rewritten = tabs[1].url
+        let controller = makeWindow()
+        let first = OnceFlag()
+        controller.readFile = { url in
+            let data = try Data(contentsOf: url)
+            if url == rewritten, first.take() {
+                try Data("newer, and longer\n".utf8).write(to: url, options: .atomic)
+            }
+            return data
+        }
+
+        await controller.restore(Session.Window(tabs: tabs, selectedIndex: 0, workspace: nil, frame: nil))
+        await controller.finishReading()
+        #expect(controller.documents.map(\.text) == ["file 0\n", "newer, and longer\n"])
+        #expect(!controller.documents.contains { $0.isDirty || $0.hasChangedOnDiskSinceRead })
+    }
+
     /// Restoring read every tab's file in turn on the main thread, so the
     /// app sat frozen at launch until the slowest had arrived.
     @Test("Restoring reads files off the main thread and keeps their order and selection")

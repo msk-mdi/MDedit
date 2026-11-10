@@ -183,6 +183,38 @@ struct DocumentTests {
         #expect(change?.replacement == "edit ")
     }
 
+    /// The stamp was taken once the document was made, after the read: a
+    /// file rewritten in between (a sync, a pull) left the old text under
+    /// the new file's stamp, and saving replaced the newer file unasked.
+    @Test("A file rewritten between being read and being opened is not saved over unasked")
+    func rewrittenBetweenReadAndOpen() async throws {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditDocTest-\(UUID().uuidString).md")
+        defer { try? FileManager.default.removeItem(at: url) }
+        try "old\n".write(to: url, atomically: true, encoding: .utf8)
+        // Returns the bytes as they were, then the file changes.
+        let read = try await FileFormat.read(url) { url in
+            let data = try Data(contentsOf: url)
+            try Data("newer, and longer\n".utf8).write(to: url, options: .atomic)
+            return data
+        }
+        #expect(read.text == "old\n")
+
+        let document = Document.open(url, read: read, theme: .light)
+        #expect(document.text == "old\n")
+        #expect(document.hasChangedOnDiskSinceRead)
+        document.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "edited ")
+        #expect(throws: Document.ChangedOnDiskError.self) { try document.save() }
+        #expect(try String(contentsOf: url, encoding: .utf8) == "newer, and longer\n")
+
+        // Read again, it is the file as it is, and saves as usual.
+        try await document.revert()
+        #expect(document.text == "newer, and longer\n")
+        #expect(!document.hasChangedOnDiskSinceRead)
+        document.storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "edited ")
+        try document.save()
+        #expect(try String(contentsOf: url, encoding: .utf8) == "edited newer, and longer\n")
+    }
+
     /// Files were read on the main thread, so one still downloading from
     /// iCloud, or on a slow volume, froze the app until it arrived.
     @Test("A file is read off the main thread, which stays free meanwhile")
