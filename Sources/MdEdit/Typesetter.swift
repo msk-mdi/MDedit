@@ -66,7 +66,9 @@ final class Typesetter: NSObject {
     /// counted alone, a thousand of them could hold gigabytes.
     static let finishedByteLimit = 256 << 20
     private var queue: [Request] = []
-    private var isWorking = false
+    private var flight = Flight()
+    /// Fails the request in flight when it has taken too long.
+    private var watchdog: Task<Void, Never>?
     private var webView: WKWebView?
     private var isPageLoaded = false
     /// Without KaTeX and Mermaid, nothing can be typeset and sources stay as written.
@@ -95,6 +97,8 @@ final class Typesetter: NSObject {
         guard case .pending? = entries[request], let index = queue.firstIndex(of: request) else { return }
         queue.remove(at: index)
         entries[request] = nil
+        // It may be waiting for another try after taking the page down.
+        flight.forget(request)
     }
 
     /// Whether a request is waiting its turn.
@@ -107,26 +111,162 @@ final class Typesetter: NSObject {
     }
 
     /// Whether anything is still being typeset, so printing can wait for it.
-    var isBusy: Bool { isWorking || !queue.isEmpty }
+    var isBusy: Bool { flight.request != nil || !queue.isEmpty }
 
     // MARK: - Work
 
-    private func pump() {
-        guard !isWorking, !queue.isEmpty else { return }
-        guard let webView = loadedWebView() else { return }
-        guard isPageLoaded else { return }
-        isWorking = true
-        let request = queue.removeFirst()
-        Task {
-            let entry = await self.typeset(request, in: webView)
-            self.entries[request] = entry
-            self.remember(request)
-            self.isWorking = false
-            if case .done = entry {
-                NotificationCenter.default.post(name: Self.didRender, object: self, userInfo: ["request": request])
-            }
-            self.pump()
+    /// The request being typeset, and what becomes of it when the page it
+    /// was sent to is lost.
+    ///
+    /// A web view's answer cannot be called off: one torn down for being
+    /// stuck, or whose process died, may still answer later, when another
+    /// request is under way on a new page. Each request sent therefore takes
+    /// a ticket, and only the ticket still in flight may land its answer.
+    struct Flight {
+        private(set) var request: Request?
+        private var ticket = 0
+        /// How many times each source was in flight when the page's process
+        /// died. Most deaths are not the source's doing (memory pressure,
+        /// the diagram before it), so it is tried again; but one that kills
+        /// the process every time must not do so forever.
+        private var crashes: [Request: Int] = [:]
+        /// The deaths after which a source is given up on: tried twice.
+        static let crashLimit = 2
+
+        /// Takes off with a request; the ticket lets its answer land.
+        mutating func begin(_ request: Request) -> Int {
+            self.request = request
+            ticket += 1
+            return ticket
         }
+
+        func isCurrent(_ ticket: Int) -> Bool { request != nil && ticket == self.ticket }
+
+        /// The request an answer is for, or nil when its ticket is stale:
+        /// the page was torn down since, and the request already dealt with.
+        mutating func land(_ ticket: Int) -> Request? {
+            guard isCurrent(ticket), let request else { return nil }
+            self.request = nil
+            crashes[request] = nil
+            return request
+        }
+
+        /// The page died: the request it took with it, if any, and whether
+        /// to send that one again.
+        mutating func crash() -> (request: Request, retry: Bool)? {
+            guard let request else { return nil }
+            self.request = nil
+            let count = crashes[request, default: 0] + 1
+            guard count < Self.crashLimit else {
+                crashes[request] = nil
+                return (request, false)
+            }
+            crashes[request] = count
+            return (request, true)
+        }
+
+        /// A request that will not be sent again.
+        mutating func forget(_ request: Request) {
+            crashes[request] = nil
+        }
+    }
+
+    /// How long a request may take before the page is taken for stuck.
+    ///
+    /// KaTeX is synchronous and done in milliseconds, so five seconds only
+    /// ever cuts off a macro expanding without end; that still leaves the
+    /// first formula time to wait for the fonts when they come from the
+    /// network. Mermaid lays out a large graph in a second or two and is
+    /// given ten times that: a slow machine should still get its diagram,
+    /// while printing, which waits on `isBusy`, is not held up for minutes.
+    nonisolated static func timeout(for kind: Kind) -> Duration {
+        switch kind {
+        case .inlineMath, .displayMath: .seconds(5)
+        case .diagram: .seconds(20)
+        }
+    }
+
+    private func pump() {
+        guard flight.request == nil, !queue.isEmpty else { return }
+        guard loadedWebView() != nil, isPageLoaded else { return }
+        let request = queue.removeFirst()
+        let ticket = flight.begin(request)
+        watchdog = Task {
+            try? await Task.sleep(for: Self.timeout(for: request.kind))
+            guard !Task.isCancelled else { return }
+            self.timedOut(ticket)
+        }
+        Task {
+            let outcome = await self.typeset(request, ticket: ticket)
+            // Timed out or lost with its process meanwhile: already settled.
+            guard self.flight.isCurrent(ticket) else { return }
+            switch outcome {
+            case .lost:
+                // Ahead of the delegate, when it is the process that died.
+                self.processDied()
+            case let .settled(entry):
+                _ = self.flight.land(ticket)
+                self.watchdog?.cancel()
+                self.settle(request, entry)
+                self.pump()
+            }
+        }
+    }
+
+    private func settle(_ request: Request, _ entry: Entry) {
+        entries[request] = entry
+        remember(request)
+        if case .done = entry {
+            NotificationCenter.default.post(name: Self.didRender, object: self, userInfo: ["request": request])
+        }
+    }
+
+    /// The request in flight never came back: its JavaScript may be spinning
+    /// still, so the page goes with it and the next request gets a new one.
+    private func timedOut(_ ticket: Int) {
+        guard let request = flight.land(ticket) else { return }
+        discardWebView(stuck: true)
+        settle(request, .failed(String(localized: "Took too long to draw")))
+        pump()
+    }
+
+    /// The page's process is gone, and the page with it. Whatever waits is
+    /// kept and typeset on a new page; so is the request that was in
+    /// flight, unless it has now seen the process die too often.
+    private func processDied() {
+        let lost = flight.crash()
+        discardWebView()
+        if let lost {
+            if lost.retry {
+                // Still `.pending`, and first in line again.
+                queue.insert(lost.request, at: 0)
+            } else {
+                settle(lost.request, .failed(String(localized: "Could not be drawn")))
+            }
+        }
+        // Builds the new page only if something waits for it.
+        pump()
+    }
+
+    /// Lets the web view go, with its process; `loadedWebView()` makes
+    /// another when next asked.
+    private func discardWebView(stuck: Bool = false) {
+        watchdog?.cancel()
+        watchdog = nil
+        // Nothing more is to be heard from it: not its load finishing, not
+        // its process dying of being closed.
+        webView?.navigationDelegate = nil
+        if stuck, let webView {
+            // Closing a web view asks its process to leave, and one inside a
+            // JavaScript loop never hears: it kept a core busy until the app
+            // quit. Nothing public stops it (loading another page waits on
+            // the same loop), so this asks WebKit by a private name, and
+            // does without where that name is gone.
+            let kill = NSSelectorFromString("_killWebContentProcessAndResetState")
+            if webView.responds(to: kill) { webView.perform(kill) }
+        }
+        webView = nil
+        isPageLoaded = false
     }
 
     private func remember(_ request: Request) {
@@ -164,59 +304,119 @@ final class Typesetter: NSObject {
         return 4 * (pixels > 0 ? pixels : Int(image.size.width * image.size.height * 4))
     }
 
-    private func typeset(_ request: Request, in webView: WKWebView) async -> Entry {
-        let measured: Any?
-        do {
-            measured = try await webView.callAsyncJavaScript(
-                "return await typeset(kind, source, size, color, dark, width)",
-                arguments: [
-                    "kind": request.kind.rawValue,
-                    "source": request.source,
-                    "size": Double(request.fontSize),
-                    "color": request.color,
-                    "dark": request.dark,
-                    "width": Double(request.width),
-                ],
-                contentWorld: .page
-            )
-        } catch {
-            return .failed(Self.message(of: error))
+    private enum Outcome: Sendable {
+        case settled(Entry)
+        /// The page went away under the request: no verdict on its source.
+        case lost
+
+        /// The page either answers or throws a JavaScript exception, a TeX
+        /// or Mermaid error. Any other failure is the web view's own: its
+        /// process died (which can be heard of here before the delegate is
+        /// told), or the view was torn down.
+        init(_ error: Error) {
+            self = Typesetter.isVerdict(error) ? .settled(.failed(Typesetter.message(of: error))) : .lost
         }
-        guard let box = measured as? [String: Any],
-              let x = (box["x"] as? NSNumber)?.doubleValue,
-              let y = (box["y"] as? NSNumber)?.doubleValue,
-              let width = (box["width"] as? NSNumber)?.doubleValue,
-              let height = (box["height"] as? NSNumber)?.doubleValue,
-              width > 0, height > 0
-        else { return .failed("Nothing to draw") }
-        let descent = (box["descent"] as? NSNumber)?.doubleValue ?? 0
+    }
+
+    /// Whether an error is about the source typeset, rather than about the
+    /// page that should have typeset it.
+    nonisolated static func isVerdict(_ error: Error) -> Bool {
+        let error = error as NSError
+        return error.domain == WKErrorDomain && error.code == WKError.javaScriptExceptionOccurred.rawValue
+    }
+
+    /// Where the page laid the source out.
+    private struct Box: Sendable {
+        var rect: CGRect
+        var descent: CGFloat
+    }
+
+    /// Typesets with the current web view, which is never held across a
+    /// wait here: a page whose JavaScript spins never answers, and its
+    /// process only stops once nothing keeps the web view torn down from
+    /// under it. That is why the calls take completion handlers; their
+    /// `async` forms hold the view until it answers.
+    private func typeset(_ request: Request, ticket: Int) async -> Outcome {
+        let measured: Result<Box?, Error> = await withCheckedContinuation { continuation in
+            measure(request) { continuation.resume(returning: $0) }
+        }
+        let box: Box
+        switch measured {
+        case let .success(measured?): box = measured
+        case .success(nil): return .settled(.failed("Nothing to draw"))
+        case let .failure(error): return Outcome(error)
+        }
         // A formula of thousands of characters, or a diagram of thousands of
         // nodes, would be drawn into a bitmap of hundreds of megabytes.
-        guard width <= Self.maxDimension, height <= Self.maxDimension else {
-            return .failed(String(localized: "Too large to draw"))
+        guard box.rect.width <= Self.maxDimension, box.rect.height <= Self.maxDimension else {
+            return .settled(.failed(String(localized: "Too large to draw")))
         }
+        // The box is of a page since torn down.
+        guard flight.isCurrent(ticket) else { return .lost }
+        let snapshot: Result<NSImage, Error> = await withCheckedContinuation { continuation in
+            takeSnapshot(of: box.rect) { continuation.resume(returning: $0) }
+        }
+        switch snapshot {
+        case let .success(image):
+            image.size = box.rect.size
+            return .settled(.done(Rendering(image: image, descent: box.descent)))
+        case let .failure(error):
+            return Outcome(error)
+        }
+    }
 
+    private func measure(_ request: Request, completion: @escaping @MainActor @Sendable (Result<Box?, Error>) -> Void) {
+        guard let webView else { return completion(.failure(WKError(.webViewInvalidated))) }
+        webView.callAsyncJavaScript(
+            "return await typeset(kind, source, size, color, dark, width)",
+            arguments: [
+                "kind": request.kind.rawValue,
+                "source": request.source,
+                "size": Double(request.fontSize),
+                "color": request.color,
+                "dark": request.dark,
+                "width": Double(request.width),
+            ],
+            in: nil,
+            in: .page
+        ) { result in
+            completion(result.map { measured in
+                guard let box = measured as? [String: Any],
+                      let x = (box["x"] as? NSNumber)?.doubleValue,
+                      let y = (box["y"] as? NSNumber)?.doubleValue,
+                      let width = (box["width"] as? NSNumber)?.doubleValue,
+                      let height = (box["height"] as? NSNumber)?.doubleValue,
+                      width > 0, height > 0
+                else { return nil }
+                let descent = (box["descent"] as? NSNumber)?.doubleValue ?? 0
+                return Box(rect: CGRect(x: x, y: y, width: width, height: height), descent: descent)
+            })
+        }
+    }
+
+    private func takeSnapshot(of rect: CGRect, completion: @escaping @MainActor @Sendable (Result<NSImage, Error>) -> Void) {
+        guard let webView else { return completion(.failure(WKError(.webViewInvalidated))) }
         // The snapshot can only take what the view shows.
-        let needed = NSSize(width: max(1200, ceil(x + width)), height: max(800, ceil(y + height)))
+        let needed = NSSize(width: max(1200, ceil(rect.maxX)), height: max(800, ceil(rect.maxY)))
         if webView.frame.width < needed.width || webView.frame.height < needed.height {
             webView.setFrameSize(needed)
         }
         let configuration = WKSnapshotConfiguration()
-        configuration.rect = CGRect(x: x, y: y, width: width, height: height)
+        configuration.rect = rect
         configuration.afterScreenUpdates = true
-        do {
-            let image = try await webView.takeSnapshot(configuration: configuration)
-            image.size = NSSize(width: width, height: height)
-            return .done(Rendering(image: image, descent: descent))
-        } catch {
-            return .failed(Self.message(of: error))
+        webView.takeSnapshot(with: configuration) { image, error in
+            if let image {
+                completion(.success(image))
+            } else {
+                completion(.failure(error ?? WKError(.unknown)))
+            }
         }
     }
 
     /// The widest or tallest image typeset, in points.
     static let maxDimension: Double = 8192
 
-    private static func message(of error: Error) -> String {
+    nonisolated private static func message(of error: Error) -> String {
         let info = (error as NSError).userInfo
         return info["WKJavaScriptExceptionMessage"] as? String ?? error.localizedDescription
     }
@@ -362,17 +562,34 @@ extension Typesetter: WKNavigationDelegate {
 
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         MainActor.assumeIsolated {
+            guard webView === self.webView else { return }
             isPageLoaded = true
             pump()
         }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        MainActor.assumeIsolated { giveUp() }
+        MainActor.assumeIsolated {
+            guard webView === self.webView else { return }
+            giveUp()
+        }
     }
 
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        MainActor.assumeIsolated { giveUp() }
+        MainActor.assumeIsolated {
+            guard webView === self.webView else { return }
+            giveUp()
+        }
+    }
+
+    /// Memory pressure, or a diagram too much for it, killed the page's
+    /// process. Without this the dead page failed every request to the end
+    /// of the session.
+    nonisolated func webViewWebContentProcessDidTerminate(_ webView: WKWebView) {
+        MainActor.assumeIsolated {
+            guard webView === self.webView else { return }
+            processDied()
+        }
     }
 
     private func giveUp() {
