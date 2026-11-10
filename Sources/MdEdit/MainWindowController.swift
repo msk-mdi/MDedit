@@ -1361,6 +1361,58 @@ final class MainWindowController: NSWindowController {
         return unreopened
     }
 
+    /// Brings back the last session: each window's tabs, then the unsaved
+    /// text recovered for them. `open` gives the windows open at the time
+    /// it is asked, which may be more than the session's.
+    static func restore(
+        _ windows: [(MainWindowController, Session.Window)],
+        snapshots: [RecoveryStore.Snapshot],
+        open: () -> [MainWindowController],
+        makeWindow: () -> MainWindowController
+    ) async {
+        // Recovered text that waits on no window's files: untitled drafts,
+        // and files that were in no window. It goes in the first window.
+        let sessionPaths = Set(windows.flatMap { $0.1.tabs.map(\.url.standardizedFileURL.path) })
+        var waiting = snapshots
+        var independent = waiting.filter { $0.url.map { !sessionPaths.contains($0.standardizedFileURL.path) } ?? true }
+        waiting.removeAll { snapshot in independent.contains { $0.id == snapshot.id } }
+
+        // Each window takes its recovered text in as soon as its own
+        // files are read. Waiting for every window first, one file on a
+        // stalled volume kept all the recovered text from showing.
+        let unreopened = await withTaskGroup { group in
+            for (controller, window) in windows {
+                group.addTask { (controller, await controller.restore(window)) }
+            }
+            var unreopened: [(MainWindowController, [URL])] = []
+            for await (controller, urls) in group {
+                unreopened.append((controller, urls))
+                let own = waiting.filter { $0.url.map(controller.contains) ?? false }
+                waiting.removeAll { snapshot in own.contains { $0.id == snapshot.id } }
+                if !own.isEmpty { await controller.restore(snapshots: own) }
+                if controller === windows.first?.0, !independent.isEmpty {
+                    let drafts = independent
+                    independent = []
+                    await controller.restore(snapshots: drafts)
+                }
+            }
+            return unreopened
+        }
+
+        // What is left: text for a file its window could not read, or
+        // one another window opened meanwhile.
+        var leftovers = independent
+        for snapshot in waiting {
+            if let url = snapshot.url, let owner = open().first(where: { $0.contains(url) }) {
+                await owner.restore(snapshots: [snapshot])
+            } else {
+                leftovers.append(snapshot)
+            }
+        }
+        if !leftovers.isEmpty { await (open().first ?? makeWindow()).restore(snapshots: leftovers) }
+        for (controller, urls) in unreopened { controller.reportUnreopened(urls) }
+    }
+
     /// Says which files from the last session did not come back, once
     /// recovered text has had its say: a file it reopened is left out.
     func reportUnreopened(_ urls: [URL]) {

@@ -675,6 +675,56 @@ struct WindowFlowTests {
         #expect(told.count == 1)
     }
 
+    /// Recovered text waited for every window's files to be read, so one
+    /// file on a stalled volume kept all of it from showing.
+    @Test("At launch each window takes its recovered text in as its own files arrive")
+    func launchRecoveryPerWindow() async throws {
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let urls = try ["quick.md", "stalled.md"].map { name -> URL in
+            let url = scratch.appendingPathComponent(name)
+            try "saved\n".write(to: url, atomically: true, encoding: .utf8)
+            return url
+        }
+        let quick = makeWindow()
+        let stalled = makeWindow()
+        let gate = SlowGate()
+        stalled.readFile = { url in
+            gate.pass()
+            return try Data(contentsOf: url)
+        }
+        let windows = zip([quick, stalled], urls).map { controller, url in
+            (controller, Session.Window(tabs: [.init(url: url, selectedLocation: 0)], selectedIndex: 0))
+        }
+        let snapshots: [RecoveryStore.Snapshot] = [
+            .init(id: UUID(), url: urls[0], text: "unsaved quick\n", base: nil),
+            .init(id: UUID(), url: urls[1], text: "unsaved stalled\n", base: nil),
+            .init(id: UUID(), url: nil, text: "draft", base: nil),
+        ]
+        var made = 0
+        let restoring = Task {
+            await MainWindowController.restore(windows, snapshots: snapshots, open: { [quick, stalled] }, makeWindow: { made += 1; return makeWindow() })
+        }
+
+        // The second window's file has not arrived; the first window has
+        // its own text and the untitled draft all the same.
+        try await gate.waitForReads()
+        for _ in 0..<3000 where !quick.documents.contains(where: { $0.url == nil && $0.text == "draft" }) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(quick.documents.map(\.text).sorted() == ["draft", "unsaved quick\n"])
+        #expect(quick.documents.allSatisfy { $0.isDirty })
+        #expect(!stalled.documents.contains { $0.url != nil })
+
+        gate.open()
+        await restoring.value
+        #expect(!gate.gaveUp)
+        #expect(stalled.documents.map(\.text) == ["unsaved stalled\n"])
+        #expect(stalled.documents.first?.isDirty == true)
+        // Nothing went in twice, and no window was made for it.
+        #expect(quick.documents.count == 2)
+        #expect(made == 0)
+    }
+
     /// A large selection is counted once it settles. Deleting it before
     /// then left the delayed count reading ranges past the end of the text.
     @Test("Deleting a large selection before its count settles does not count the old ranges")

@@ -156,47 +156,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             // A window may already exist for files opened at launch; reuse it first.
             (index < controllers.count ? controllers[index] : makeWindow(restoringFrame: true), window)
         }
-        // Recovered text that waits on no window's files: untitled drafts,
-        // and files that were in no window. It goes in the first window.
-        let sessionPaths = Set(saved.flatMap { $0.tabs.map(\.url.standardizedFileURL.path) })
-        var waiting = snapshots
-        var independent = waiting.filter { $0.url.map { !sessionPaths.contains($0.standardizedFileURL.path) } ?? true }
-        waiting.removeAll { snapshot in independent.contains { $0.id == snapshot.id } }
         Task {
-            // Each window takes its recovered text in as soon as its own
-            // files are read. Waiting for every window first, one file on a
-            // stalled volume kept all the recovered text from showing.
-            let unreopened = await withTaskGroup { group in
-                for (controller, window) in windows {
-                    group.addTask { (controller, await controller.restore(window)) }
-                }
-                var unreopened: [(MainWindowController, [URL])] = []
-                for await (controller, urls) in group {
-                    unreopened.append((controller, urls))
-                    let own = waiting.filter { $0.url.map(controller.contains) ?? false }
-                    waiting.removeAll { snapshot in own.contains { $0.id == snapshot.id } }
-                    if !own.isEmpty { await controller.restore(snapshots: own) }
-                    if controller === windows.first?.0, !independent.isEmpty {
-                        let drafts = independent
-                        independent = []
-                        await controller.restore(snapshots: drafts)
-                    }
-                }
-                return unreopened
-            }
-
-            // What is left: text for a file its window could not read, or
-            // one another window opened meanwhile.
-            var leftovers = independent
-            for snapshot in waiting {
-                if let url = snapshot.url, let owner = controllers.first(where: { $0.contains(url) }) {
-                    await owner.restore(snapshots: [snapshot])
-                } else {
-                    leftovers.append(snapshot)
-                }
-            }
-            if !leftovers.isEmpty { await (controllers.first ?? makeWindow()).restore(snapshots: leftovers) }
-            for (controller, urls) in unreopened { controller.reportUnreopened(urls) }
+            await MainWindowController.restore(windows, snapshots: snapshots, open: { self.controllers }, makeWindow: { self.makeWindow() })
 
             hasRestored = true
             // Snapshots were keyed by the old documents' ids; rewrite them under the new ones.
