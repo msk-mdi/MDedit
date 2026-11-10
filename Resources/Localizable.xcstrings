@@ -204,6 +204,9 @@
     "Copy code" : {
 
     },
+    "Could not be drawn" : {
+
+    },
     "Couldn’t check for updates." : {
 
     },
@@ -442,6 +445,9 @@
 
     },
     "MdEdit %@ is available." : {
+
+    },
+    "MdEdit couldn’t write its recovery copy: %@ Save your documents to keep your changes." : {
 
     },
     "MdEdit is up to date." : {
@@ -797,6 +803,9 @@
     "Too large to draw" : {
 
     },
+    "Took too long to draw" : {
+
+    },
     "Top and bottom padding:" : {
 
     },
@@ -834,6 +843,9 @@
 
     },
     "Unknown selector “%@”; use :root, light or dark" : {
+
+    },
+    "Unsaved changes can’t be backed up." : {
 
     },
     "Untitled" : {

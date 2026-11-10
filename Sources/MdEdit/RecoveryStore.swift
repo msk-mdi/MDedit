@@ -53,9 +53,30 @@ struct RecoveryStore {
         try JSONEncoder().encode(snapshot).write(to: file(for: snapshot.id), options: .atomic)
     }
 
-    /// Writes a snapshot in the background.
-    func writeLater(_ snapshot: Snapshot) {
-        Self.queue.async { try? write(snapshot) }
+    /// Writes a snapshot in the background, then says on the main thread
+    /// how it went: nil, or why it could not be written. A failure dropped
+    /// unseen (a full disk, a folder that cannot be written) left someone
+    /// typing on with no copy to recover, and nothing to say so.
+    func writeLater(_ snapshot: Snapshot, completion: (@MainActor @Sendable (Error?) -> Void)? = nil) {
+        Self.queue.async {
+            var failure: Error?
+            do { try write(snapshot) } catch { failure = error }
+            guard let completion else { return }
+            DispatchQueue.main.async { [failure] in completion(failure) }
+        }
+    }
+
+    /// A snapshot could not be written.
+    struct WriteError: LocalizedError {
+        var underlying: Error
+
+        var errorDescription: String? {
+            String(localized: "Unsaved changes can’t be backed up.")
+        }
+
+        var recoverySuggestion: String? {
+            String(localized: "MdEdit couldn’t write its recovery copy: \(underlying.localizedDescription) Save your documents to keep your changes.")
+        }
     }
 
     /// Removes a snapshot, after any write of it still queued: the queue is

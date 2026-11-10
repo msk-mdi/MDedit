@@ -5,6 +5,32 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+### Changed
+- An image is fetched once its address is typed, when the caret leaves
+  the line, not at every keystroke of it. One that could not be loaded is
+  tried again (a web image after half a minute, a file once it changes),
+  and an image edited on disk shows as it now is.
+- The history of earlier versions is kept to its size while the app runs,
+  not only when it next starts.
+
+### Fixed
+- Exporting, printing, copying as HTML or previewing in Quick Look a
+  document where a table directly follows a link definition no longer
+  hangs.
+- A document with many `[TOC]` lines no longer exports a page that grows
+  with the square of its length: the first becomes the contents, and
+  later ones stay as written.
+- A file changed by another app while it was being opened (a sync, a
+  pull, most likely as a session is restored) is no longer saved over
+  unasked: the tab shows the file as it now is.
+- Formulas and diagrams are typeset again after the process drawing them
+  dies, and one that never finishes gives way to the next instead of
+  stopping them all until the app is restarted.
+- A web image larger than the limit, or one that never ends, is given up
+  on as it arrives rather than once it has all been written to disk.
+- When unsaved changes cannot be backed up for recovery (a full disk),
+  MdEdit says so and keeps trying, instead of going on with no copy.
+
 ## [2.1.0] - 2026-11-04
 
 ### Added

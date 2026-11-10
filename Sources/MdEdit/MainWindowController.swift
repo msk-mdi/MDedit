@@ -1223,7 +1223,9 @@ final class MainWindowController: NSWindowController {
                 recovery.writeLater(.init(
                     id: document.id, url: document.url, text: document.text,
                     base: document.url == nil ? nil : document.savedDigest
-                ))
+                )) { [weak self, weak document] failure in
+                    self?.recoverySnapshotWritten(for: document, state: state, failure: failure)
+                }
                 document.snapshotState = state
             } else if rewriting || document.snapshotState != nil {
                 recovery.remove(id: document.id)
@@ -1231,6 +1233,30 @@ final class MainWindowController: NSWindowController {
             }
         }
         onSessionChange?()
+    }
+
+    /// Whether the user has been told that snapshots cannot be written,
+    /// since one last was: told once, not every few seconds.
+    private var toldAboutSnapshotFailure = false
+
+    /// A snapshot was written, or could not be. One that failed is not
+    /// taken as written: it is tried again, as often as an unbroken run of
+    /// typing is, and the user is told their changes have no copy.
+    private func recoverySnapshotWritten(for document: Document?, state: Document.SnapshotState, failure: Error?) {
+        guard let failure else {
+            toldAboutSnapshotFailure = false
+            return
+        }
+        guard let document, documents.contains(where: { $0 === document }), document.isDirty else { return }
+        if document.snapshotState == state { document.snapshotState = nil }
+        if pendingSnapshot == nil {
+            let work = DispatchWorkItem { [weak self] in self?.writeRecoverySnapshots() }
+            pendingSnapshot = work
+            DispatchQueue.main.asyncAfter(deadline: .now() + recoveryTiming.longest, execute: work)
+        }
+        guard !toldAboutSnapshotFailure else { return }
+        toldAboutSnapshotFailure = true
+        show(error: RecoveryStore.WriteError(underlying: failure))
     }
 
     /// Stops pending snapshot writes, for a clean quit.

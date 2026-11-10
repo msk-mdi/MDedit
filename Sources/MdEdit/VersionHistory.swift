@@ -56,15 +56,35 @@ struct VersionHistory {
     /// each reads the newest copy back and writes a whole file.
     private static let queue = DispatchQueue(label: "MdEdit.VersionHistory", qos: .utility)
 
-    /// Records a copy in the background.
+    /// Records a copy in the background, and prunes now and then: pruned
+    /// only at launch, the history of an app left open for weeks grew past
+    /// `totalLimit` by a copy of every save, a hundred to a file.
     func recordLater(_ text: String, for file: URL, at date: Date = Date()) {
-        Self.queue.async { try? record(text, for: file, at: date) }
+        Self.queue.async {
+            guard (try? record(text, for: file, at: date)) == true else { return }
+            if let last = Self.lastPrune[root], date.timeIntervalSince(last) < pruneInterval { return }
+            Self.lastPrune[root] = date
+            prune(now: date)
+        }
+    }
+
+    /// The least time between prunes made after a save: a prune looks at
+    /// every copy of every file.
+    var pruneInterval: TimeInterval = 10 * 60
+    /// When each history was last pruned after a save. Only touched on `queue`.
+    private nonisolated(unsafe) static var lastPrune: [URL: Date] = [:]
+
+    /// Waits for copies and prunes still to be made, for tests.
+    func finishPending() {
+        Self.queue.sync {}
     }
 
     /// Keeps a copy of a file's text, unless it matches the newest copy.
-    func record(_ text: String, for file: URL, at date: Date = Date()) throws {
+    /// True when a copy was written.
+    @discardableResult
+    func record(_ text: String, for file: URL, at date: Date = Date()) throws -> Bool {
         let folder = directory(for: file)
-        if let newest = versions(for: file).first, (try? String(contentsOf: newest.url, encoding: .utf8)) == text { return }
+        if let newest = versions(for: file).first, (try? String(contentsOf: newest.url, encoding: .utf8)) == text { return false }
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let note = folder.appendingPathComponent("path.txt")
         if !FileManager.default.fileExists(atPath: note.path) {
@@ -75,6 +95,7 @@ struct VersionHistory {
         for old in versions(for: file).dropFirst(limit) {
             try? FileManager.default.removeItem(at: old.url)
         }
+        return true
     }
 
     /// Prunes in the background.

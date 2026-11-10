@@ -271,6 +271,28 @@ struct VersionHistoryTests {
         #expect(history.versions(for: b).count == 1)
     }
 
+    @Test("A save prunes the history, without waiting for the next launch")
+    func pruneAfterSave() throws {
+        let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditHistory-\(UUID().uuidString)")
+        var history = VersionHistory(root: scratch.appendingPathComponent("History"))
+        try FileManager.default.createDirectory(at: scratch, withIntermediateDirectories: true)
+        let file = scratch.appendingPathComponent("a.md")
+        try "".write(to: file, atomically: true, encoding: .utf8)
+        let now = Date(timeIntervalSince1970: 100_000_000)
+        let block = String(repeating: "x", count: 1000)
+        history.totalLimit = 2500
+        history.pruneInterval = 60
+        for index in 0..<5 {
+            history.recordLater("\(index)" + block, for: file, at: now.addingTimeInterval(Double(index)))
+        }
+        history.finishPending()
+        // Pruned by the first save only: the rest came within the interval.
+        #expect(history.versions(for: file).count == 5)
+        history.recordLater("5" + block, for: file, at: now.addingTimeInterval(120))
+        history.finishPending()
+        #expect(history.versions(for: file).map(\.date) == [120, 4].map { now.addingTimeInterval($0) })
+    }
+
     @Test("Files in the temporary folder keep no history")
     func temporary() {
         #expect(!VersionHistory.isWorthKeeping(FileManager.default.temporaryDirectory.appendingPathComponent("x.md")))

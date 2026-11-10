@@ -258,6 +258,40 @@ struct WindowFlowTests {
         #expect(controller.documents.count == 1)
     }
 
+    @Test("A snapshot that cannot be written is said so once, and tried again")
+    func recoveryFailureIsTold() async throws {
+        let controller = makeWindow()
+        let document = try await openEdited("unwritable.md", in: controller)
+        // A file where the snapshots' folder should be: nothing can be written there.
+        let blocked = scratch.appendingPathComponent("Blocked")
+        try "".write(to: blocked, atomically: true, encoding: .utf8)
+        controller.recovery = RecoveryStore(directory: blocked)
+        var errors: [Error] = []
+        controller.showError = { errors.append($0) }
+        func written() async {
+            _ = controller.recovery.snapshots()
+            await withCheckedContinuation { waiting in DispatchQueue.main.async { waiting.resume() } }
+        }
+
+        controller.writeRecoverySnapshots()
+        await written()
+        #expect(errors.count == 1)
+        #expect(errors.first is RecoveryStore.WriteError)
+        // Not taken as written, so the next round writes it again; told once.
+        #expect(document.snapshotState == nil)
+        controller.writeRecoverySnapshots()
+        await written()
+        #expect(errors.count == 1)
+
+        // Writable again: the same text, never snapshotted, now is.
+        try FileManager.default.removeItem(at: blocked)
+        controller.writeRecoverySnapshots()
+        await written()
+        #expect(controller.recovery.snapshots().first { $0.id == document.id }?.text == document.text)
+        #expect(document.snapshotState != nil)
+        controller.cancelPendingWork()
+    }
+
     @Test("Recovery writes only documents changed since their last snapshot")
     func recoveryWritesChanges() async throws {
         let controller = makeWindow()
