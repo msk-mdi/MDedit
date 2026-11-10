@@ -81,4 +81,200 @@ struct ImageCacheTests {
         try handle.close()
         #expect(ImageCache.localData(large) == nil)
     }
+
+    /// A folder of its own, so no other test's images are in the cache.
+    private func imageFolder() throws -> URL {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditImages-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        return directory
+    }
+
+    @MainActor
+    private func settled(_ url: URL) async throws {
+        for _ in 0..<200 where ImageCache.shared.isLoading(url) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(!ImageCache.shared.isLoading(url))
+    }
+
+    /// A line being edited asks this way: typing a URL fetched each prefix.
+    @MainActor
+    @Test("Asking without starting a load starts none")
+    func askingWithoutLoading() async throws {
+        let folder = try imageFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("pic.png")
+        try imageData(width: 20, height: 10).write(to: url)
+        #expect(ImageCache.shared.image(for: url, startingLoad: false) == nil)
+        #expect(!ImageCache.shared.isLoading(url))
+        #expect(!ImageCache.shared.hasFailed(url))
+
+        #expect(ImageCache.shared.image(for: url) == nil)
+        #expect(ImageCache.shared.isLoading(url))
+        try await settled(url)
+        // Once here, it shows however it is asked for.
+        #expect(ImageCache.shared.image(for: url, startingLoad: false)?.size.width == 20)
+    }
+
+    /// An image named before its file was saved never showed until relaunch.
+    @MainActor
+    @Test("A local image that failed is read again once its file changes")
+    func failedFileRetries() async throws {
+        let folder = try imageFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("pic.png")
+        _ = ImageCache.shared.image(for: url)
+        try await settled(url)
+        #expect(ImageCache.shared.hasFailed(url))
+
+        // Still missing: looked at again, not read again.
+        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.fileCheckInterval)
+        #expect(ImageCache.shared.hasFailed(url))
+
+        try imageData(width: 20, height: 10).write(to: url)
+        // Not looked at on every request.
+        _ = ImageCache.shared.image(for: url)
+        #expect(ImageCache.shared.hasFailed(url))
+        // Nor for a line being edited.
+        _ = ImageCache.shared.image(for: url, startingLoad: false, now: .now + ImageCache.fileCheckInterval * 2)
+        #expect(ImageCache.shared.hasFailed(url))
+
+        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.fileCheckInterval * 2)
+        #expect(ImageCache.shared.isLoading(url))
+        try await settled(url)
+        #expect(ImageCache.shared.image(for: url)?.size.width == 20)
+    }
+
+    @MainActor
+    @Test("A local image edited on disk is read again, and shows as it was meanwhile")
+    func changedFileReloads() async throws {
+        let folder = try imageFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let url = folder.appendingPathComponent("pic.png")
+        try imageData(width: 20, height: 10).write(to: url)
+        _ = ImageCache.shared.image(for: url)
+        try await settled(url)
+
+        // A different size, so the change shows whatever the clock's grain.
+        try imageData(width: 40, height: 10).write(to: url)
+        #expect(ImageCache.shared.image(for: url, now: .now + ImageCache.fileCheckInterval)?.size.width == 20)
+        #expect(ImageCache.shared.isLoading(url))
+        try await settled(url)
+        #expect(ImageCache.shared.image(for: url)?.size.width == 40)
+
+        // Gone: the lines showing it are told, and it stops showing.
+        try FileManager.default.removeItem(at: url)
+        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.fileCheckInterval)
+        try await settled(url)
+        #expect(ImageCache.shared.image(for: url) == nil)
+        #expect(ImageCache.shared.hasFailed(url))
+    }
+
+    /// A scheme no session loads fails at once, without the network.
+    @MainActor
+    @Test("An image that failed off the disk is asked for again only after a while")
+    func failedAddressRetriesLater() async throws {
+        let url = try #require(URL(string: "mdedit-test://\(UUID().uuidString)/pic.png"))
+        _ = ImageCache.shared.image(for: url)
+        try await settled(url)
+        #expect(ImageCache.shared.hasFailed(url))
+
+        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.retryInterval / 2)
+        #expect(ImageCache.shared.hasFailed(url))
+        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.retryInterval)
+        #expect(ImageCache.shared.isLoading(url))
+        try await settled(url)
+        #expect(ImageCache.shared.hasFailed(url))
+    }
+
+    /// A cache of its own: the shared one would forget, with these, the
+    /// failures other tests are looking at.
+    @MainActor
+    @Test("Only so many failures are remembered")
+    func failuresAreBounded() async throws {
+        let cache = ImageCache()
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("MdEditMissing-\(UUID().uuidString)")
+        let missing = (0...ImageCache.maxFailures).map { folder.appendingPathComponent("\($0).png") }
+        let first = try #require(missing.first), last = try #require(missing.last)
+        _ = cache.image(for: first)
+        for _ in 0..<200 where !cache.hasFailed(first) {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(cache.hasFailed(first))
+
+        for url in missing.dropFirst() { _ = cache.image(for: url) }
+        for _ in 0..<500 where cache.isLoading {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        // The oldest was forgotten, to be tried again when next asked for.
+        #expect(!cache.hasFailed(first))
+        #expect(cache.hasFailed(last))
+    }
+
+    /// Answers by host name, with no network: `small` with 600 bytes,
+    /// `missing` with a 404, `announced` with a length of 5000 and
+    /// `endless` with bytes until it is stopped.
+    private final class StubProtocol: URLProtocol, @unchecked Sendable {
+        private let lock = NSLock()
+        private var stopped = false
+
+        override class func canInit(with request: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            guard let url = request.url, let host = url.host else { return }
+            let response = HTTPURLResponse(
+                url: url, statusCode: host == "missing" ? 404 : 200, httpVersion: "HTTP/1.1",
+                headerFields: host == "announced" ? ["Content-Length": "5000"] : [:]
+            )!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            guard host == "endless" else {
+                client?.urlProtocol(self, didLoad: Data(repeating: 1, count: host == "small" ? 600 : 10))
+                client?.urlProtocolDidFinishLoading(self)
+                return
+            }
+            Thread.detachNewThread { [self] in
+                while !lock.withLock({ stopped }) {
+                    client?.urlProtocol(self, didLoad: Data(repeating: 1, count: 100))
+                    usleep(1000)
+                }
+            }
+        }
+
+        override func stopLoading() {
+            lock.withLock { stopped = true }
+        }
+    }
+
+    /// The limit was checked once the whole response was on disk, so one
+    /// with no end was written there for as long as the server sent it.
+    @Test("A web image is given up on as soon as it is too large")
+    func downloadStopsAtLimit() async throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [StubProtocol.self]
+        let downloader = ImageDownloader(configuration: configuration, limit: 1000)
+        defer { downloader.invalidate() }
+        func data(_ host: String) async throws -> Data? {
+            let url = try #require(URL(string: "https://\(host)/pic.png"))
+            return await downloader.data(from: url)
+        }
+        #expect(try await data("small") == Data(repeating: 1, count: 600))
+        #expect(try await data("missing") == nil)
+        #expect(try await data("announced") == nil)
+        // Returns at all: the stub sends until the transfer is cancelled.
+        #expect(try await data("endless") == nil)
+    }
+
+    @Test("A response is read only if it succeeded and fits")
+    func acceptedResponses() throws {
+        let url = try #require(URL(string: "https://example.com/pic.png"))
+        func response(status: Int = 200, length: Int) -> URLResponse {
+            HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: ["Content-Length": String(length)])!
+        }
+        #expect(ImageDownloader.accepts(response(length: 1000), limit: 1000))
+        #expect(!ImageDownloader.accepts(response(length: 1001), limit: 1000))
+        #expect(!ImageDownloader.accepts(response(status: 503, length: 10), limit: 1000))
+        // A length the server left out is found out as the bytes come.
+        #expect(ImageDownloader.accepts(URLResponse(url: url, mimeType: nil, expectedContentLength: -1, textEncodingName: nil), limit: 1000))
+    }
 }

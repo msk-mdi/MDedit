@@ -455,6 +455,43 @@ struct TypingTests {
         #expect(storage.attribute(.mdAwaiting, at: 0, effectiveRange: nil) == nil)
     }
 
+    /// Each keystroke restyles the caret's line, so every prefix of an
+    /// address being typed was loaded: a request to each partial host and
+    /// path, and an entry kept for each.
+    @Test("Typing an image's address loads nothing until the caret leaves the line")
+    func typingAddressStartsNoLoad() async throws {
+        let image = try writeImage(width: 200, height: 100)
+        let folder = image.deletingLastPathComponent()
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.baseURL = folder.appendingPathComponent("doc.md")
+        // As typed with the brackets closed ahead of the caret.
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "![alt]()\nnext\n")
+        storage.revealedLines = 0...0
+        var typed = ""
+        for character in "pic.png" {
+            storage.replaceCharacters(in: NSRange(location: 7 + (typed as NSString).length, length: 0), with: String(character))
+            typed.append(character)
+            let url = folder.appendingPathComponent(typed)
+            #expect(!ImageCache.shared.isLoading(url), "loading \(typed)")
+            #expect(!ImageCache.shared.hasFailed(url), "tried \(typed)")
+        }
+        #expect(storage.string == "![alt](pic.png)\nnext\n")
+        #expect(storage.linesAwaiting.isEmpty)
+
+        storage.revealedLines = 1...1
+        #expect(storage.linesAwaiting[.image(image)] == IndexSet(integer: 0))
+        for _ in 0..<50 where storage.attribute(.mdImage, at: 0, effectiveRange: nil) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(storage.attribute(.mdImage, at: 0, effectiveRange: nil) is InlineImage)
+
+        // Loaded, it keeps showing with the caret back on its line.
+        storage.revealedLines = 0...0
+        #expect(storage.attribute(.mdImage, at: 0, effectiveRange: nil) is InlineImage)
+        storage.replaceCharacters(in: NSRange(location: 2, length: 0), with: "n")
+        #expect(storage.attribute(.mdImage, at: 0, effectiveRange: nil) is InlineImage)
+    }
+
     /// Each keystroke in a formula block queued its new source behind every
     /// earlier one, so the preview fell further behind the typing.
     @Test("Editing a formula block withdraws the source it replaces")

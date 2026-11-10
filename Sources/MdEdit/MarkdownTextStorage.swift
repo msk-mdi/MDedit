@@ -1210,7 +1210,7 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             ? InlineParser.parse(characters, from: info.contentStart, to: characters.count, references: references)
             : []
         let inlineImage = !sourceMode && info.kind == .paragraph && headingLevel == nil && !isTableHeader
-            ? soleImage(in: nodes, characters: characters)
+            ? soleImage(in: nodes, characters: characters, edited: revealedLines?.contains(line) ?? false)
             : nil
         if let inlineImage, let paragraphStyle = attributes[.paragraphStyle] as? NSParagraphStyle {
             let spaced = paragraphStyle.mutableCopy() as! NSMutableParagraphStyle
@@ -1317,8 +1317,8 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     }
 
     /// The image, sized to fit, when a line's only content is one image that
-    /// has loaded. Starts the load otherwise.
-    private func soleImage(in nodes: [InlineNode], characters: [UInt16]) -> InlineImage? {
+    /// has loaded. Starts the load otherwise, unless the line is `edited`.
+    private func soleImage(in nodes: [InlineNode], characters: [UInt16], edited: Bool) -> InlineImage? {
         var source: String?
         for node in nodes {
             switch node {
@@ -1336,13 +1336,20 @@ final class MarkdownTextStorage: MDBackedTextStorage {
             }
         }
         guard let source, let url = imageURL(for: source) else { return nil }
-        requestedImages.insert(url)
-        guard let image = MainActor.assumeIsolated({ ImageCache.shared.image(for: url) }) else {
-            // One that failed will not arrive: waiting for it restyled the
-            // line on every other image and formula that did.
-            if !MainActor.assumeIsolated({ ImageCache.shared.hasFailed(url) }) { lineAwaits.insert(.image(url)) }
-            return nil
+        // A line being edited starts no load: while a URL is typed the line
+        // is restyled at every keystroke, and each prefix of the address
+        // was fetched. An image already here shows; one that is not is
+        // asked for when the caret leaves, which restyles the line.
+        let (image, isLoading) = MainActor.assumeIsolated {
+            (ImageCache.shared.image(for: url, startingLoad: !edited), ImageCache.shared.isLoading(url))
         }
+        if image != nil || !edited { requestedImages.insert(url) }
+        // Only one on its way is waited for. One that failed will not
+        // arrive: waiting for it restyled the line on every other image and
+        // formula that did. One showing is on its way again when its file
+        // has changed.
+        if isLoading { lineAwaits.insert(.image(url)) }
+        guard let image else { return nil }
 
         var size = image.size
         let maxWidth = max(80, maxImageWidth)
