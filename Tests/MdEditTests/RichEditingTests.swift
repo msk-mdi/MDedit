@@ -524,6 +524,26 @@ struct TypingTests {
         #expect(storage.requestedTypesetting.filter { $0.kind == .displayMath }.map(\.source) == ["b"])
     }
 
+    /// Waits for a request to be typeset. KaTeX comes from jsDelivr in
+    /// tests, and on a slow runner the first formula, waiting on the
+    /// fonts, can outlast the typesetter's timeout and fail for good: a
+    /// throwaway formula takes that wait first.
+    @MainActor
+    static func typeset(_ request: Typesetter.Request) async throws {
+        for attempt in 0..<5 {
+            var warmup = request
+            warmup.source = "x_{\(attempt)} \(UUID().uuidString.prefix(4))"
+            _ = Typesetter.shared.rendering(for: warmup)
+            for _ in 0..<500 where Typesetter.shared.rendering(for: warmup) == nil && Typesetter.shared.error(for: warmup) == nil {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            if Typesetter.shared.rendering(for: warmup) != nil { break }
+        }
+        for _ in 0..<500 where Typesetter.shared.rendering(for: request) == nil && Typesetter.shared.error(for: request) == nil {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+    }
+
     /// The preview an open block holds still was kept after it closed, a
     /// diagram's bitmap with it, for as long as the document was open.
     @Test("A closed block lets go of its preview")
@@ -531,9 +551,7 @@ struct TypingTests {
         let storage = MarkdownTextStorage(theme: .light)
         storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: "Text\n\n$$\na^2\n$$\n")
         let request = try #require(storage.blockRequests[2])
-        for _ in 0..<250 where Typesetter.shared.rendering(for: request) == nil {
-            try await Task.sleep(for: .milliseconds(20))
-        }
+        try await Self.typeset(request)
         try #require(Typesetter.shared.rendering(for: request) != nil, "KaTeX did not typeset in time")
         storage.revealedLines = 2...4
         #expect(storage.lastPreviews[2] != nil)

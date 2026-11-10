@@ -170,21 +170,30 @@ struct ImageCacheTests {
         #expect(ImageCache.shared.hasFailed(url))
     }
 
-    /// A scheme no session loads fails at once, without the network.
+    /// A scheme no session loads fails at once, without the network. A
+    /// cache of its own: other tests fill the shared one with failures, and
+    /// past its limit it forgets this one.
     @MainActor
     @Test("An image that failed off the disk is asked for again only after a while")
     func failedAddressRetriesLater() async throws {
+        let cache = ImageCache()
         let url = try #require(URL(string: "mdedit-test://\(UUID().uuidString)/pic.png"))
-        _ = ImageCache.shared.image(for: url)
-        try await settled(url)
-        #expect(ImageCache.shared.hasFailed(url))
+        func settled() async throws {
+            for _ in 0..<500 where cache.isLoading(url) {
+                try await Task.sleep(for: .milliseconds(10))
+            }
+            #expect(!cache.isLoading(url))
+        }
+        _ = cache.image(for: url)
+        try await settled()
+        #expect(cache.hasFailed(url))
 
-        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.retryInterval / 2)
-        #expect(ImageCache.shared.hasFailed(url))
-        _ = ImageCache.shared.image(for: url, now: .now + ImageCache.retryInterval)
-        #expect(ImageCache.shared.isLoading(url))
-        try await settled(url)
-        #expect(ImageCache.shared.hasFailed(url))
+        _ = cache.image(for: url, now: .now + ImageCache.retryInterval / 2)
+        #expect(cache.hasFailed(url))
+        _ = cache.image(for: url, now: .now + ImageCache.retryInterval)
+        #expect(cache.isLoading(url))
+        try await settled()
+        #expect(cache.hasFailed(url))
     }
 
     /// A cache of its own: the shared one would forget, with these, the
