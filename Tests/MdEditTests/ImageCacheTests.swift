@@ -172,7 +172,9 @@ struct ImageCacheTests {
 
     /// A scheme no session loads fails at once, without the network. A
     /// cache of its own: other tests fill the shared one with failures, and
-    /// past its limit it forgets this one.
+    /// past its limit it forgets this one. Times are counted from before the
+    /// load started: with other tests holding the main actor, this one can
+    /// resume after its failure is already older than `retryInterval / 2`.
     @MainActor
     @Test("An image that failed off the disk is asked for again only after a while")
     func failedAddressRetriesLater() async throws {
@@ -184,11 +186,12 @@ struct ImageCacheTests {
             }
             #expect(!cache.isLoading(url))
         }
+        let asked = ContinuousClock.now
         _ = cache.image(for: url)
         try await settled()
         #expect(cache.hasFailed(url))
 
-        _ = cache.image(for: url, now: .now + ImageCache.retryInterval / 2)
+        _ = cache.image(for: url, now: asked + ImageCache.retryInterval / 2)
         #expect(cache.hasFailed(url))
         _ = cache.image(for: url, now: .now + ImageCache.retryInterval)
         #expect(cache.isLoading(url))
