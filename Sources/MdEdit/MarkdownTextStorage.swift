@@ -1313,6 +1313,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         for marker in info.markers {
             applyMarker(marker, lineStart: range.location, revealed: revealed, baseFont: baseFont)
         }
+        if headingLevel == nil, !isTableLine, let hardBreak = hardBreakMarker(line: line, info: info, characters: characters) {
+            applyMarker(hardBreak, lineStart: range.location, revealed: revealed, baseFont: baseFont)
+        }
         styleKeys(in: nodes, characters: characters, lineStart: range.location, revealed: revealed, baseFont: baseFont)
         styleColors(in: nodes, characters: characters, lineStart: range.location, revealed: revealed, baseFont: baseFont)
         if definitionRole == .definition, let start = definitionStart(Array(characters[info.contentStart...])) {
@@ -2294,6 +2297,23 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     /// dictionary, Foundation bridges and hashes every key it looks up,
     /// several times over. Cleared when the theme changes.
     private var markerAttributes: [MarkerStyle: NSDictionary] = [:]
+
+    /// A `\` ending a line whose paragraph goes on below is a hard line
+    /// break: markup, hidden like the rest, as pasted `<br>`s write it. The
+    /// parser reads a line at a time and never sees the line end after it.
+    private func hardBreakMarker(line: Int, info: LineInfo, characters: [UInt16]) -> Marker? {
+        switch info.kind {
+        case .paragraph, .listItem: break
+        default: return nil
+        }
+        var backslashes = 0
+        while backslashes < characters.count, characters[characters.count - 1 - backslashes] == 0x5C { backslashes += 1 }
+        // `\\` is an escaped backslash; only an odd run ends in a break.
+        guard backslashes % 2 == 1, characters.count - 1 >= info.contentStart,
+              let next = structure.info(forLine: line + 1), next.kind == .paragraph, next.quoteDepth == info.quoteDepth
+        else { return nil }
+        return Marker(range: NSRange(location: characters.count - 1, length: 1), kind: .conceal)
+    }
 
     private func applyMarker(_ marker: Marker, lineStart: Int, revealed: Bool, baseFont: NSFont) {
         let range = NSRange(location: lineStart + marker.range.location, length: marker.range.length)

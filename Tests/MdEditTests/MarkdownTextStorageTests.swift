@@ -12,6 +12,33 @@ struct MarkdownTextStorageTests {
         return storage
     }
 
+    @Test("A line-ending backslash that breaks a paragraph's line is hidden, as pasted line breaks write it")
+    func hardBreakBackslashHidden() {
+        let text = "**Part 1: The Mentor**\\\nSnow is 18.\n\nLast line\\\n\nTwo \\\\\nescaped.\n# Title\\\nnext\n"
+        let storage = storage(text)
+        let ns = text as NSString
+        func concealed(after prefix: String) -> Bool {
+            let index = NSMaxRange(ns.range(of: prefix))
+            #expect(ns.character(at: index) == 0x5C)
+            return storage.attribute(.mdConcealed, at: index, effectiveRange: nil) != nil
+        }
+        #expect(concealed(after: "Mentor**"))
+        // Ending its paragraph, it is no break, just a backslash.
+        #expect(!concealed(after: "Last line"))
+        // Two are an escaped backslash.
+        #expect(!concealed(after: "Two \\"))
+        #expect(!concealed(after: "# Title"))
+        // With the caret on its line it shows, to be edited.
+        storage.revealedLines = 0...0
+        #expect(!concealed(after: "Mentor**"))
+        storage.revealedLines = nil
+        #expect(concealed(after: "Mentor**"))
+        // Once the line below no longer goes on with the paragraph, it shows.
+        let next = ns.range(of: "Snow is 18.")
+        storage.replaceCharacters(in: next, with: "")
+        #expect(!concealed(after: "Mentor**"))
+    }
+
     @Test("A document named as JSON shows as code: monospaced, coloured, no markdown, no card")
     func jsonFileIsCode() throws {
         let url = URL(fileURLWithPath: "/tmp/settings.json")
