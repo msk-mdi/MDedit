@@ -5,6 +5,8 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-11-26
+
 ### Added
 - Other text formats open too, each as code in its own language: JSON,
   YAML, TOML, XML, property lists, configuration profiles
@@ -18,14 +20,14 @@ workflow publishes the section for a version as its release notes.
 - In a table whose cells wrap, the caret sits where it is put: at the
   end of a word it was drawn inside the word's last letter, and before
   some letters at the start of the cell or the end of the row above.
-- A `\` ending a line inside a paragraph, which is how a line break
-  pasted from a web page or a chat is written, is hidden like other
-  markup instead of showing at the end of the line, as after a bold
-  title; it shows while the caret is on its line.
 - Clicking in such a table puts the caret where the click was: after a
   word rather than a letter early or at the start of the cell's next
   line, before the closing `|` of the row rather than after it, and in
   the header rather than the row below when clicking its second line.
+- A `\` ending a line inside a paragraph, which is how a line break
+  pasted from a web page or a chat is written, is hidden like other
+  markup instead of showing at the end of the line, as after a bold
+  title; it shows while the caret is on its line.
 
 ## [2.1.2] - 2026-11-12
 
