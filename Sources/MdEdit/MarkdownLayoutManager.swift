@@ -563,10 +563,28 @@ extension MarkdownLayoutManager {
         let character = characterIndexForGlyph(at: glyph)
         let line = text.lineRange(for: NSRange(location: min(character, max(0, text.length - 1)), length: 0))
         var rows: [WrappedRow] = []
-        if line.location > 0, let before = wrappedRow(atCharacter: line.location - 1) { rows.append(before) }
+        if line.location > 0, let before = wrappedRow(atCharacter: overDelimiter(from: line.location - 1, in: text, forward: false)) {
+            rows.append(before)
+        }
         if let own = wrappedRow(atCharacter: line.location) { rows.append(own) }
-        if NSMaxRange(line) < text.length, let after = wrappedRow(atCharacter: NSMaxRange(line)) { rows.append(after) }
+        if NSMaxRange(line) < text.length, let after = wrappedRow(atCharacter: overDelimiter(from: NSMaxRange(line), in: text, forward: true)) {
+            rows.append(after)
+        }
         return rows
+    }
+
+    /// The line a character is on, or past it when that is a table's hidden
+    /// `| --- |` row: the header and the first row are neighbours on the
+    /// page, and a click low in the header, found by TextKit in the row
+    /// below, put the caret there.
+    private func overDelimiter(from index: Int, in text: NSString, forward: Bool) -> Int {
+        // Hidden, the delimiter row carries no grid: the parse says what it is.
+        guard let storage = textStorage as? MarkdownTextStorage, index >= 0, index < text.length,
+              case .tableDelimiter? = storage.structure.info(forLine: storage.line(at: index))?.kind
+        else { return index }
+        let line = text.lineRange(for: NSRange(location: index, length: 0))
+        if forward { return min(NSMaxRange(line), max(0, text.length - 1)) }
+        return max(0, line.location - 1)
     }
 
     override func glyphRange(forBoundingRect bounds: NSRect, in container: NSTextContainer) -> NSRange {
@@ -614,24 +632,62 @@ extension MarkdownLayoutManager {
         let glyph = glyphIndexForCharacter(at: found)
         guard let row = wrappedRows(around: glyph).first(where: { self.bounds(of: $0).minY <= point.y && point.y < self.bounds(of: $0).maxY })
         else { return found }
-        var through: CGFloat = 0
-        let index = characterIndexForGlyph(at: glyphIndex(for: point, in: row, fraction: &through))
-        fraction?.pointee = through
-        return index
+        fraction?.pointee = 0
+        return insertionIndex(for: point, in: row)
+    }
+
+    /// Where a click puts the caret in a wrapping row: at the nearest edge of
+    /// a letter in the cell's line under it. A click past a line's end lands
+    /// after its last letter, not after the space it wraps at, which is the
+    /// start of the next line, nor after the row's closing `|`.
+    func insertionIndex(for point: NSPoint, in row: WrappedRow) -> Int {
+        guard let (fragment, cell) = cellLine(at: point, in: row) else { return row.line.location }
+        let text = Self.text(of: textStorage!)
+        var best: (distance: CGFloat, index: Int)?
+        for glyph in fragment.glyphs.location..<NSMaxRange(fragment.glyphs) {
+            let character = characterIndexForGlyph(at: glyph)
+            guard NSLocationInRange(character, cell), !isConcealed(glyph: glyph),
+                  !propertyForGlyph(at: glyph).contains(.controlCharacter),
+                  !CharacterSet.whitespaces.contains(Unicode.Scalar(text.character(at: character)) ?? " ")
+            else { continue }
+            let left = fragment.rect.minX + location(forGlyphAt: glyph).x
+            let right = left + advance(ofGlyph: glyph)
+            for (x, index) in [(left, character), (right, character + 1)] where best == nil || abs(point.x - x) < best!.distance {
+                best = (abs(point.x - x), index)
+            }
+        }
+        if let best { return best.index }
+        // A line with no letters, as an empty cell: where its text starts.
+        return cell.location
+    }
+
+    /// The line of a cell under a point, and the cell's text in the document:
+    /// the cell by the column the point is in, then its line, the last one
+    /// below them all.
+    private func cellLine(at point: NSPoint, in row: WrappedRow) -> (fragment: (rect: NSRect, glyphs: NSRange), cell: NSRange)? {
+        let byColumn = Dictionary(grouping: row.fragments) { $0.rect.minX }
+        guard let column = byColumn.keys.min(by: { abs(distance(point.x, $0, byColumn[$0]?.first?.rect.width ?? 0)) < abs(distance(point.x, $1, byColumn[$1]?.first?.rect.width ?? 0)) }),
+              let lines = byColumn[column]?.sorted(by: { $0.rect.minY < $1.rect.minY }),
+              let fragment = lines.first(where: { point.y < $0.rect.maxY }) ?? lines.last
+        else { return nil }
+        let number = byColumn.keys.sorted().firstIndex(of: column) ?? 0
+        guard number < row.wrapping.cells.count else { return nil }
+        let cell = row.wrapping.cells[number]
+        return (fragment, NSRange(location: row.line.location + cell.location, length: cell.length))
     }
 
     /// The glyph under a point in a wrapping row: the cell by the column the
     /// point is in, then its line, then the glyph along it. Below a cell's
     /// last line, the end of the cell.
     private func glyphIndex(for point: NSPoint, in row: WrappedRow, fraction: UnsafeMutablePointer<CGFloat>?) -> Int {
-        let byColumn = Dictionary(grouping: row.fragments) { $0.rect.minX }
-        let column = byColumn.keys.min { abs(distance(point.x, $0, byColumn[$0]?.first?.rect.width ?? 0)) < abs(distance(point.x, $1, byColumn[$1]?.first?.rect.width ?? 0)) } ?? 0
-        let lines = (byColumn[column] ?? []).sorted { $0.rect.minY < $1.rect.minY }
-        guard let fragment = lines.first(where: { point.y < $0.rect.maxY }) ?? lines.last else { return 0 }
+        guard let (fragment, cell) = cellLine(at: point, in: row) else { return 0 }
         var best = fragment.glyphs.location
         var bestFraction: CGFloat = 0
-        // The nearest glyph that is drawn: concealed ones take no room.
-        for glyph in fragment.glyphs.location..<NSMaxRange(fragment.glyphs) where !isConcealed(glyph: glyph) {
+        // The nearest glyph of the cell's text that is drawn: concealed ones
+        // take no room, and the pipe and line end after the last cell are
+        // not in it.
+        for glyph in fragment.glyphs.location..<NSMaxRange(fragment.glyphs)
+        where !isConcealed(glyph: glyph) && NSLocationInRange(characterIndexForGlyph(at: glyph), cell) {
             let start = fragment.rect.minX + location(forGlyphAt: glyph).x
             let next = glyph + 1 < NSMaxRange(fragment.glyphs) ? fragment.rect.minX + location(forGlyphAt: glyph + 1).x : start
             let width = max(0, next - start)
@@ -649,6 +705,84 @@ extension MarkdownLayoutManager {
     /// How far a point is from a column: 0 inside it.
     private func distance(_ x: CGFloat, _ left: CGFloat, _ width: CGFloat) -> CGFloat {
         x < left ? left - x : x > left + width ? x - left - width : 0
+    }
+
+    /// The caret in a wrapping row comes from where `TableTypesetter` put
+    /// the glyphs. TextKit works it out as for a line it laid out itself,
+    /// and placed the caret at the end of a cell's word inside its last
+    /// letter, at the start of the cell, or at the end of the row before.
+    override func rectArray(
+        forCharacterRange charRange: NSRange, withinSelectedCharacterRange selCharRange: NSRange,
+        in container: NSTextContainer, rectCount: UnsafeMutablePointer<Int>
+    ) -> NSRectArray? {
+        let rects = super.rectArray(forCharacterRange: charRange, withinSelectedCharacterRange: selCharRange, in: container, rectCount: rectCount)
+        guard charRange.length == 0, var caret = caretRect(at: charRange.location) else { return rects }
+        if let rects, rectCount.pointee > 0 { caret.size.width = rects[0].width }
+        Self.caretBuffer.pointee = caret
+        rectCount.pointee = 1
+        return Self.caretBuffer
+    }
+
+    /// Handed to AppKit, which copies the rect out before asking again.
+    nonisolated(unsafe) private static let caretBuffer = UnsafeMutablePointer<NSRect>.allocate(capacity: 1)
+
+    /// Where the caret goes before a character in a wrapping row: before its
+    /// glyph when that is drawn, else just after the last drawn glyph before
+    /// it in its cell, so the end of a cell's text is after its last letter
+    /// and not over in the next cell, where the hidden ` | ` between them is.
+    /// Nil outside wrapping rows.
+    func caretRect(at index: Int) -> NSRect? {
+        guard let row = wrappedRow(atCharacter: index), let first = row.fragments.first, let last = row.fragments.last else { return nil }
+        let offset = index - row.line.location
+        // The cell the character is in or ends, the first when it is before them all.
+        let cell = row.wrapping.cells.last { $0.location <= offset } ?? row.wrapping.cells.first
+        guard let cell else { return nil }
+        let cellStart = row.line.location + cell.location, cellEnd = cellStart + cell.length
+        let rowGlyphs = NSRange(location: first.glyphs.location, length: NSMaxRange(last.glyphs) - first.glyphs.location)
+
+        func fragment(of glyph: Int) -> NSRect? {
+            row.fragments.first { NSLocationInRange(glyph, $0.glyphs) }?.rect
+        }
+        func isDrawn(_ glyph: Int) -> Bool {
+            NSLocationInRange(glyph, rowGlyphs) && !isConcealed(glyph: glyph)
+                && !propertyForGlyph(at: glyph).contains(.controlCharacter)
+        }
+        func caret(at x: CGFloat, in fragment: NSRect) -> NSRect {
+            NSRect(x: fragment.minX + x, y: fragment.minY, width: 1, height: fragment.height)
+        }
+
+        if index < cellEnd, index >= cellStart {
+            let glyph = glyphIndexForCharacter(at: index)
+            if isDrawn(glyph), let rect = fragment(of: glyph) { return caret(at: location(forGlyphAt: glyph).x, in: rect) }
+        }
+        // After the last drawn glyph before it in its cell.
+        var character = min(index, cellEnd) - 1
+        while character >= cellStart {
+            let glyph = glyphIndexForCharacter(at: character)
+            if isDrawn(glyph), let rect = fragment(of: glyph) {
+                return caret(at: location(forGlyphAt: glyph).x + advance(ofGlyph: glyph), in: rect)
+            }
+            character -= 1
+        }
+        // An empty cell, or the caret before all its text: where it starts.
+        character = max(index, cellStart)
+        while character < cellEnd {
+            let glyph = glyphIndexForCharacter(at: character)
+            if isDrawn(glyph), let rect = fragment(of: glyph) { return caret(at: location(forGlyphAt: glyph).x, in: rect) }
+            character += 1
+        }
+        let glyph = glyphIndexForCharacter(at: min(cellStart, NSMaxRange(row.line) - 1))
+        guard let rect = fragment(of: glyph) else { return nil }
+        return caret(at: location(forGlyphAt: glyph).x, in: rect)
+    }
+
+    /// A glyph's width as `TableTypesetter` laid it out.
+    private func advance(ofGlyph glyph: Int) -> CGFloat {
+        guard let storage = textStorage else { return 0 }
+        let character = characterIndexForGlyph(at: glyph)
+        let font = storage.attribute(.font, at: character, effectiveRange: nil) as? NSFont ?? .systemFont(ofSize: NSFont.systemFontSize)
+        let kern = storage.attribute(.kern, at: character, effectiveRange: nil) as? CGFloat ?? 0
+        return font.advancement(forCGGlyph: cgGlyph(at: glyph)).width + kern
     }
 }
 

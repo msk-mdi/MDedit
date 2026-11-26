@@ -14,6 +14,15 @@ workflow publishes the section for a version as its release notes.
   as a signed profile or a binary property list, are refused rather than
   opened as garbled text.
 
+### Fixed
+- In a table whose cells wrap, the caret sits where it is put: at the
+  end of a word it was drawn inside the word's last letter, and before
+  some letters at the start of the cell or the end of the row above.
+- Clicking in such a table puts the caret where the click was: after a
+  word rather than a letter early or at the start of the cell's next
+  line, before the closing `|` of the row rather than after it, and in
+  the header rather than the row below when clicking its second line.
+
 ## [2.1.2] - 2026-11-12
 
 ### Changed

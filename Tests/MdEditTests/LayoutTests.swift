@@ -432,6 +432,101 @@ struct LayoutTests {
         for fragment in row.fragments { #expect(NSIntersectionRange(strip, fragment.glyphs).length > 0) }
     }
 
+    /// TextKit placed the caret in a wrapping row as for a line it laid out
+    /// itself: at the end of a cell's word it sat inside the last letter,
+    /// before that letter it went to the start of the cell, and at the start
+    /// of a row to the end of the row above.
+    @Test("In a wrapping table the caret sits on the edges of the letters")
+    func wrappingTableCaret() throws {
+        let long = String(repeating: "alpha beta ", count: 12)
+        let text = "| Engine | Notes | Verdict |\n| --- | --- | --- |\n| **AetherEngine** (FFmpeg) | \(long)| **chosen** |\n| KSPlayer | paid tier | no |\n"
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        storage.maxImageWidth = 400
+        storage.restyleTablesChangingFit()
+        let (manager, container) = layoutManager(contiguous: true, for: storage)
+        container.size = CGSize(width: 400 + 2 * container.lineFragmentPadding, height: .greatestFiniteMagnitude)
+        manager.ensureLayout(for: container)
+        let ns = text as NSString
+
+        func caret(_ index: Int) throws -> NSRect {
+            var count = 0
+            let rects = try #require(manager.rectArray(
+                forCharacterRange: NSRange(location: index, length: 0),
+                withinSelectedCharacterRange: NSRange(location: index, length: 0), in: container, rectCount: &count
+            ))
+            #expect(count == 1)
+            return rects[0]
+        }
+        // TextKit's own bounds for a glyph in these rows are as off as its caret was.
+        func width(_ index: Int) throws -> CGFloat {
+            let font = try #require(storage.attribute(.font, at: index, effectiveRange: nil) as? NSFont)
+            return font.advancement(forCGGlyph: manager.cgGlyph(at: manager.glyphIndexForCharacter(at: index))).width
+        }
+        func lineRect(_ index: Int) -> NSRect {
+            manager.lineFragmentRect(forGlyphAt: manager.glyphIndexForCharacter(at: index), effectiveRange: nil)
+        }
+        func left(_ index: Int) -> CGFloat {
+            lineRect(index).minX + manager.location(forGlyphAt: manager.glyphIndexForCharacter(at: index)).x
+        }
+
+        for word in ["KSPlayer", "paid", "tier", "AetherEngine", "chosen", "no"] {
+            let range = ns.range(of: word, options: .backwards)
+            try #require(manager.wrappedRow(atCharacter: range.location) != nil)
+            // Before each letter: on its left edge, on its line.
+            for index in range.location..<NSMaxRange(range) {
+                let rect = try caret(index)
+                #expect(abs(rect.minX - left(index)) < 0.5, "before \(ns.substring(with: NSRange(location: index, length: 1))) of \(word)")
+                #expect(abs(rect.minY - lineRect(index).minY) < 0.5)
+            }
+            // After the word: past its last letter, not inside it or in the next cell.
+            let last = NSMaxRange(range) - 1
+            let end = try caret(NSMaxRange(range))
+            let expected = try left(last) + width(last)
+            #expect(abs(end.minX - expected) < 0.5, "after \(word)")
+            #expect(end.minX <= lineRect(last).maxX)
+            #expect(abs(end.minY - lineRect(last).minY) < 0.5)
+        }
+    }
+
+    /// Clicks in a wrapping table put the caret where the click was. They
+    /// landed a letter early after a word; past the last cell's text, after
+    /// the row's closing `|`; and low in the header, in the row below it,
+    /// past the hidden `| --- |` line between them.
+    @Test("A click in a wrapping table puts the caret at the nearest letter edge of its own cell")
+    func wrappingTableClicks() throws {
+        let text = "| Engine | MKV | HW HEVC | HDR out | Verdict |\n| --- | --- | --- | --- | --- |\n"
+            + "| **AetherEngine** (FFmpeg demux → VideoToolbox → AVSampleBufferDisplayLayer) | yes | yes | HDR10/10+/HLG native | **chosen** |\n"
+            + "| KSPlayer | paid tier | yes | yes | no |\n"
+        let storage = MarkdownTextStorage(theme: .light)
+        storage.replaceCharacters(in: NSRange(location: 0, length: 0), with: text)
+        storage.maxImageWidth = 360
+        storage.restyleTablesChangingFit()
+        let view = NSTextView(frame: NSRect(x: 0, y: 0, width: 500, height: 1000))
+        let manager = MarkdownLayoutManager()
+        let container = try #require(view.textContainer)
+        container.replaceLayoutManager(manager)
+        manager.replaceTextStorage(storage)
+        view.textContainerInset = .zero
+        container.size = CGSize(width: 360 + 2 * container.lineFragmentPadding, height: .greatestFiniteMagnitude)
+        manager.ensureLayout(for: container)
+        let ns = text as NSString
+        try #require(manager.wrappedRow(atCharacter: 2) != nil)
+
+        func click(_ dx: CGFloat, from index: Int) throws -> Int {
+            let caret = try #require(manager.caretRect(at: index))
+            return view.characterIndexForInsertion(at: NSPoint(x: caret.minX + dx, y: caret.midY))
+        }
+        for word in ["Engine", "MKV", "HW", "HEVC", "Verdict", "chosen", "paid", "tier", "KSPlayer"] {
+            let range = ns.range(of: word)
+            let end = NSMaxRange(range)
+            #expect(try click(3, from: end) == end, "just past \(word)")
+            #expect(try click(-1, from: end) == end, "on the right of \(word)'s last letter")
+            #expect(try click(1, from: range.location) == range.location, "on the left of \(word)'s first letter")
+            #expect(try click(-2, from: range.location) == range.location, "just before \(word)")
+        }
+    }
+
     /// A word wider than the whole column, as a line of JSON is, made the
     /// table give up its grid and show as source: it breaks inside instead.
     @Test("A wrapping table breaks a word too long for its column inside the cell")
