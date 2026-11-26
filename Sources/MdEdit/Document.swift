@@ -10,6 +10,9 @@ struct FileFormat: Equatable {
     var lineEnding = "\n"
 
     private static let utf8BOM: [UInt8] = [0xEF, 0xBB, 0xBF]
+    private static let unicodeEncodings: Set<String.Encoding> = [
+        .utf16, .utf16BigEndian, .utf16LittleEndian, .utf32, .utf32BigEndian, .utf32LittleEndian,
+    ]
 
     /// Decodes file contents into editor text (always `\n` line endings).
     static func decode(_ data: Data) throws -> (text: String, format: FileFormat) {
@@ -32,8 +35,15 @@ struct FileFormat: Equatable {
             guard let probed, detected != 0, !lossy.boolValue else {
                 throw CocoaError(.fileReadInapplicableStringEncoding)
             }
-            raw = probed as String
             format.encoding = String.Encoding(rawValue: detected)
+            // Zero bytes belong to UTF-16 and UTF-32, not to text in a
+            // single-byte encoding: this is a binary file, such as a binary
+            // property list or a signed configuration profile, and editing
+            // its bytes as text would ruin it.
+            if data.contains(0), !unicodeEncodings.contains(format.encoding) {
+                throw CocoaError(.fileReadCorruptFile)
+            }
+            raw = probed as String
         }
         if raw.contains("\r\n") {
             format.lineEnding = "\r\n"
@@ -114,7 +124,7 @@ struct FileStamp: Equatable {
     }
 }
 
-/// One open markdown file.
+/// One open file: markdown, or another text format shown as code.
 ///
 /// Deliberately not an `NSDocument`: tabs live inside a single window and are
 /// owned by `MainWindowController`, so the document is just model state.
@@ -125,8 +135,15 @@ final class Document {
     private(set) var url: URL? {
         didSet {
             storage.baseURL = url
+            storage.syntax = Self.syntax(for: url)
             cachedGoal = nil
         }
+    }
+
+    /// Markdown for markdown and plain text, and for a document with no file
+    /// yet; code, coloured as its language, for anything else.
+    static func syntax(for url: URL?) -> DocumentSyntax {
+        url.map { DocumentSyntax.forFile(named: $0.lastPathComponent) } ?? .markdown
     }
     let storage: MarkdownTextStorage
     /// This document's own undo history: tabs share a window, not a history,
@@ -168,6 +185,7 @@ final class Document {
         self.url = url
         storage = MarkdownTextStorage(theme: theme)
         storage.extensions = Settings().extensions
+        storage.syntax = Self.syntax(for: url)
         storage.baseURL = url
         storage.replaceCharacters(in: NSRange(location: 0, length: storage.length), with: text)
         savedText = text

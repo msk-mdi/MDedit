@@ -12,6 +12,20 @@ struct MarkdownTextStorageTests {
         return storage
     }
 
+    @Test("A document named as JSON shows as code: monospaced, coloured, no markdown, no card")
+    func jsonFileIsCode() throws {
+        let url = URL(fileURLWithPath: "/tmp/settings.json")
+        let document = Document(url: url, text: "{\n  \"title\": \"**not bold**\"\n}\n", theme: .light)
+        let storage = document.storage
+        #expect(storage.isCodeFile)
+        let location = (storage.string as NSString).range(of: "not bold").location
+        let font = try #require(storage.attribute(.font, at: location, effectiveRange: nil) as? NSFont)
+        #expect(font.isFixedPitch)
+        #expect(storage.attribute(.mdConcealed, at: location - 2, effectiveRange: nil) == nil)
+        #expect(storage.attribute(.mdCodeBlock, at: location, effectiveRange: nil) == nil)
+        #expect(Document(url: URL(fileURLWithPath: "/tmp/notes.md"), theme: .light).storage.isCodeFile == false)
+    }
+
     /// AppKit asks for `string` during layout. A Swift override answered it
     /// with a bridged copy of the whole document after every keystroke: 10 MB
     /// copied per key in a 5 MB file.

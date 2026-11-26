@@ -20,6 +20,8 @@ struct CodeBlock: Equatable {
     /// The block holding a line, if the line is part of one.
     @MainActor
     static func containing(line: Int, in storage: MarkdownTextStorage) -> CodeBlock? {
+        // A file read as code is not a block in a document: no picker, no fences.
+        guard !storage.isCodeFile else { return nil }
         let structure = storage.structure
         if let indented = indented(containing: line, in: structure) { return indented }
         // Asked on every keystroke and caret move, and a long block has many

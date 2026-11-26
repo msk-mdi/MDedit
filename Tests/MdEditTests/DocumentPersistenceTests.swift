@@ -31,6 +31,18 @@ struct FileFormatTests {
         #expect(try format.encode(text) == data)
     }
 
+    @Test("A binary file, as a binary property list, is refused rather than read as text")
+    func binaryRefused() throws {
+        let plist = try PropertyListSerialization.data(fromPropertyList: ["key": "value", "n": 1], format: .binary, options: 0)
+        #expect(throws: (any Error).self) { try FileFormat.decode(plist) }
+    }
+
+    @Test("A UTF-16 file, zero bytes and all, still reads")
+    func utf16Reads() throws {
+        let data = try #require("{\"a\": 1}".data(using: .utf16))
+        #expect(try FileFormat.decode(data).text == "{\"a\": 1}")
+    }
+
     @Test("A non-UTF-8 file is saved in its original encoding")
     func legacyEncodingRoundTrip() throws {
         let data = try #require("café crème".data(using: .isoLatin1))

@@ -86,14 +86,30 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     var extensions: SyntaxExtensions = .all {
         didSet {
             guard extensions != oldValue else { return }
-            structure = BlockStructure(text: text, extensions: extensions)
-            blockLookup = nil
-            tableLookup = nil
-            references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
-            headingNumberCache = nil
-            cachedHeadings = nil
-            restyleAll()
+            reparseAll()
         }
+    }
+
+    /// Markdown, or a file such as JSON or a property list shown as code;
+    /// changing it reparses everything.
+    var syntax: DocumentSyntax = .markdown {
+        didSet {
+            guard syntax != oldValue else { return }
+            reparseAll()
+        }
+    }
+
+    /// Whether the document is read as code rather than markdown.
+    var isCodeFile: Bool { syntax != .markdown }
+
+    private func reparseAll() {
+        structure = BlockStructure(text: text, extensions: extensions, syntax: syntax)
+        blockLookup = nil
+        tableLookup = nil
+        references = .collect(from: structure, requireDefinitions: false, extensions: extensions)
+        headingNumberCache = nil
+        cachedHeadings = nil
+        restyleAll()
     }
 
     /// Outline numbers drawn beside headings.
@@ -1201,7 +1217,8 @@ final class MarkdownTextStorage: MDBackedTextStorage {
         ]
         if isCode {
             attributes[.foregroundColor] = theme.codeText
-            attributes[.mdCodeBlock] = true
+            // A whole file of code is the page itself, not a card on it.
+            if !isCodeFile { attributes[.mdCodeBlock] = true }
         }
         if let typesetError {
             attributes[.toolTip] = typesetError
@@ -1555,6 +1572,9 @@ final class MarkdownTextStorage: MDBackedTextStorage {
     /// The closed display math block or Mermaid fence holding a line.
     func typesetBlock(containing line: Int) -> TypesetBlock? {
         if let blockLookup, blockLookup.lines.contains(line) { return blockLookup.block }
+        // Its lines all read as code: looking for the fence around each one
+        // would walk the whole file, line by line.
+        if isCodeFile { return nil }
         guard let info = structure.info(forLine: line) else { return nil }
         let found: (lines: ClosedRange<Int>, block: TypesetBlock?)?
         switch info.kind {

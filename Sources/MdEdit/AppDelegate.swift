@@ -1,4 +1,5 @@
 import AppKit
+import UniformTypeIdentifiers
 
 @main
 @MainActor
@@ -192,8 +193,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let panel = NSOpenPanel()
         panel.allowsMultipleSelection = true
         panel.canChooseDirectories = false
+        // Markdown first of all, but any text file opens: JSON, property
+        // lists, configuration profiles, YAML, source code, as code.
         panel.allowedContentTypes = ["md", "markdown", "mdown", "mkd", "txt"]
-            .compactMap { .init(filenameExtension: $0) }
+            .compactMap { .init(filenameExtension: $0) } + [.text, .propertyList, .data]
         panel.begin { [weak self] response in
             guard response == .OK else { return }
             for url in panel.urls where self?.focusExisting(url) != true {

@@ -59,6 +59,40 @@
 				<string>public.plain-text</string>
 			</array>
 		</dict>
+		<!-- Other text formats open as code: JSON, YAML, XML, property
+		     lists, configuration profiles, source code. -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Text Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>Alternate</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.text</string>
+				<string>public.json</string>
+				<string>public.xml</string>
+				<string>public.yaml</string>
+				<string>public.source-code</string>
+				<string>com.apple.property-list</string>
+				<string>com.apple.mobileconfig</string>
+			</array>
+		</dict>
+		<!-- Files the system has no type for, as `.conf` or `.env`, can be
+		     dropped on the app or opened with it, without it claiming them. -->
+		<dict>
+			<key>CFBundleTypeName</key>
+			<string>Document</string>
+			<key>CFBundleTypeRole</key>
+			<string>Editor</string>
+			<key>LSHandlerRank</key>
+			<string>None</string>
+			<key>LSItemContentTypes</key>
+			<array>
+				<string>public.data</string>
+			</array>
+		</dict>
 	</array>
 	<!-- Markdown has no system-declared type; this one is the common
 	     identifier other apps use, with every usual extension. -->

@@ -1,5 +1,6 @@
 import AppKit
 import MarkdownKit
+import UniformTypeIdentifiers
 
 /// The single window: a transparent titlebar carrying the glass tab strip, an
 /// opaque canvas below it, and a floating status pill.
@@ -770,8 +771,12 @@ final class MainWindowController: NSWindowController {
     func saveAs(document: Document, completion: ((Bool) -> Void)? = nil) {
         guard let window else { return completion?(false) ?? () }
         let panel = NSSavePanel()
-        // The first type supplies the default extension.
-        panel.allowedContentTypes = ["md", "markdown", "mdown", "mkd", "txt"]
+        // The first type supplies the default extension: a file read as code
+        // keeps its own, or a `.json` file would be offered as `.json.md`.
+        let ownType = document.storage.isCodeFile
+            ? document.url.flatMap { UTType(filenameExtension: $0.pathExtension) }
+            : nil
+        panel.allowedContentTypes = ownType.map { [$0] } ?? ["md", "markdown", "mdown", "mkd", "txt"]
             .compactMap { .init(filenameExtension: $0) }
         panel.allowsOtherFileTypes = true
         panel.nameFieldStringValue = document.url?.lastPathComponent ?? document.displayName + ".md"

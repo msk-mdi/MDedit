@@ -91,6 +91,9 @@ public struct Fence: Equatable, Sendable {
     public var info: String
     /// The language the info string names, if the highlighter knows it.
     public var language: Language?
+    /// Not a fence at all but a whole file that is not markdown: it never
+    /// closes, and nothing in it is markdown.
+    public var isWholeFile = false
 
     /// A Mermaid block, which the editor draws as a diagram.
     var isDiagram: Bool { info.lowercased() == "mermaid" }
@@ -102,6 +105,7 @@ public struct Fence: Equatable, Sendable {
     public static func == (lhs: Fence, rhs: Fence) -> Bool {
         lhs.character == rhs.character && lhs.count == rhs.count
             && lhs.language == rhs.language && lhs.isDiagram == rhs.isDiagram
+            && lhs.isWholeFile == rhs.isWholeFile
     }
 }
 
@@ -206,6 +210,23 @@ public enum BlockParser {
         var cursor = 0
         state.atDocumentStart = false
         state.opensFrontMatter = false
+
+        // A file that is not markdown is code from its first line to its last.
+        if let fence = carry.fence, fence.isWholeFile {
+            var tokens: [Token] = []
+            if let language = fence.language {
+                tokens = SyntaxHighlighter.tokens(line: line, language: language, state: &state.code)
+            }
+            return LineInfo(
+                kind: .codeLine,
+                quoteDepth: 0,
+                listDepth: 0,
+                markers: [],
+                contentStart: 0,
+                tokens: tokens,
+                state: state
+            )
+        }
 
         // 0. Front matter: `---` on the very first line, until `---` or `...`,
         // when what is between reads as YAML.

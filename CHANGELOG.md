@@ -5,6 +5,15 @@ workflow publishes the section for a version as its release notes.
 
 ## [Unreleased]
 
+### Added
+- Other text formats open too, each as code in its own language: JSON,
+  YAML, TOML, XML, property lists, configuration profiles
+  (`.mobileconfig`), shell scripts, source code. The whole file is
+  monospaced and coloured, with no markdown read into it and no spell
+  checking; markdown and plain text open as before. Binary files, such
+  as a signed profile or a binary property list, are refused rather than
+  opened as garbled text.
+
 ## [2.1.2] - 2026-11-12
 
 ### Changed

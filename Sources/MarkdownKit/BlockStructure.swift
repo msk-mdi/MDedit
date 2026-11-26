@@ -1,5 +1,42 @@
 import Foundation
 
+/// How a document's lines are read.
+public enum DocumentSyntax: Equatable, Sendable {
+    case markdown
+    /// A file that is not markdown, as JSON or a property list: every line
+    /// is code, coloured as the language when the highlighter knows it.
+    case code(Language?)
+
+    /// The syntax a file's name calls for: markdown for markdown and plain
+    /// text, code for anything else.
+    public static func forFile(named name: String) -> DocumentSyntax {
+        let fileExtension = (name as NSString).pathExtension.lowercased()
+        if markdownExtensions.contains(fileExtension) { return .markdown }
+        // A bare name says more than nothing: `Makefile`, `Dockerfile`, `.zshrc`.
+        var key = fileExtension
+        if key.isEmpty {
+            key = (name as NSString).lastPathComponent.lowercased()
+            if key.hasPrefix(".") { key.removeFirst() }
+        }
+        guard !key.isEmpty, !key.contains(" ") else { return .code(nil) }
+        return .code(Language.named(fileAliases[key] ?? key))
+    }
+
+    /// Read as markdown. Plain text is too: notes are often kept as `.txt`.
+    public static let markdownExtensions: Set<String> = ["md", "markdown", "mdown", "mkd", "mkdn", "txt", "text"]
+
+    /// Extensions whose language goes by another name.
+    private static let fileAliases: [String: String] = [
+        "plist": "xml", "mobileconfig": "xml", "entitlements": "xml", "xib": "xml", "storyboard": "xml",
+        "xcscheme": "xml", "xcprivacy": "xml", "xsd": "xml", "xsl": "xml", "xslt": "xml", "rss": "xml",
+        "atom": "xml", "opml": "xml", "csproj": "xml", "resx": "xml", "htm": "html",
+        "geojson": "json", "jsonl": "json", "ndjson": "json", "har": "json", "webmanifest": "json",
+        "code-workspace": "json", "bash_profile": "bash", "bashrc": "bash", "zshrc": "bash", "profile": "bash",
+        "env": "bash", "command": "bash", "properties": "toml", "editorconfig": "toml", "gitconfig": "toml",
+        "pyw": "python", "pyi": "python", "gradle": "kotlin", "cs": "java", "scala": "java",
+    ]
+}
+
 /// The parsed block structure of a whole document, kept up to date one edit at
 /// a time.
 ///
@@ -11,13 +48,16 @@ public final class BlockStructure {
     public private(set) var lines: [LineInfo]
     /// The extended syntax this structure was parsed with.
     public let extensions: SyntaxExtensions
+    /// Markdown, or a file read as code.
+    public let syntax: DocumentSyntax
 
-    public init(text: NSString, extensions: SyntaxExtensions = .all) {
+    public init(text: NSString, extensions: SyntaxExtensions = .all, syntax: DocumentSyntax = .markdown) {
         self.extensions = extensions
+        self.syntax = syntax
         index = LineIndex(text: text)
         lines = []
         lines.reserveCapacity(index.count)
-        (hasFrontMatter, frontMatterDecidedThrough) = Self.frontMatter(text, index: index)
+        (hasFrontMatter, frontMatterDecidedThrough) = frontMatter(text)
         var carry = startCarry()
         for line in 0..<index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)
@@ -61,9 +101,18 @@ public final class BlockStructure {
         return (false, end - 1)
     }
 
+    /// Code has no front matter: nothing to look ahead for, before or after an edit.
+    private func frontMatter(_ text: NSString) -> (opens: Bool, through: Int) {
+        guard syntax == .markdown else { return (false, -1) }
+        return Self.frontMatter(text, index: index)
+    }
+
     private func startCarry() -> CarryState {
         var carry = CarryState.start(extensions: extensions)
         carry.opensFrontMatter = hasFrontMatter
+        if case let .code(language) = syntax {
+            carry.fence = Fence(character: 0, count: 0, info: "", language: language, isWholeFile: true)
+        }
         return carry
     }
 
@@ -94,7 +143,7 @@ public final class BlockStructure {
         // answer was read from, it cannot, and up to a thousand lines are
         // not read again at every keystroke.
         if first <= frontMatterDecidedThrough {
-            let (opens, through) = Self.frontMatter(text, index: index)
+            let (opens, through) = frontMatter(text)
             frontMatterDecidedThrough = through
             if opens != hasFrontMatter {
                 hasFrontMatter = opens
@@ -108,7 +157,7 @@ public final class BlockStructure {
         var fresh: [LineInfo] = []
         // A shrinking document can leave `first` past the end of the old array.
         while prefix + fresh.count < first {
-            fresh.append(lines.last ?? BlockParser.parse(line: [], carry: .start(extensions: extensions)))
+            fresh.append(lines.last ?? BlockParser.parse(line: [], carry: startCarry()))
         }
 
         var carry = if first == 0 {
@@ -161,7 +210,7 @@ public final class BlockStructure {
         index = LineIndex(text: text)
         lines = []
         lines.reserveCapacity(index.count)
-        (hasFrontMatter, frontMatterDecidedThrough) = Self.frontMatter(text, index: index)
+        (hasFrontMatter, frontMatterDecidedThrough) = frontMatter(text)
         var carry = startCarry()
         for line in 0..<index.count {
             let info = BlockParser.parse(line: Self.characters(of: text, index: index, line: line), carry: carry)

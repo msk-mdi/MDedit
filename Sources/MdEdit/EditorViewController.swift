@@ -328,7 +328,8 @@ final class EditorViewController: NSViewController {
         // with quotes because both rewrite what was typed.
         smartQuotes = settings.smartQuotes
         updateSubstitutions()
-        textView.isContinuousSpellCheckingEnabled = settings.spellCheck
+        // Keys and identifiers in a JSON or XML file are not misspelt words.
+        textView.isContinuousSpellCheckingEnabled = settings.spellCheck && !storage.isCodeFile
         pendingExtensions = settings.extensions
         if isOnScreen { applyPendingRestyles() }
         storage.numberHeadings = settings.numberHeadings
